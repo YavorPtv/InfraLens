@@ -5,3 +5,5 @@ export interface AnalyzerPackage {
 export const analyzerPackage: AnalyzerPackage = {
   name: "@infralens/analyzer"
 };
+
+export { parseTemplate } from "./parseTemplate";
