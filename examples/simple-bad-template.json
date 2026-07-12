@@ -1,0 +1,87 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Intentionally risky CloudFormation template for InfraLens tests.",
+  "Resources": {
+    "BadApplicationRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "OverlyPermissiveInlinePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "*",
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "BadQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "QueueName": "infralens-bad-queue"
+      }
+    },
+    "BadTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": "infralens-bad-table",
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "id",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "id",
+            "KeyType": "HASH"
+          }
+        ]
+      }
+    },
+    "BadFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": "infralens-bad-function",
+        "Runtime": "nodejs20.x",
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "BadApplicationRole",
+            "Arn"
+          ]
+        },
+        "Timeout": 900,
+        "Code": {
+          "ZipFile": "exports.handler = async () => ({ statusCode: 200 });"
+        }
+      }
+    },
+    "BadFunctionLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": "/aws/lambda/infralens-bad-function"
+      }
+    }
+  }
+}
