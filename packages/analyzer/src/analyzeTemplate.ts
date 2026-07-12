@@ -9,8 +9,9 @@ import type {
   SeverityCounts
 } from "@infralens/shared";
 import { parseTemplate } from "./parseTemplate";
+import { iamWildcardPermissionsRule } from "./rules/iamWildcardPermissions";
 
-const rules: Rule[] = [];
+const rules: Rule[] = [iamWildcardPermissionsRule];
 
 const severityWeights: Record<Severity, number> = {
   low: 5,
