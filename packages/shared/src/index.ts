@@ -62,10 +62,19 @@ export interface Finding {
   suggestion: string;
 }
 
+export type SeverityCounts = Record<Severity, number>;
+
+export interface AnalysisSummary {
+  totalFindings: number;
+  bySeverity: SeverityCounts;
+}
+
 export interface AnalysisReport {
   findings: Finding[];
   resources: ResourceNode[];
   edges: ArchitectureEdge[];
+  summary: AnalysisSummary;
+  score: number;
 }
 
 export interface AnalysisContext {
