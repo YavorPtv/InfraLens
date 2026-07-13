@@ -50,6 +50,34 @@ describe("SQS_MISSING_DLQ", () => {
     expect(report.findings).to.deep.equal([]);
   });
 
+  it("does not require a queue used as a dead-letter queue to have its own RedrivePolicy", () => {
+    const report = analyzeTemplate(
+      JSON.stringify({
+        Resources: {
+          DeadLetterQueue: {
+            Type: "AWS::SQS::Queue",
+            Properties: {
+              QueueName: "dead-letter-queue"
+            }
+          },
+          WorkQueue: {
+            Type: "AWS::SQS::Queue",
+            Properties: {
+              RedrivePolicy: {
+                deadLetterTargetArn: {
+                  "Fn::GetAtt": ["DeadLetterQueue", "Arn"]
+                },
+                maxReceiveCount: 3
+              }
+            }
+          }
+        }
+      })
+    );
+
+    expect(report.findings).to.deep.equal([]);
+  });
+
   it("ignores non-SQS resources", () => {
     const report = analyzeTemplate(
       JSON.stringify({
