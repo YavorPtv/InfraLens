@@ -9,6 +9,7 @@ import type {
   SeverityCounts
 } from "@infralens/shared";
 import { parseTemplate } from "./parseTemplate";
+import { extractCloudFormationReferences, referencesToArchitectureEdges } from "./extractReferences";
 import { dynamodbMissingPitrRule } from "./rules/dynamodbMissingPitr";
 import { iamWildcardPermissionsRule } from "./rules/iamWildcardPermissions";
 import { logGroupMissingRetentionRule } from "./rules/logGroupMissingRetention";
@@ -31,10 +32,11 @@ const severityWeights: Record<Severity, number> = {
 export function analyzeTemplate(rawJson: string): AnalysisReport {
   const resources = parseTemplate(rawJson);
   const template = JSON.parse(rawJson) as CfnTemplate;
+  const edges = referencesToArchitectureEdges(extractCloudFormationReferences(template));
   const context: AnalysisContext = {
     template,
     resources,
-    edges: []
+    edges
   };
   const findings = runRules(rules, context);
   const summary = summarizeFindings(findings);
