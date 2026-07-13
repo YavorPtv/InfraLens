@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import type { AnalysisReport } from "@infralens/shared";
-import { formatAnalysisReport } from "../src/formatReport";
+import { formatAnalysisReport } from "../src/formatReport.js";
 
 describe("formatAnalysisReport", () => {
   it("prints score, severity counts, and findings", () => {
