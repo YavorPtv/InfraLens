@@ -2,9 +2,8 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { analyzeTemplate } from "@infralens/analyzer";
-import { formatAnalysisReport } from "./formatReport.js";
+import { formatAnalysisReport } from "./formatReport";
 
 interface CliIo {
   stdout: {
@@ -49,10 +48,6 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error.";
 }
 
-if (isDirectlyExecuted()) {
+if (require.main === module) {
   process.exitCode = main();
-}
-
-function isDirectlyExecuted(): boolean {
-  return process.argv[1] !== undefined && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 }

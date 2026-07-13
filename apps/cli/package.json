@@ -2,14 +2,13 @@
   "name": "@infralens/cli",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "bin": {
     "infralens": "dist/index.js"
   },
   "scripts": {
     "analyze": "npm run build --workspace @infralens/shared && npm run build --workspace @infralens/analyzer && npm run build --workspace @infralens/cli && node dist/index.js",
     "build": "tsc -p tsconfig.json",
-    "test": "mocha --node-option loader=ts-node/esm \"test/**/*.test.ts\"",
+    "test": "mocha -r ts-node/register \"test/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
