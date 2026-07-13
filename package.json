@@ -9,6 +9,7 @@
     "infra/*"
   ],
   "scripts": {
+    "analyze": "npm run build --workspace @infralens/shared && npm run build --workspace @infralens/analyzer && npm run build --workspace @infralens/cli && node apps/cli/dist/index.js",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"

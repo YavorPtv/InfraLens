@@ -6,7 +6,13 @@
     "infralens": "dist/index.js"
   },
   "scripts": {
+    "analyze": "npm run build --workspace @infralens/shared && npm run build --workspace @infralens/analyzer && npm run build --workspace @infralens/cli && node dist/index.js",
     "build": "tsc -p tsconfig.json",
+    "test": "mocha -r ts-node/register \"test/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@infralens/analyzer": "0.1.0",
+    "@infralens/shared": "0.1.0"
   }
 }
