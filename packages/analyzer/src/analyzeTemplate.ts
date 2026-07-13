@@ -9,17 +9,9 @@ import type {
   SeverityCounts
 } from "@infralens/shared";
 import { parseTemplate } from "./parseTemplate";
-import { dynamodbMissingPitrRule } from "./rules/dynamodbMissingPitr";
 import { iamWildcardPermissionsRule } from "./rules/iamWildcardPermissions";
-import { logGroupMissingRetentionRule } from "./rules/logGroupMissingRetention";
-import { sqsMissingDlqRule } from "./rules/sqsMissingDlq";
 
-const rules: Rule[] = [
-  iamWildcardPermissionsRule,
-  sqsMissingDlqRule,
-  dynamodbMissingPitrRule,
-  logGroupMissingRetentionRule
-];
+const rules: Rule[] = [iamWildcardPermissionsRule];
 
 const severityWeights: Record<Severity, number> = {
   low: 5,
