@@ -7,4 +7,9 @@ export const analyzerPackage: AnalyzerPackage = {
 };
 
 export { analyzeTemplate } from "./analyzeTemplate";
+export {
+  extractCloudFormationReferences,
+  referencesToArchitectureEdges,
+  type CloudFormationReference
+} from "./extractReferences";
 export { parseTemplate } from "./parseTemplate";
