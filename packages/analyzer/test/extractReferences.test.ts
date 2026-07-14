@@ -65,6 +65,36 @@ describe("extractCloudFormationReferences", () => {
     ]);
   });
 
+  it("extracts Fn::Sub references without treating pseudo parameters as resources", () => {
+    const template = {
+      Resources: {
+        GetItemsMethod: {
+          Type: "AWS::ApiGateway::Method",
+          Properties: {
+            Integration: {
+              Uri: {
+                "Fn::Sub":
+                  "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AppFunction.Arn}/invocations"
+              }
+            }
+          }
+        },
+        AppFunction: {
+          Type: "AWS::Lambda::Function"
+        }
+      }
+    };
+
+    expect(extractCloudFormationReferences(template)).to.deep.equal([
+      {
+        from: "GetItemsMethod",
+        to: "AppFunction",
+        relationship: "references",
+        evidencePath: "Resources.GetItemsMethod.Properties.Integration.Uri.Fn::Sub"
+      }
+    ]);
+  });
+
   it("extracts DependsOn references from resources", () => {
     const template = {
       Resources: {
@@ -158,6 +188,12 @@ describe("extractCloudFormationReferences", () => {
         from: "AppFunction",
         to: "AppRole",
         relationship: "references",
+        evidencePath: "Resources.AppFunction.Properties.Role.Fn::GetAtt[0]"
+      },
+      {
+        from: "AppFunction",
+        to: "AppRole",
+        relationship: "uses-role",
         evidencePath: "Resources.AppFunction.Properties.Role.Fn::GetAtt[0]"
       }
     ]);

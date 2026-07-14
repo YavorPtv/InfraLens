@@ -19,3 +19,4 @@ export {
   type CloudFormationReference
 } from "./extractReferences";
 export { parseTemplate } from "./parseTemplate";
+export { buildRuntimeArchitectureGraph } from "./runtimeGraph";

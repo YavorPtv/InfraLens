@@ -1,4 +1,5 @@
 import type { ArchitectureEdge, ArchitectureRelationship, CfnTemplate } from "@infralens/shared";
+import { extractResourceReferences } from "./resourceReferences";
 
 type ReferenceRelationship = Extract<ArchitectureRelationship, "references" | "depends-on">;
 
@@ -12,7 +13,12 @@ export interface CloudFormationReference {
 export function extractCloudFormationReferences(template: CfnTemplate): CloudFormationReference[] {
   return Object.entries(template.Resources).flatMap(([resourceId, resource]) => [
     ...extractDependsOnReferences(resourceId, resource.DependsOn),
-    ...extractValueReferences(resource, resourceId, `Resources.${resourceId}`)
+    ...extractResourceReferences(resource, `Resources.${resourceId}`).map((reference) => ({
+      from: resourceId,
+      to: reference.resourceId,
+      relationship: "references" as const,
+      evidencePath: reference.evidencePath
+    }))
   ]);
 }
 
@@ -58,62 +64,4 @@ function extractDependsOnReferences(
   }
 
   return [];
-}
-
-function extractValueReferences(
-  value: unknown,
-  from: string,
-  path: string
-): CloudFormationReference[] {
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) => extractValueReferences(item, from, `${path}[${index}]`));
-  }
-
-  if (!isRecord(value)) {
-    return [];
-  }
-
-  const references = extractIntrinsicReferences(value, from, path);
-  const childReferences = Object.entries(value).flatMap(([key, childValue]) =>
-    extractValueReferences(childValue, from, appendPath(path, key))
-  );
-
-  return [...references, ...childReferences];
-}
-
-function extractIntrinsicReferences(
-  value: Record<string, unknown>,
-  from: string,
-  path: string
-): CloudFormationReference[] {
-  const references: CloudFormationReference[] = [];
-
-  if (typeof value.Ref === "string") {
-    references.push({
-      from,
-      to: value.Ref,
-      relationship: "references",
-      evidencePath: `${path}.Ref`
-    });
-  }
-
-  const getAtt = value["Fn::GetAtt"];
-  if (Array.isArray(getAtt) && typeof getAtt[0] === "string") {
-    references.push({
-      from,
-      to: getAtt[0],
-      relationship: "references",
-      evidencePath: `${path}.Fn::GetAtt[0]`
-    });
-  }
-
-  return references;
-}
-
-function appendPath(path: string, key: string): string {
-  return `${path}.${key}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
