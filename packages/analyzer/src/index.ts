@@ -19,4 +19,5 @@ export {
   type CloudFormationReference
 } from "./extractReferences";
 export { parseTemplate } from "./parseTemplate";
+export { detectPublicEntryPoints } from "./publicEntryPoints";
 export { buildRuntimeArchitectureGraph } from "./runtimeGraph";
