@@ -2,14 +2,9 @@ import type {
   ArchitectureEdge,
   ArchitectureRelationship,
   CfnResource,
-  CfnTemplate,
-  CfnValue
+  CfnTemplate
 } from "@infralens/shared";
-
-interface ResourceReference {
-  resourceId: string;
-  evidencePath: string;
-}
+import { extractResourceReferences } from "./resourceReferences";
 
 export function buildRuntimeArchitectureGraph(template: CfnTemplate): ArchitectureEdge[] {
   return Object.entries(template.Resources).flatMap(([resourceId, resource]) => [
@@ -96,7 +91,7 @@ function referencesToTypedEdges({
 }: {
   template: CfnTemplate;
   from: string;
-  value: CfnValue | undefined;
+  value: unknown;
   path: string;
   targetType: string;
   relationship: ArchitectureRelationship;
@@ -111,89 +106,10 @@ function referencesToTypedEdges({
     }));
 }
 
-function extractResourceReferences(
-  value: CfnValue | undefined,
-  path: string
-): ResourceReference[] {
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) => extractResourceReferences(item, `${path}[${index}]`));
-  }
-
-  if (!isRecord(value)) {
-    return [];
-  }
-
-  const references = extractIntrinsicReferences(value, path);
-  const childReferences = Object.entries(value).flatMap(([key, childValue]) =>
-    extractResourceReferences(childValue, appendPath(path, key))
-  );
-
-  return [...references, ...childReferences];
-}
-
-function extractIntrinsicReferences(
-  value: Record<string, CfnValue>,
-  path: string
-): ResourceReference[] {
-  const references: ResourceReference[] = [];
-
-  if (typeof value.Ref === "string") {
-    references.push({
-      resourceId: value.Ref,
-      evidencePath: `${path}.Ref`
-    });
-  }
-
-  const getAtt = value["Fn::GetAtt"];
-  if (Array.isArray(getAtt) && typeof getAtt[0] === "string") {
-    references.push({
-      resourceId: getAtt[0],
-      evidencePath: `${path}.Fn::GetAtt[0]`
-    });
-  }
-
-  if (typeof getAtt === "string") {
-    references.push({
-      resourceId: getAtt.split(".")[0],
-      evidencePath: `${path}.Fn::GetAtt`
-    });
-  }
-
-  references.push(...extractFnSubReferences(value["Fn::Sub"], `${path}.Fn::Sub`));
-
-  return references;
-}
-
-function extractFnSubReferences(value: CfnValue | undefined, path: string): ResourceReference[] {
-  if (typeof value === "string") {
-    return extractFnSubStringReferences(value, path);
-  }
-
-  if (Array.isArray(value)) {
-    const [templateString] = value;
-    return typeof templateString === "string"
-      ? extractFnSubStringReferences(templateString, `${path}[0]`)
-      : [];
-  }
-
-  return [];
-}
-
-function extractFnSubStringReferences(value: string, path: string): ResourceReference[] {
-  return Array.from(value.matchAll(/\$\{([^!][^}]+)\}/g)).map((match) => ({
-    resourceId: match[1].split(".")[0],
-    evidencePath: path
-  }));
-}
-
 function isResourceType(template: CfnTemplate, resourceId: string, type: string): boolean {
   return template.Resources[resourceId]?.Type === type;
 }
 
-function appendPath(path: string, key: string): string {
-  return `${path}.${key}`;
-}
-
-function isRecord(value: CfnValue | undefined): value is Record<string, CfnValue> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
