@@ -8,6 +8,7 @@ import type {
   Severity,
   SeverityCounts
 } from "@infralens/shared";
+import { createAnalysisContext } from "./analysisContext";
 import { parseTemplate } from "./parseTemplate";
 import { extractCloudFormationReferences, referencesToArchitectureEdges } from "./extractReferences";
 import { dynamodbMissingPitrRule } from "./rules/dynamodbMissingPitr";
@@ -33,11 +34,11 @@ export function analyzeTemplate(rawJson: string): AnalysisReport {
   const resources = parseTemplate(rawJson);
   const template = JSON.parse(rawJson) as CfnTemplate;
   const edges = referencesToArchitectureEdges(extractCloudFormationReferences(template));
-  const context: AnalysisContext = {
+  const context = createAnalysisContext({
     template,
     resources,
     edges
-  };
+  });
   const findings = runRules(rules, context);
   const summary = summarizeFindings(findings);
 
