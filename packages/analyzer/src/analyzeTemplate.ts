@@ -11,6 +11,7 @@ import type {
 import { createAnalysisContext } from "./analysisContext";
 import { parseTemplate } from "./parseTemplate";
 import { extractCloudFormationReferences, referencesToArchitectureEdges } from "./extractReferences";
+import { buildRuntimeArchitectureGraph } from "./runtimeGraph";
 import { dynamodbMissingPitrRule } from "./rules/dynamodbMissingPitr";
 import { iamWildcardPermissionsRule } from "./rules/iamWildcardPermissions";
 import { logGroupMissingRetentionRule } from "./rules/logGroupMissingRetention";
@@ -33,7 +34,8 @@ const severityWeights: Record<Severity, number> = {
 export function analyzeTemplate(rawJson: string): AnalysisReport {
   const resources = parseTemplate(rawJson);
   const template = JSON.parse(rawJson) as CfnTemplate;
-  const edges = referencesToArchitectureEdges(extractCloudFormationReferences(template));
+  const referenceEdges = referencesToArchitectureEdges(extractCloudFormationReferences(template));
+  const edges = [...referenceEdges, ...buildRuntimeArchitectureGraph(template)];
   const context = createAnalysisContext({
     template,
     resources,

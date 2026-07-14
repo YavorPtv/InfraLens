@@ -159,6 +159,12 @@ describe("extractCloudFormationReferences", () => {
         to: "AppRole",
         relationship: "references",
         evidencePath: "Resources.AppFunction.Properties.Role.Fn::GetAtt[0]"
+      },
+      {
+        from: "AppFunction",
+        to: "AppRole",
+        relationship: "uses-role",
+        evidencePath: "Resources.AppFunction.Properties.Role.Fn::GetAtt[0]"
       }
     ]);
   });
