@@ -60,6 +60,13 @@ export interface Finding {
   explanation: string;
   evidencePath: string;
   suggestion: string;
+  severityAdjustment?: SeverityAdjustment;
+}
+
+export interface SeverityAdjustment {
+  from: Severity;
+  to: Severity;
+  reason: string;
 }
 
 export type SeverityCounts = Record<Severity, number>;

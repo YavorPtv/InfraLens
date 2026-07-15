@@ -9,6 +9,7 @@ import type {
   SeverityCounts
 } from "@infralens/shared";
 import { createAnalysisContext } from "./analysisContext";
+import { applyContextualSeverityAdjustments } from "./contextualSeverity";
 import { parseTemplate } from "./parseTemplate";
 import { extractCloudFormationReferences, referencesToArchitectureEdges } from "./extractReferences";
 import { detectPublicEntryPoints } from "./publicEntryPoints";
@@ -48,7 +49,7 @@ export function analyzeTemplate(rawJson: string): AnalysisReport {
     edges,
     publiclyReachableResourceIds
   });
-  const findings = runRules(rules, context);
+  const findings = applyContextualSeverityAdjustments(runRules(rules, context), context);
   const summary = summarizeFindings(findings);
 
   return {
