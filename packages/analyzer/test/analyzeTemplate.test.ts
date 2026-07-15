@@ -120,4 +120,76 @@ describe("analyzeTemplate", () => {
       "AppRole"
     ]);
   });
+
+  it("returns public entry point ids", () => {
+    const report = analyzeTemplate(
+      JSON.stringify({
+        Resources: {
+          PublicApi: {
+            Type: "AWS::ApiGateway::RestApi"
+          }
+        }
+      })
+    );
+
+    expect(report.publicEntryPointIds).to.deep.equal(["PublicApi"]);
+  });
+
+  it("returns least-privilege suggestions", () => {
+    const report = analyzeTemplate(
+      JSON.stringify({
+        Resources: {
+          AppFunction: {
+            Type: "AWS::Lambda::Function",
+            Properties: {
+              Role: {
+                "Fn::GetAtt": ["AppRole", "Arn"]
+              },
+              Environment: {
+                Variables: {
+                  TABLE_NAME: {
+                    Ref: "AppTable"
+                  }
+                }
+              }
+            }
+          },
+          AppRole: {
+            Type: "AWS::IAM::Role",
+            Properties: {
+              Policies: [
+                {
+                  PolicyName: "DynamoAccess",
+                  PolicyDocument: {
+                    Statement: {
+                      Effect: "Allow",
+                      Action: "dynamodb:GetItem",
+                      Resource: "*"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          AppTable: {
+            Type: "AWS::DynamoDB::Table",
+            Properties: {
+              PointInTimeRecoverySpecification: {
+                PointInTimeRecoveryEnabled: true
+              }
+            }
+          }
+        }
+      })
+    );
+
+    expect(report.leastPrivilegeSuggestions).to.have.lengthOf(1);
+    expect(report.leastPrivilegeSuggestions[0]).to.include({
+      lambdaFunctionId: "AppFunction",
+      roleId: "AppRole",
+      policyName: "DynamoAccess",
+      service: "dynamodb",
+      confidence: "high"
+    });
+  });
 });

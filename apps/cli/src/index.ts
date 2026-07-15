@@ -14,17 +14,28 @@ interface CliIo {
   };
 }
 
-const usage = "Usage: npm run analyze -- <template.json>";
+const usage = "Usage: npm run analyze -- [--json] <template.json>";
+
+interface CliOptions {
+  json: boolean;
+  templatePath?: string;
+  error?: string;
+}
 
 export function main(argv: string[] = process.argv.slice(2), io: CliIo = process): number {
-  const templatePath = argv[0];
+  const options = parseArgs(argv);
 
-  if (templatePath === undefined) {
+  if (options.error !== undefined) {
+    io.stderr.write(`Error: ${options.error}\n${usage}\n`);
+    return 1;
+  }
+
+  if (options.templatePath === undefined) {
     io.stderr.write(`Error: Missing CloudFormation template path.\n${usage}\n`);
     return 1;
   }
 
-  const resolvedPath = resolve(templatePath);
+  const resolvedPath = resolve(options.templatePath);
   let rawTemplate: string;
 
   try {
@@ -36,12 +47,44 @@ export function main(argv: string[] = process.argv.slice(2), io: CliIo = process
 
   try {
     const report = analyzeTemplate(rawTemplate);
-    io.stdout.write(`${formatAnalysisReport(report)}\n`);
+    const output = options.json ? JSON.stringify(report, null, 2) : formatAnalysisReport(report);
+    io.stdout.write(`${output}\n`);
     return 0;
   } catch (error) {
     io.stderr.write(`Error: Could not analyze CloudFormation template.\n${getErrorMessage(error)}\n`);
     return 1;
   }
+}
+
+function parseArgs(argv: string[]): CliOptions {
+  const options: CliOptions = {
+    json: false
+  };
+
+  for (const arg of argv) {
+    if (arg === "--json") {
+      options.json = true;
+      continue;
+    }
+
+    if (arg.startsWith("-")) {
+      return {
+        ...options,
+        error: `Unknown option ${arg}.`
+      };
+    }
+
+    if (options.templatePath !== undefined) {
+      return {
+        ...options,
+        error: `Unexpected extra argument ${arg}.`
+      };
+    }
+
+    options.templatePath = arg;
+  }
+
+  return options;
 }
 
 function getErrorMessage(error: unknown): string {

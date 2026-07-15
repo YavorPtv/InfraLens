@@ -12,6 +12,7 @@ import { createAnalysisContext } from "./analysisContext";
 import { applyContextualSeverityAdjustments } from "./contextualSeverity";
 import { parseTemplate } from "./parseTemplate";
 import { extractCloudFormationReferences, referencesToArchitectureEdges } from "./extractReferences";
+import { generateLeastPrivilegeResourceSuggestions } from "./leastPrivilegeSuggestions";
 import { detectPublicEntryPoints } from "./publicEntryPoints";
 import { findPubliclyReachableResources } from "./publicReachability";
 import { buildRuntimeArchitectureGraph } from "./runtimeGraph";
@@ -47,6 +48,7 @@ export function analyzeTemplate(rawJson: string): AnalysisReport {
   const publiclyReachableResourceIds = [
     ...findPubliclyReachableResources(publicEntryPointIds, edges)
   ];
+  const leastPrivilegeSuggestions = generateLeastPrivilegeResourceSuggestions(template);
   const context = createAnalysisContext({
     template,
     resources,
@@ -60,7 +62,9 @@ export function analyzeTemplate(rawJson: string): AnalysisReport {
     findings,
     resources,
     edges: context.edges,
+    publicEntryPointIds,
     publiclyReachableResourceIds: context.publiclyReachableResourceIds,
+    leastPrivilegeSuggestions,
     summary,
     score: calculateScore(summary.bySeverity)
   };
