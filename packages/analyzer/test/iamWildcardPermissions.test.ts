@@ -139,7 +139,15 @@ describe("IAM_WILDCARD_PERMISSIONS", () => {
             }
           },
           PrivateBucket: {
-            Type: "AWS::S3::Bucket"
+            Type: "AWS::S3::Bucket",
+            Properties: {
+              PublicAccessBlockConfiguration: {
+                BlockPublicAcls: true,
+                BlockPublicPolicy: true,
+                IgnorePublicAcls: true,
+                RestrictPublicBuckets: true
+              }
+            }
           }
         }
       })
