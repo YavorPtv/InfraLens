@@ -26,6 +26,13 @@ export {
   type InlineRolePolicyLookup,
   type LambdaRoleLookup
 } from "./iamPolicyLookup";
+export {
+  generateLeastPrivilegeResourceSuggestions,
+  type PolicySuggestion,
+  type PolicySuggestionConfidence,
+  type PolicySuggestionEvidence,
+  type PolicySuggestionResourceCandidate
+} from "./leastPrivilegeSuggestions";
 export { applyContextualSeverityAdjustments } from "./contextualSeverity";
 export { parseTemplate } from "./parseTemplate";
 export { detectPublicEntryPoints } from "./publicEntryPoints";
