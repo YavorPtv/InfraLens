@@ -18,6 +18,7 @@ export {
   referencesToArchitectureEdges,
   type CloudFormationReference
 } from "./extractReferences";
+export { applyContextualSeverityAdjustments } from "./contextualSeverity";
 export { parseTemplate } from "./parseTemplate";
 export { detectPublicEntryPoints } from "./publicEntryPoints";
 export { findPubliclyReachableResources } from "./publicReachability";
