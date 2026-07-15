@@ -20,4 +20,5 @@ export {
 } from "./extractReferences";
 export { parseTemplate } from "./parseTemplate";
 export { detectPublicEntryPoints } from "./publicEntryPoints";
+export { findPubliclyReachableResources } from "./publicReachability";
 export { buildRuntimeArchitectureGraph } from "./runtimeGraph";

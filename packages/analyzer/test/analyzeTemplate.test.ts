@@ -52,4 +52,52 @@ describe("analyzeTemplate", () => {
 
     expect(report.score).to.equal(100);
   });
+
+  it("returns publicly reachable resource ids", () => {
+    const report = analyzeTemplate(
+      JSON.stringify({
+        Resources: {
+          PublicApi: {
+            Type: "AWS::ApiGateway::RestApi",
+            Properties: {
+              Body: {
+                paths: {
+                  "/items": {
+                    get: {
+                      "x-amazon-apigateway-integration": {
+                        uri: {
+                          "Fn::Sub":
+                            "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AppFunction.Arn}/invocations"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          AppFunction: {
+            Type: "AWS::Lambda::Function",
+            Properties: {
+              Role: {
+                "Fn::GetAtt": ["AppRole", "Arn"]
+              }
+            }
+          },
+          AppRole: {
+            Type: "AWS::IAM::Role"
+          },
+          UnrelatedBucket: {
+            Type: "AWS::S3::Bucket"
+          }
+        }
+      })
+    );
+
+    expect(report.publiclyReachableResourceIds).to.deep.equal([
+      "PublicApi",
+      "AppFunction",
+      "AppRole"
+    ]);
+  });
 });
