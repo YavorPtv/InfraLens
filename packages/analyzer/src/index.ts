@@ -18,6 +18,14 @@ export {
   referencesToArchitectureEdges,
   type CloudFormationReference
 } from "./extractReferences";
+export {
+  findLambdaExecutionRole,
+  findPolicyResourcesAttachedToRole,
+  findRoleInlinePolicies,
+  type AttachedPolicyResourceLookup,
+  type InlineRolePolicyLookup,
+  type LambdaRoleLookup
+} from "./iamPolicyLookup";
 export { applyContextualSeverityAdjustments } from "./contextualSeverity";
 export { parseTemplate } from "./parseTemplate";
 export { detectPublicEntryPoints } from "./publicEntryPoints";
