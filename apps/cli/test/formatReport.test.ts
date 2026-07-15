@@ -8,6 +8,7 @@ describe("formatAnalysisReport", () => {
       score: 80,
       resources: [],
       edges: [],
+      publiclyReachableResourceIds: [],
       summary: {
         totalFindings: 1,
         bySeverity: {
@@ -53,6 +54,7 @@ describe("formatAnalysisReport", () => {
       score: 100,
       resources: [],
       edges: [],
+      publiclyReachableResourceIds: [],
       summary: {
         totalFindings: 0,
         bySeverity: {

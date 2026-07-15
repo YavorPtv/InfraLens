@@ -11,6 +11,8 @@ import type {
 import { createAnalysisContext } from "./analysisContext";
 import { parseTemplate } from "./parseTemplate";
 import { extractCloudFormationReferences, referencesToArchitectureEdges } from "./extractReferences";
+import { detectPublicEntryPoints } from "./publicEntryPoints";
+import { findPubliclyReachableResources } from "./publicReachability";
 import { buildRuntimeArchitectureGraph } from "./runtimeGraph";
 import { dynamodbMissingPitrRule } from "./rules/dynamodbMissingPitr";
 import { iamWildcardPermissionsRule } from "./rules/iamWildcardPermissions";
@@ -36,10 +38,15 @@ export function analyzeTemplate(rawJson: string): AnalysisReport {
   const template = JSON.parse(rawJson) as CfnTemplate;
   const referenceEdges = referencesToArchitectureEdges(extractCloudFormationReferences(template));
   const edges = [...referenceEdges, ...buildRuntimeArchitectureGraph(template)];
+  const publicEntryPointIds = detectPublicEntryPoints(template);
+  const publiclyReachableResourceIds = [
+    ...findPubliclyReachableResources(publicEntryPointIds, edges)
+  ];
   const context = createAnalysisContext({
     template,
     resources,
-    edges
+    edges,
+    publiclyReachableResourceIds
   });
   const findings = runRules(rules, context);
   const summary = summarizeFindings(findings);
@@ -48,6 +55,7 @@ export function analyzeTemplate(rawJson: string): AnalysisReport {
     findings,
     resources,
     edges: context.edges,
+    publiclyReachableResourceIds: context.publiclyReachableResourceIds,
     summary,
     score: calculateScore(summary.bySeverity)
   };

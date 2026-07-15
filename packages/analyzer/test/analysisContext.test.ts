@@ -58,11 +58,18 @@ describe("createAnalysisContext", () => {
   ];
 
   it("creates an analysis context with the original data", () => {
-    const context = createAnalysisContext({ template, resources, edges });
+    const publiclyReachableResourceIds = ["Api", "Handler"];
+    const context = createAnalysisContext({
+      template,
+      resources,
+      edges,
+      publiclyReachableResourceIds
+    });
 
     expect(context.template).to.equal(template);
     expect(context.resources).to.equal(resources);
     expect(context.edges).to.equal(edges);
+    expect(context.publiclyReachableResourceIds).to.equal(publiclyReachableResourceIds);
   });
 
   it("gets a resource by id", () => {

@@ -14,17 +14,20 @@ export interface CreateAnalysisContextInput {
   template: CfnTemplate;
   resources: ResourceNode[];
   edges: ArchitectureEdge[];
+  publiclyReachableResourceIds?: string[];
 }
 
 export function createAnalysisContext({
   template,
   resources,
-  edges
+  edges,
+  publiclyReachableResourceIds = []
 }: CreateAnalysisContextInput): AnalyzerAnalysisContext {
   return {
     template,
     resources,
     edges,
+    publiclyReachableResourceIds,
     getResourceById(id: string): ResourceNode | undefined {
       return resources.find((resource) => resource.id === id);
     },

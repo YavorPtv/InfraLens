@@ -73,6 +73,7 @@ export interface AnalysisReport {
   findings: Finding[];
   resources: ResourceNode[];
   edges: ArchitectureEdge[];
+  publiclyReachableResourceIds: string[];
   summary: AnalysisSummary;
   score: number;
 }
@@ -81,6 +82,7 @@ export interface AnalysisContext {
   template: CfnTemplate;
   resources: ResourceNode[];
   edges: ArchitectureEdge[];
+  publiclyReachableResourceIds: string[];
 }
 
 export interface Rule {
