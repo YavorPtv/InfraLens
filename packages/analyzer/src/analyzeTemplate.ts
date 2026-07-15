@@ -15,16 +15,20 @@ import { extractCloudFormationReferences, referencesToArchitectureEdges } from "
 import { detectPublicEntryPoints } from "./publicEntryPoints";
 import { findPubliclyReachableResources } from "./publicReachability";
 import { buildRuntimeArchitectureGraph } from "./runtimeGraph";
+import { apiGatewayMethodNoAuthRule } from "./rules/apiGatewayMethodNoAuth";
 import { dynamodbMissingPitrRule } from "./rules/dynamodbMissingPitr";
 import { iamWildcardPermissionsRule } from "./rules/iamWildcardPermissions";
 import { logGroupMissingRetentionRule } from "./rules/logGroupMissingRetention";
+import { s3PublicAccessBlockMissingRule } from "./rules/s3PublicAccessBlockMissing";
 import { sqsMissingDlqRule } from "./rules/sqsMissingDlq";
 
 const rules: Rule[] = [
   iamWildcardPermissionsRule,
   sqsMissingDlqRule,
   dynamodbMissingPitrRule,
-  logGroupMissingRetentionRule
+  logGroupMissingRetentionRule,
+  s3PublicAccessBlockMissingRule,
+  apiGatewayMethodNoAuthRule
 ];
 
 const severityWeights: Record<Severity, number> = {

@@ -51,8 +51,8 @@ describe("LOG_GROUP_MISSING_RETENTION", () => {
     const report = analyzeTemplate(
       JSON.stringify({
         Resources: {
-          Bucket: {
-            Type: "AWS::S3::Bucket"
+          Topic: {
+            Type: "AWS::SNS::Topic"
           }
         }
       })

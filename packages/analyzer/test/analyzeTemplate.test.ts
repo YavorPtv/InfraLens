@@ -7,7 +7,13 @@ describe("analyzeTemplate", () => {
       Bucket: {
         Type: "AWS::S3::Bucket",
         Properties: {
-          BucketName: "example-bucket"
+          BucketName: "example-bucket",
+          PublicAccessBlockConfiguration: {
+            BlockPublicAcls: true,
+            BlockPublicPolicy: true,
+            IgnorePublicAcls: true,
+            RestrictPublicBuckets: true
+          }
         }
       }
     }
@@ -21,7 +27,13 @@ describe("analyzeTemplate", () => {
         id: "Bucket",
         type: "AWS::S3::Bucket",
         properties: {
-          BucketName: "example-bucket"
+          BucketName: "example-bucket",
+          PublicAccessBlockConfiguration: {
+            BlockPublicAcls: true,
+            BlockPublicPolicy: true,
+            IgnorePublicAcls: true,
+            RestrictPublicBuckets: true
+          }
         }
       }
     ]);
@@ -88,7 +100,15 @@ describe("analyzeTemplate", () => {
             Type: "AWS::IAM::Role"
           },
           UnrelatedBucket: {
-            Type: "AWS::S3::Bucket"
+            Type: "AWS::S3::Bucket",
+            Properties: {
+              PublicAccessBlockConfiguration: {
+                BlockPublicAcls: true,
+                BlockPublicPolicy: true,
+                IgnorePublicAcls: true,
+                RestrictPublicBuckets: true
+              }
+            }
           }
         }
       })
