@@ -27,11 +27,7 @@ export {
   type LambdaRoleLookup
 } from "./iamPolicyLookup";
 export {
-  generateLeastPrivilegeResourceSuggestions,
-  type PolicySuggestion,
-  type PolicySuggestionConfidence,
-  type PolicySuggestionEvidence,
-  type PolicySuggestionResourceCandidate
+  generateLeastPrivilegeResourceSuggestions
 } from "./leastPrivilegeSuggestions";
 export { applyContextualSeverityAdjustments } from "./contextualSeverity";
 export { parseTemplate } from "./parseTemplate";

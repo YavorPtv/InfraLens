@@ -69,6 +69,38 @@ export interface SeverityAdjustment {
   reason: string;
 }
 
+export type PolicySuggestionConfidence = "low" | "medium" | "high";
+
+export interface PolicySuggestionResourceCandidate {
+  resourceId: string;
+  resourceType: string;
+  referenceEvidencePath: string;
+  suggestedResource: CfnValue;
+}
+
+export interface PolicySuggestionEvidence {
+  lambdaFunctionId: string;
+  lambdaRoleEvidencePath: string;
+  policyEvidencePath: string;
+  statementEvidencePath: string;
+  inferredResources: PolicySuggestionResourceCandidate[];
+}
+
+export interface PolicySuggestion {
+  lambdaFunctionId: string;
+  roleId: string;
+  policyName?: string;
+  policySourceType: "inline-role-policy" | "policy-resource";
+  policyResourceId?: string;
+  service: "dynamodb" | "sqs" | "sns";
+  actions: string[];
+  currentResource: CfnValue;
+  confidence: PolicySuggestionConfidence;
+  suggestedResources: PolicySuggestionResourceCandidate[];
+  explanation: string;
+  evidence: PolicySuggestionEvidence;
+}
+
 export type SeverityCounts = Record<Severity, number>;
 
 export interface AnalysisSummary {
@@ -80,7 +112,9 @@ export interface AnalysisReport {
   findings: Finding[];
   resources: ResourceNode[];
   edges: ArchitectureEdge[];
+  publicEntryPointIds: string[];
   publiclyReachableResourceIds: string[];
+  leastPrivilegeSuggestions: PolicySuggestion[];
   summary: AnalysisSummary;
   score: number;
 }
