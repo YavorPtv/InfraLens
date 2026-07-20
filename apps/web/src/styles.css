@@ -330,6 +330,198 @@ h2 {
   align-items: start;
 }
 
+.architecture-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.architecture-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #516071;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.graph-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+}
+
+.public-entry-swatch {
+  background: #ffe8c7;
+  border: 1px solid #b05a00;
+}
+
+.reachable-swatch {
+  background: #edf3ff;
+  border: 1px solid #1f6feb;
+}
+
+.architecture-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.32fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.graph-canvas {
+  height: 660px;
+  border: 1px solid #dbe2ef;
+  border-radius: 8px;
+  background: #f8fbff;
+  --xy-edge-stroke-selected: #6f7d8f;
+}
+
+.graph-canvas .react-flow {
+  border-radius: 8px;
+}
+
+.graph-canvas .react-flow__edge-path {
+  stroke: #9aa7b5;
+  stroke-width: 2;
+}
+
+.graph-canvas .typed-flow-edge .react-flow__edge-path {
+  stroke: #9aa7b5;
+  stroke-width: 2;
+}
+
+.graph-canvas .react-flow__edge.selected .react-flow__edge-path,
+.graph-canvas .react-flow__edge:focus .react-flow__edge-path {
+  stroke: #6f7d8f;
+}
+
+.graph-canvas .typed-flow-edge.selected .react-flow__edge-path,
+.graph-canvas .typed-flow-edge:focus .react-flow__edge-path {
+  stroke: #9aa7b5;
+}
+
+.graph-canvas .react-flow__edge-textbg {
+  fill: #ffffff;
+  fill-opacity: 1;
+  stroke: #b8c4d2;
+  stroke-width: 1.4;
+}
+
+.graph-canvas .react-flow__edge-text {
+  fill: #111827;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.resource-flow-node {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  width: 300px;
+  min-height: 116px;
+  overflow: hidden;
+  border: 1px solid #c8d3df;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 22px;
+  box-shadow: 0 6px 18px rgba(23, 32, 51, 0.06);
+}
+
+.resource-flow-node-reachable {
+  border-color: #8bb7ff;
+  background: #edf3ff;
+}
+
+.resource-flow-node-public-entry {
+  border-color: #d68100;
+  background: #fff4e3;
+  box-shadow: 0 0 0 2px rgba(214, 129, 0, 0.18);
+}
+
+.resource-flow-node-selected {
+  box-shadow:
+    0 0 0 2px #174ea6,
+    0 8px 22px rgba(23, 32, 51, 0.12);
+}
+
+.resource-flow-node-id {
+  overflow: hidden;
+  color: #111827;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-flow-node-type {
+  overflow: hidden;
+  color: #516071;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-flow-node .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  border: 1px solid #ffffff;
+  background: #1f6feb;
+  opacity: 0;
+}
+
+.resource-details {
+  border: 1px solid #dbe2ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 16px;
+}
+
+.resource-details h3 {
+  margin: 0 0 14px;
+  color: #111827;
+  font-size: 18px;
+}
+
+.resource-details dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.resource-details div {
+  display: grid;
+  gap: 3px;
+}
+
+.resource-details dt {
+  color: #667789;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.resource-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #243246;
+  font-size: 14px;
+}
+
 .report-panel {
   border: 1px solid #dbe2ef;
   border-radius: 8px;
@@ -647,10 +839,15 @@ h2 {
   .intro-grid,
   .report-placeholder,
   .score-overview,
+  .architecture-content,
   .metric-grid,
   .report-details,
   .report-grid {
     grid-template-columns: 1fr;
+  }
+
+  .architecture-heading {
+    flex-direction: column;
   }
 
   .findings-heading {
