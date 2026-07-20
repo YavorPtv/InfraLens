@@ -27,11 +27,17 @@ export interface CfnTemplate {
 }
 
 export interface ResourceNode {
-  id: string;
+  id: ResourceId;
   type: string;
   properties?: Record<string, CfnValue>;
   dependsOn?: string[];
 }
+
+export type ResourceId = string;
+
+export type EvidencePath = string;
+
+export type AnalysisScore = number;
 
 export type ArchitectureRelationship =
   | "references"
@@ -44,21 +50,23 @@ export type ArchitectureRelationship =
   | "dead-letter";
 
 export interface ArchitectureEdge {
-  from: string;
-  to: string;
+  from: ResourceId;
+  to: ResourceId;
   relationship: ArchitectureRelationship;
-  evidencePath: string;
+  evidencePath: EvidencePath;
 }
 
 export type Severity = "low" | "medium" | "high" | "critical";
 
+export type RuleId = string;
+
 export interface Finding {
-  ruleId: string;
+  ruleId: RuleId;
   title: string;
   severity: Severity;
-  resourceId: string;
+  resourceId: ResourceId;
   explanation: string;
-  evidencePath: string;
+  evidencePath: EvidencePath;
   suggestion: string;
   severityAdjustment?: SeverityAdjustment;
 }
@@ -72,26 +80,26 @@ export interface SeverityAdjustment {
 export type PolicySuggestionConfidence = "low" | "medium" | "high";
 
 export interface PolicySuggestionResourceCandidate {
-  resourceId: string;
+  resourceId: ResourceId;
   resourceType: string;
-  referenceEvidencePath: string;
+  referenceEvidencePath: EvidencePath;
   suggestedResource: CfnValue;
 }
 
 export interface PolicySuggestionEvidence {
-  lambdaFunctionId: string;
-  lambdaRoleEvidencePath: string;
-  policyEvidencePath: string;
-  statementEvidencePath: string;
+  lambdaFunctionId: ResourceId;
+  lambdaRoleEvidencePath: EvidencePath;
+  policyEvidencePath: EvidencePath;
+  statementEvidencePath: EvidencePath;
   inferredResources: PolicySuggestionResourceCandidate[];
 }
 
 export interface PolicySuggestion {
-  lambdaFunctionId: string;
-  roleId: string;
+  lambdaFunctionId: ResourceId;
+  roleId: ResourceId;
   policyName?: string;
   policySourceType: "inline-role-policy" | "policy-resource";
-  policyResourceId?: string;
+  policyResourceId?: ResourceId;
   service: "dynamodb" | "sqs" | "sns";
   actions: string[];
   currentResource: CfnValue;
@@ -108,22 +116,25 @@ export interface AnalysisSummary {
   bySeverity: SeverityCounts;
 }
 
-export interface AnalysisReport {
-  findings: Finding[];
+export interface AnalysisGraph {
   resources: ResourceNode[];
   edges: ArchitectureEdge[];
-  publicEntryPointIds: string[];
-  publiclyReachableResourceIds: string[];
-  leastPrivilegeSuggestions: PolicySuggestion[];
-  summary: AnalysisSummary;
-  score: number;
 }
 
-export interface AnalysisContext {
+export interface PublicExposure {
+  publicEntryPointIds: ResourceId[];
+  publiclyReachableResourceIds: ResourceId[];
+}
+
+export interface AnalysisReport extends AnalysisGraph, PublicExposure {
+  score: AnalysisScore;
+  summary: AnalysisSummary;
+  findings: Finding[];
+  leastPrivilegeSuggestions: PolicySuggestion[];
+}
+
+export interface AnalysisContext extends AnalysisGraph, Pick<PublicExposure, "publiclyReachableResourceIds"> {
   template: CfnTemplate;
-  resources: ResourceNode[];
-  edges: ArchitectureEdge[];
-  publiclyReachableResourceIds: string[];
 }
 
 export interface Rule {

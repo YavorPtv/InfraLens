@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import type { AnalysisReport } from "@infralens/shared";
 import { analyzeTemplate } from "../src";
 
 describe("analyzeTemplate", () => {
@@ -63,6 +64,21 @@ describe("analyzeTemplate", () => {
     const report = analyzeTemplate(rawTemplate);
 
     expect(report.score).to.equal(100);
+  });
+
+  it("returns the public analysis report contract fields", () => {
+    const report: AnalysisReport = analyzeTemplate(rawTemplate);
+
+    expect(Object.keys(report)).to.have.members([
+      "score",
+      "summary",
+      "findings",
+      "resources",
+      "edges",
+      "publicEntryPointIds",
+      "publiclyReachableResourceIds",
+      "leastPrivilegeSuggestions"
+    ]);
   });
 
   it("returns publicly reachable resource ids", () => {
