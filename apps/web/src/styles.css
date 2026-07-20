@@ -256,6 +256,40 @@ h2 {
   gap: 28px;
 }
 
+.score-overview {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.35fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.score-panel {
+  display: grid;
+  align-content: center;
+  border: 1px solid #c9d7ea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 22px;
+}
+
+.score-panel strong {
+  color: #111827;
+  font-size: 52px;
+  line-height: 1;
+}
+
+.metric-label,
+.score-scale {
+  color: #667789;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.score-scale {
+  margin-top: 8px;
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -289,6 +323,35 @@ h2 {
   gap: 28px;
 }
 
+.report-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.36fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.report-panel {
+  border: 1px solid #dbe2ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 20px;
+}
+
+.section-heading {
+  margin-bottom: 16px;
+}
+
+.section-heading h2 {
+  margin-bottom: 4px;
+}
+
+.findings-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .severity-list,
 .finding-list {
   margin: 0;
@@ -311,10 +374,42 @@ h2 {
   padding: 12px 14px;
 }
 
+.severity-list div {
+  background: #f8fbff;
+}
+
 .severity-list dt,
 .finding-list strong {
   color: #172033;
   font-weight: 800;
+}
+
+.severity-list dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.severity-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.severity-dot-critical {
+  background: #c5221f;
+}
+
+.severity-dot-high {
+  background: #b05a00;
+}
+
+.severity-dot-medium {
+  background: #b38600;
+}
+
+.severity-dot-low {
+  background: #16833c;
 }
 
 .severity-list dd {
@@ -368,6 +463,140 @@ h2 {
   color: #116932;
 }
 
+.severity-filter {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.severity-filter button {
+  min-height: 34px;
+  border: 1px solid #cad4e0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #516071;
+  padding: 6px 10px;
+  font-weight: 700;
+}
+
+.severity-filter button[aria-pressed="true"] {
+  border-color: #1f6feb;
+  background: #edf3ff;
+  color: #174ea6;
+}
+
+.empty-state {
+  margin-bottom: 0;
+  border: 1px dashed #cad4e0;
+  border-radius: 8px;
+  color: #667789;
+  padding: 18px;
+}
+
+.finding-groups {
+  display: grid;
+  gap: 22px;
+}
+
+.finding-group {
+  display: grid;
+  gap: 12px;
+}
+
+.finding-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.finding-group-header h3 {
+  margin: 0;
+  color: #111827;
+  font-size: 18px;
+}
+
+.finding-group-header span {
+  border-radius: 999px;
+  background: #eef3f8;
+  color: #516071;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.finding-card-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.finding-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #dbe2ef;
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 16px;
+}
+
+.finding-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.finding-card h4 {
+  margin: 0;
+  color: #111827;
+  font-size: 18px;
+}
+
+.finding-card p {
+  margin-bottom: 0;
+  color: #3f4d5f;
+}
+
+.resource-id {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #516071;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.finding-evidence {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.finding-evidence div {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid #e8eef5;
+  padding-top: 10px;
+}
+
+.finding-evidence dt {
+  color: #667789;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.finding-evidence dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #243246;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
 .report-placeholder {
   display: grid;
   grid-template-columns: minmax(0, 0.85fr) minmax(280px, 1fr);
@@ -417,9 +646,16 @@ h2 {
 
   .intro-grid,
   .report-placeholder,
+  .score-overview,
   .metric-grid,
-  .report-details {
+  .report-details,
+  .report-grid {
     grid-template-columns: 1fr;
+  }
+
+  .findings-heading {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .input-toolbar {
