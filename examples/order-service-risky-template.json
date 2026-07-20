@@ -1,0 +1,170 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Risky order service CloudFormation template for InfraLens demos.",
+  "Resources": {
+    "OrderApi": {
+      "Type": "AWS::ApiGateway::RestApi",
+      "Properties": {
+        "Name": "order-service-api",
+        "Description": "Public API for creating customer orders.",
+        "Body": {
+          "swagger": "2.0",
+          "info": {
+            "title": "Order Service API",
+            "version": "1.0"
+          },
+          "paths": {
+            "/orders": {
+              "post": {
+                "x-amazon-apigateway-integration": {
+                  "type": "aws_proxy",
+                  "httpMethod": "POST",
+                  "uri": {
+                    "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OrderHandler.Arn}/invocations"
+                  }
+                },
+                "responses": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "OrderPostMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "RestApiId": {
+          "Ref": "OrderApi"
+        },
+        "ResourceId": {
+          "Fn::GetAtt": [
+            "OrderApi",
+            "RootResourceId"
+          ]
+        },
+        "HttpMethod": "POST",
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "Type": "AWS_PROXY",
+          "IntegrationHttpMethod": "POST",
+          "Uri": {
+            "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OrderHandler.Arn}/invocations"
+          }
+        }
+      }
+    },
+    "OrderApiInvokePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "OrderHandler"
+        },
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${OrderApi}/*/POST/"
+        }
+      }
+    },
+    "OrderHandler": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": "order-service-handler",
+        "Runtime": "nodejs20.x",
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "OrderHandlerRole",
+            "Arn"
+          ]
+        },
+        "Timeout": 30,
+        "Environment": {
+          "Variables": {
+            "ORDERS_TABLE_NAME": {
+              "Ref": "OrdersTable"
+            },
+            "ORDER_EVENTS_QUEUE_URL": {
+              "Ref": "OrderEventsQueue"
+            }
+          }
+        },
+        "Code": {
+          "ZipFile": "exports.handler = async () => ({ statusCode: 201, body: JSON.stringify({ ok: true }) });"
+        }
+      }
+    },
+    "OrderHandlerRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "order-service-handler-role",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "BroadOrdersTableAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "dynamodb:*",
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "OrdersTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": "order-service-orders",
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "orderId",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "orderId",
+            "KeyType": "HASH"
+          }
+        ]
+      }
+    },
+    "OrderEventsQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "QueueName": "order-service-events"
+      }
+    },
+    "OrderHandlerLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": "/aws/lambda/order-service-handler"
+      }
+    }
+  }
+}
