@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import cors from "cors";
 import express, {
   type ErrorRequestHandler,
   type Express,
@@ -24,6 +25,7 @@ export interface ApiErrorResponse {
 
 export interface CreateApiAppOptions {
   analyze?: AnalyzeTemplateHandler;
+  allowedOrigins?: string[];
 }
 
 interface RawBodyRequest extends Request {
@@ -43,7 +45,21 @@ class ApiRequestError extends Error {
 
 export function createApiApp(options: CreateApiAppOptions = {}): Express {
   const analyze = options.analyze ?? analyzeTemplate;
+  const allowedOrigins = options.allowedOrigins ?? getAllowedOrigins();
   const app = express();
+
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (origin === undefined || allowedOrigins.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error(`Origin ${origin} is not allowed by CORS.`));
+      }
+    })
+  );
 
   app.use(
     express.json({
@@ -129,6 +145,19 @@ const jsonErrorHandler: ErrorRequestHandler = (error, _request, response, next) 
 
   next(error);
 };
+
+function getAllowedOrigins(): string[] {
+  const configuredOrigins = process.env.INFRALENS_CORS_ORIGINS;
+
+  if (configuredOrigins !== undefined && configuredOrigins.trim().length > 0) {
+    return configuredOrigins
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0);
+  }
+
+  return ["http://localhost:5173", "http://127.0.0.1:5173"];
+}
 
 function toApiRequestError(error: unknown): ApiRequestError {
   if (error instanceof ApiRequestError) {

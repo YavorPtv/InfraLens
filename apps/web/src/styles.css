@@ -197,12 +197,28 @@ h2 {
 
 .analyze-layout {
   display: grid;
-  gap: 12px;
+  gap: 16px;
+}
+
+.input-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
 }
 
 .input-label {
+  display: block;
   color: #243246;
   font-weight: 800;
+}
+
+.file-upload {
+  flex: 0 0 auto;
+}
+
+.file-input {
+  display: none;
 }
 
 .template-input {
@@ -225,6 +241,131 @@ h2 {
 .muted-note {
   color: #667789;
   font-size: 14px;
+}
+
+.error-message {
+  border: 1px solid #f2b8b5;
+  border-radius: 8px;
+  background: #fff3f2;
+  color: #9b1c1c;
+  padding: 12px 14px;
+}
+
+.report-summary {
+  display: grid;
+  gap: 28px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.metric-card {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #dbe2ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 16px;
+}
+
+.metric-card span {
+  color: #667789;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metric-card strong {
+  color: #111827;
+  font-size: 28px;
+}
+
+.report-details {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.55fr) minmax(0, 1fr);
+  gap: 28px;
+}
+
+.severity-list,
+.finding-list {
+  margin: 0;
+}
+
+.severity-list {
+  display: grid;
+  gap: 10px;
+}
+
+.severity-list div,
+.finding-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #dbe2ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px 14px;
+}
+
+.severity-list dt,
+.finding-list strong {
+  color: #172033;
+  font-weight: 800;
+}
+
+.severity-list dd {
+  margin: 0;
+  color: #516071;
+}
+
+.finding-list {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.finding-list li div {
+  display: grid;
+  gap: 2px;
+}
+
+.finding-list span {
+  color: #667789;
+  font-size: 14px;
+}
+
+.severity-pill {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.severity-critical {
+  background: #ffe2df;
+  color: #9b1c1c;
+}
+
+.severity-high {
+  background: #ffe8c7;
+  color: #7c3f00;
+}
+
+.severity-medium {
+  background: #fff4bf;
+  color: #6b5200;
+}
+
+.severity-low {
+  background: #dff7e8;
+  color: #116932;
 }
 
 .report-placeholder {
@@ -275,8 +416,15 @@ h2 {
   }
 
   .intro-grid,
-  .report-placeholder {
+  .report-placeholder,
+  .metric-grid,
+  .report-details {
     grid-template-columns: 1fr;
+  }
+
+  .input-toolbar {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   h1 {
