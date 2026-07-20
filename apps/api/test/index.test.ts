@@ -30,6 +30,19 @@ describe("local API", () => {
     });
   });
 
+  it("allows the local web app origin with CORS", async () => {
+    const response = await fetch(`${baseUrl}/health`, {
+      headers: {
+        Origin: "http://localhost:5173"
+      }
+    });
+
+    expect(response.status).to.equal(200);
+    expect(response.headers.get("access-control-allow-origin")).to.equal(
+      "http://localhost:5173"
+    );
+  });
+
   it("returns an AnalysisReport from POST /analyze", async () => {
     const response = await postAnalyze(
       JSON.stringify({

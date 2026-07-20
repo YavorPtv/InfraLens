@@ -8,7 +8,7 @@ interface ApiErrorResponse {
   };
 }
 
-const apiBaseUrl = import.meta.env.VITE_INFRALENS_API_BASE_URL ?? "/api";
+const apiBaseUrl = import.meta.env.VITE_INFRALENS_API_BASE_URL ?? "http://localhost:3000";
 
 export async function analyzeTemplate(templateJson: string): Promise<AnalysisReport> {
   const response = await fetch(`${apiBaseUrl}/analyze`, {
