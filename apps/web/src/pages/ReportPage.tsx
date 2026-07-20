@@ -1,5 +1,8 @@
 import { Link } from "react-router-dom";
 import { useAnalysisReport } from "../reportState";
+import { FindingsReport } from "../components/report/FindingsReport";
+import { ScoreOverview } from "../components/report/ScoreOverview";
+import { SeveritySummary } from "../components/report/SeveritySummary";
 
 export function ReportPage() {
   const { report } = useAnalysisReport();
@@ -25,68 +28,11 @@ export function ReportPage() {
 
   return (
     <section className="page-section report-summary">
-      <div className="metric-grid" aria-label="Analysis summary">
-        <div className="metric-card">
-          <span>Score</span>
-          <strong>{report.score}/100</strong>
-        </div>
-        <div className="metric-card">
-          <span>Findings</span>
-          <strong>{report.summary.totalFindings}</strong>
-        </div>
-        <div className="metric-card">
-          <span>Resources</span>
-          <strong>{report.resources.length}</strong>
-        </div>
-        <div className="metric-card">
-          <span>Edges</span>
-          <strong>{report.edges.length}</strong>
-        </div>
-      </div>
+      <ScoreOverview report={report} />
 
-      <div className="report-details">
-        <section>
-          <h2>Severity Summary</h2>
-          <dl className="severity-list">
-            <div>
-              <dt>Critical</dt>
-              <dd>{report.summary.bySeverity.critical}</dd>
-            </div>
-            <div>
-              <dt>High</dt>
-              <dd>{report.summary.bySeverity.high}</dd>
-            </div>
-            <div>
-              <dt>Medium</dt>
-              <dd>{report.summary.bySeverity.medium}</dd>
-            </div>
-            <div>
-              <dt>Low</dt>
-              <dd>{report.summary.bySeverity.low}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section>
-          <h2>Findings</h2>
-          {report.findings.length === 0 ? (
-            <p className="muted-note">No findings were detected.</p>
-          ) : (
-            <ul className="finding-list">
-              {report.findings.slice(0, 6).map((finding) => (
-                <li key={`${finding.ruleId}-${finding.resourceId}-${finding.evidencePath}`}>
-                  <div>
-                    <strong>{finding.title}</strong>
-                    <span>{finding.resourceId}</span>
-                  </div>
-                  <span className={`severity-pill severity-${finding.severity}`}>
-                    {finding.severity}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+      <div className="report-grid">
+        <SeveritySummary summary={report.summary} />
+        <FindingsReport findings={report.findings} />
       </div>
     </section>
   );
