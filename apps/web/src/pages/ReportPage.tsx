@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useAnalysisReport } from "../reportState";
 import { ArchitectureGraph } from "../components/report/ArchitectureGraph";
 import { FindingsReport } from "../components/report/FindingsReport";
+import { LeastPrivilegeSuggestions } from "../components/report/LeastPrivilegeSuggestions";
 import { ScoreOverview } from "../components/report/ScoreOverview";
 import { SeveritySummary } from "../components/report/SeveritySummary";
 
@@ -31,6 +32,7 @@ export function ReportPage() {
     <section className="page-section report-summary">
       <ScoreOverview report={report} />
       <ArchitectureGraph report={report} />
+      <LeastPrivilegeSuggestions suggestions={report.leastPrivilegeSuggestions} />
 
       <div className="report-grid">
         <SeveritySummary summary={report.summary} />
