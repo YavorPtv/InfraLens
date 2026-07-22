@@ -106,7 +106,7 @@ describe("local API", () => {
     expect(payload.error.detail).to.be.a("string");
   });
 
-  it("returns a useful error for analyzer failures", async () => {
+  it("returns a useful error for invalid CloudFormation templates", async () => {
     const response = await postAnalyze(
       JSON.stringify({
         Resources: {
@@ -115,12 +115,12 @@ describe("local API", () => {
       })
     );
 
-    expect(response.status).to.equal(422);
+    expect(response.status).to.equal(400);
 
     const payload = await readJson<ApiErrorResponse>(response);
     expect(payload.error).to.include({
-      code: "ANALYSIS_ERROR",
-      message: "CloudFormation template could not be analyzed."
+      code: "INVALID_TEMPLATE",
+      message: "Request body must be a valid CloudFormation template."
     });
     expect(payload.error.detail).to.contain("missing Type string");
   });
