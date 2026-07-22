@@ -9,6 +9,11 @@
       "types": "./src/index.ts",
       "require": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./lambda": {
+      "types": "./src/lambda.ts",
+      "require": "./dist/lambda.js",
+      "default": "./dist/lambda.js"
     }
   },
   "scripts": {
