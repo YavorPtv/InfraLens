@@ -79,6 +79,25 @@ describe("local API", () => {
     ]);
   });
 
+  it("returns an AnalysisReport for YAML input from POST /analyze", async () => {
+    const response = await postAnalyze(`
+Resources:
+  Queue:
+    Type: AWS::SQS::Queue
+`);
+
+    expect(response.status).to.equal(200);
+
+    const report = await readJson<AnalysisReport>(response);
+    expect(report.resources).to.deep.equal([
+      {
+        id: "Queue",
+        type: "AWS::SQS::Queue",
+        properties: {}
+      }
+    ]);
+  });
+
   it("returns a useful error for a missing request body", async () => {
     const response = await postAnalyze();
 
@@ -93,15 +112,15 @@ describe("local API", () => {
     });
   });
 
-  it("returns a useful error for invalid JSON", async () => {
+  it("returns a useful error for invalid input", async () => {
     const response = await postAnalyze("{");
 
     expect(response.status).to.equal(400);
 
     const payload = await readJson<ApiErrorResponse>(response);
     expect(payload.error).to.include({
-      code: "INVALID_JSON",
-      message: "Request body must be valid CloudFormation JSON."
+      code: "INVALID_TEMPLATE",
+      message: "Request body must be a valid CloudFormation template."
     });
     expect(payload.error.detail).to.be.a("string");
   });
@@ -130,7 +149,7 @@ describe("local API", () => {
       method: "POST",
       body,
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "text/plain"
       }
     });
   }

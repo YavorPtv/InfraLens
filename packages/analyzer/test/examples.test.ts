@@ -32,4 +32,21 @@ describe("example CloudFormation fixtures", () => {
     expect(report.summary.totalFindings).to.equal(4);
     expect(report.score).to.equal(40);
   });
+
+  it("analyzes the YAML example template", () => {
+    const fixturePath = resolve("../../examples", "simple-yaml-template.yaml");
+    const report = analyzeTemplate(readFileSync(fixturePath, "utf8"));
+
+    expect(report.resources.map((resource) => resource.id)).to.include.members([
+      "OrdersTable",
+      "OrderHandler",
+      "OrderHandlerRole"
+    ]);
+    expect(report.edges).to.deep.include({
+      from: "OrderHandler",
+      to: "OrderHandlerRole",
+      relationship: "uses-role",
+      evidencePath: "Resources.OrderHandler.Properties.Role.Fn::GetAtt"
+    });
+  });
 });

@@ -28,10 +28,6 @@ export interface CreateApiAppOptions {
   allowedOrigins?: string[];
 }
 
-interface RawBodyRequest extends Request {
-  rawBody?: string;
-}
-
 export function createApiApp(options: CreateApiAppOptions = {}): Express {
   const analyze = options.analyze ?? analyzeTemplate;
   const allowedOrigins = options.allowedOrigins ?? getAllowedOrigins();
@@ -50,13 +46,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     })
   );
 
-  app.use(
-    express.json({
-      verify(request, _response, buffer): void {
-        (request as RawBodyRequest).rawBody = buffer.toString("utf8");
-      }
-    })
-  );
+  app.use(express.text({ type: "*/*" }));
 
   app.get("/health", (_request, response) => {
     response.json({
@@ -66,7 +56,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
 
   app.post("/analyze", (request, response) => {
     try {
-      response.json(analyzeCloudFormationBody((request as RawBodyRequest).rawBody, analyze));
+      response.json(analyzeCloudFormationBody(getRawTemplateBody(request), analyze));
     } catch (error) {
       writeApiError(response, toApiRequestError(error));
     }
@@ -79,9 +69,13 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     );
   });
 
-  app.use(jsonErrorHandler);
+  app.use(bodyParserErrorHandler);
 
   return app;
+}
+
+function getRawTemplateBody(request: Request): string | undefined {
+  return typeof request.body === "string" ? request.body : undefined;
 }
 
 export function createApiServer(options: CreateApiAppOptions = {}): Server {
@@ -98,14 +92,14 @@ export function startApiServer(port = Number(process.env.PORT ?? 3000)): Server 
   return server;
 }
 
-const jsonErrorHandler: ErrorRequestHandler = (error, _request, response, next) => {
-  if (isJsonParseError(error)) {
+const bodyParserErrorHandler: ErrorRequestHandler = (error, _request, response, next) => {
+  if (isBodyParserError(error)) {
     writeApiError(
       response,
       new ApiRequestError(
         400,
-        "INVALID_JSON",
-        "Request body must be valid CloudFormation JSON.",
+        "INVALID_TEMPLATE",
+        "Request body must be valid CloudFormation JSON or YAML.",
         getErrorMessage(error)
       )
     );
@@ -132,12 +126,14 @@ function writeApiError(response: Response, error: ApiRequestError): void {
   response.status(error.statusCode).json(toApiErrorResponse(error));
 }
 
-function isJsonParseError(error: unknown): boolean {
-  return (
-    error instanceof SyntaxError &&
-    typeof (error as { status?: unknown }).status === "number" &&
-    (error as { status?: number }).status === 400
-  );
+function isBodyParserError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const status = (error as { status?: unknown }).status;
+
+  return typeof status === "number" && status >= 400;
 }
 
 if (require.main === module) {

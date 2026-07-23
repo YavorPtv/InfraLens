@@ -23,7 +23,7 @@ The `AnalysisReport` is the contract consumed by the CLI, API, and web app. Shar
 
 ## Parser
 
-The parser accepts raw CloudFormation JSON and converts resources into `ResourceNode` objects:
+The parser accepts raw CloudFormation JSON or YAML and converts resources into `ResourceNode` objects:
 
 - logical id
 - resource type
@@ -31,13 +31,13 @@ The parser accepts raw CloudFormation JSON and converts resources into `Resource
 
 The parser validates that:
 
-- the input is valid JSON
+- the input is valid JSON or YAML
 - the root is an object
 - `Resources` exists and is an object
 - each resource is an object with a non-empty `Type` string
 - `Properties`, when present, is an object
 
-The parser does not currently support YAML input or CDK source code.
+The parser supports common CloudFormation YAML short-form intrinsic tags such as `!Ref`, `!GetAtt`, and `!Sub` by normalizing them to their long-form JSON equivalents. It does not parse CDK source code.
 
 ## Reference Extraction
 
@@ -142,7 +142,7 @@ Endpoints:
 - `GET /health`
 - `POST /analyze`
 
-The local API accepts raw CloudFormation JSON and returns `AnalysisReport` JSON. Request parsing and analysis error handling are shared with the Lambda-compatible handler where practical.
+The local API accepts raw CloudFormation JSON or YAML and returns `AnalysisReport` JSON. Request parsing and analysis error handling are shared with the Lambda-compatible handler where practical.
 
 ## Lambda Handler
 
@@ -152,7 +152,7 @@ The handler:
 
 - accepts API Gateway request bodies
 - decodes base64 bodies when needed
-- validates and analyzes CloudFormation JSON
+- validates and analyzes CloudFormation JSON or YAML
 - returns JSON responses with clear 400 and 500 errors
 
 The CDK stack does not yet bundle and deploy this handler. That wiring is expected in a later infrastructure step.
@@ -163,8 +163,8 @@ The CDK stack does not yet bundle and deploy this handler. That wiring is expect
 
 The current frontend can:
 
-- accept pasted CloudFormation JSON
-- upload `.json` template files
+- accept pasted CloudFormation JSON or YAML
+- upload `.json`, `.yaml`, and `.yml` template files
 - call the local API
 - show score and severity summary
 - group findings by severity

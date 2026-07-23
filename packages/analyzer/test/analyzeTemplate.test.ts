@@ -40,6 +40,44 @@ describe("analyzeTemplate", () => {
     ]);
   });
 
+  it("returns resources and graph edges from YAML templates", () => {
+    const report = analyzeTemplate(`
+Resources:
+  AppFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt AppRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref AppTable
+  AppRole:
+    Type: AWS::IAM::Role
+  AppTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+`);
+
+    expect(report.resources.map((resource) => resource.id)).to.deep.equal([
+      "AppFunction",
+      "AppRole",
+      "AppTable"
+    ]);
+    expect(report.edges).to.deep.include({
+      from: "AppFunction",
+      to: "AppRole",
+      relationship: "uses-role",
+      evidencePath: "Resources.AppFunction.Properties.Role.Fn::GetAtt"
+    });
+    expect(report.edges).to.deep.include({
+      from: "AppFunction",
+      to: "AppTable",
+      relationship: "references",
+      evidencePath: "Resources.AppFunction.Properties.Environment.Variables.TABLE_NAME.Ref"
+    });
+  });
+
   it("returns a findings array", () => {
     const report = analyzeTemplate(rawTemplate);
 

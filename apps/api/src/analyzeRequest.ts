@@ -1,11 +1,10 @@
 import { analyzeTemplate } from "@infralens/analyzer";
 import type { AnalysisReport } from "@infralens/shared";
 
-export type AnalyzeTemplateHandler = (rawTemplateJson: string) => AnalysisReport;
+export type AnalyzeTemplateHandler = (rawTemplate: string) => AnalysisReport;
 
 export type ApiErrorCode =
   | "MISSING_BODY"
-  | "INVALID_JSON"
   | "INVALID_TEMPLATE"
   | "ANALYSIS_ERROR"
   | "NOT_FOUND";
@@ -36,8 +35,6 @@ export function analyzeCloudFormationBody(
   if (rawBody === undefined || rawBody.trim().length === 0) {
     throw new ApiRequestError(400, "MISSING_BODY", "Request body is required.");
   }
-
-  validateJson(rawBody);
 
   try {
     return analyze(rawBody);
@@ -85,19 +82,6 @@ export function toApiErrorResponse(error: ApiRequestError): ApiErrorResponse {
 
 export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function validateJson(rawBody: string): void {
-  try {
-    JSON.parse(rawBody);
-  } catch (error) {
-    throw new ApiRequestError(
-      400,
-      "INVALID_JSON",
-      "Request body must be valid CloudFormation JSON.",
-      getErrorMessage(error)
-    );
-  }
 }
 
 function isInvalidTemplateError(error: unknown): boolean {

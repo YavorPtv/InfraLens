@@ -2,7 +2,6 @@ import type {
   AnalysisContext,
   AnalysisReport,
   AnalysisSummary,
-  CfnTemplate,
   Finding,
   Rule,
   Severity,
@@ -10,7 +9,7 @@ import type {
 } from "@infralens/shared";
 import { createAnalysisContext } from "./analysisContext";
 import { applyContextualSeverityAdjustments } from "./contextualSeverity";
-import { parseTemplate } from "./parseTemplate";
+import { parseTemplateInput, templateToResourceNodes } from "./parseTemplate";
 import { extractCloudFormationReferences, referencesToArchitectureEdges } from "./extractReferences";
 import { generateLeastPrivilegeResourceSuggestions } from "./leastPrivilegeSuggestions";
 import { detectPublicEntryPoints } from "./publicEntryPoints";
@@ -39,9 +38,9 @@ const severityWeights: Record<Severity, number> = {
   critical: 30
 };
 
-export function analyzeTemplate(rawJson: string): AnalysisReport {
-  const resources = parseTemplate(rawJson);
-  const template = JSON.parse(rawJson) as CfnTemplate;
+export function analyzeTemplate(rawTemplate: string): AnalysisReport {
+  const template = parseTemplateInput(rawTemplate);
+  const resources = templateToResourceNodes(template);
   const referenceEdges = referencesToArchitectureEdges(extractCloudFormationReferences(template));
   const edges = [...referenceEdges, ...buildRuntimeArchitectureGraph(template)];
   const publicEntryPointIds = detectPublicEntryPoints(template);
