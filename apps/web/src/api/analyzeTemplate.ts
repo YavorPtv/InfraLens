@@ -8,10 +8,11 @@ interface ApiErrorResponse {
   };
 }
 
-const apiBaseUrl = import.meta.env.VITE_INFRALENS_API_BASE_URL ?? "http://localhost:3000";
+const defaultApiBaseUrl = "http://localhost:3000";
+const apiBaseUrl = import.meta.env.VITE_INFRALENS_API_BASE_URL ?? defaultApiBaseUrl;
 
 export async function analyzeTemplate(templateJson: string): Promise<AnalysisReport> {
-  const response = await fetch(`${apiBaseUrl}/analyze`, {
+  const response = await fetch(getAnalyzeUrl(apiBaseUrl), {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -24,6 +25,16 @@ export async function analyzeTemplate(templateJson: string): Promise<AnalysisRep
   }
 
   return (await response.json()) as AnalysisReport;
+}
+
+function getAnalyzeUrl(baseUrl: string): string {
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+
+  if (normalizedBaseUrl.endsWith("/analyze")) {
+    return normalizedBaseUrl;
+  }
+
+  return `${normalizedBaseUrl}/analyze`;
 }
 
 async function readErrorMessage(response: Response): Promise<string> {

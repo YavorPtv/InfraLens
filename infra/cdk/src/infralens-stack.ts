@@ -20,6 +20,20 @@ export class InfraLensStack extends cdk.Stack {
     });
 
     const frontendDistribution = new cloudfront.Distribution(this, "FrontendDistribution", {
+      errorResponses: [
+        {
+          httpStatus: 403,
+          responseHttpStatus: 200,
+          responsePagePath: "/index.html",
+          ttl: cdk.Duration.minutes(5)
+        },
+        {
+          httpStatus: 404,
+          responseHttpStatus: 200,
+          responsePagePath: "/index.html",
+          ttl: cdk.Duration.minutes(5)
+        }
+      ],
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS
@@ -99,8 +113,14 @@ export class InfraLensStack extends cdk.Stack {
     new cdk.CfnOutput(this, "FrontendDistributionDomainName", {
       value: frontendDistribution.distributionDomainName
     });
+    new cdk.CfnOutput(this, "FrontendDistributionId", {
+      value: frontendDistribution.distributionId
+    });
     new cdk.CfnOutput(this, "AnalysisApiUrl", {
       value: `${api.url}analyze`
+    });
+    new cdk.CfnOutput(this, "AnalysisApiBaseUrl", {
+      value: api.url
     });
   }
 }
