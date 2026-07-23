@@ -3,6 +3,15 @@ export interface ResourceReference {
   evidencePath: string;
 }
 
+const supportedIntrinsicKeys = new Set([
+  "Ref",
+  "Fn::GetAtt",
+  "Fn::Sub",
+  "Fn::Join",
+  "Fn::If",
+  "Fn::ImportValue"
+]);
+
 export function extractResourceReferences(value: unknown, path: string): ResourceReference[] {
   if (Array.isArray(value)) {
     return value.flatMap((item, index) => extractResourceReferences(item, `${path}[${index}]`));
@@ -14,7 +23,9 @@ export function extractResourceReferences(value: unknown, path: string): Resourc
 
   const references = extractIntrinsicReferences(value, path);
   const childReferences = Object.entries(value).flatMap(([key, childValue]) =>
-    extractResourceReferences(childValue, appendPath(path, key))
+    supportedIntrinsicKeys.has(key)
+      ? []
+      : extractResourceReferences(childValue, appendPath(path, key))
   );
 
   return [...references, ...childReferences];
@@ -49,6 +60,11 @@ function extractIntrinsicReferences(
   }
 
   references.push(...extractFnSubReferences(value["Fn::Sub"], `${path}.Fn::Sub`));
+  references.push(...extractFnJoinReferences(value["Fn::Join"], `${path}.Fn::Join`));
+  references.push(...extractFnIfReferences(value["Fn::If"], `${path}.Fn::If`));
+  references.push(
+    ...extractFnImportValueReferences(value["Fn::ImportValue"], `${path}.Fn::ImportValue`)
+  );
 
   return references;
 }
@@ -75,10 +91,40 @@ function extractFnSubReferences(value: unknown, path: string): ResourceReference
   return [];
 }
 
+function extractFnJoinReferences(value: unknown, path: string): ResourceReference[] {
+  if (!Array.isArray(value)) {
+    return extractResourceReferences(value, path);
+  }
+
+  const [, values] = value;
+
+  return extractResourceReferences(values, `${path}[1]`);
+}
+
+function extractFnIfReferences(value: unknown, path: string): ResourceReference[] {
+  if (!Array.isArray(value)) {
+    return extractResourceReferences(value, path);
+  }
+
+  const [, valueIfTrue, valueIfFalse] = value;
+
+  return [
+    ...extractResourceReferences(valueIfTrue, `${path}[1]`),
+    ...extractResourceReferences(valueIfFalse, `${path}[2]`)
+  ];
+}
+
+function extractFnImportValueReferences(value: unknown, path: string): ResourceReference[] {
+  if (typeof value === "string") {
+    return [];
+  }
+
+  return extractResourceReferences(value, path);
+}
+
 function extractFnSubStringReferences(value: string, path: string): ResourceReference[] {
   return Array.from(value.matchAll(/\$\{([^!][^}]+)\}/g))
     .map((match) => match[1].split(".")[0])
-    .filter((resourceId) => !resourceId.includes("::"))
     .map((resourceId) => ({
       resourceId,
       evidencePath: path

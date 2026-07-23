@@ -11,14 +11,20 @@ export interface CloudFormationReference {
 }
 
 export function extractCloudFormationReferences(template: CfnTemplate): CloudFormationReference[] {
+  const resourceIds = new Set(Object.keys(template.Resources));
+
   return Object.entries(template.Resources).flatMap(([resourceId, resource]) => [
-    ...extractDependsOnReferences(resourceId, resource.DependsOn),
-    ...extractResourceReferences(resource, `Resources.${resourceId}`).map((reference) => ({
-      from: resourceId,
-      to: reference.resourceId,
-      relationship: "references" as const,
-      evidencePath: reference.evidencePath
-    }))
+    ...extractDependsOnReferences(resourceId, resource.DependsOn).filter((reference) =>
+      resourceIds.has(reference.to)
+    ),
+    ...extractResourceReferences(resource, `Resources.${resourceId}`)
+      .filter((reference) => resourceIds.has(reference.resourceId))
+      .map((reference) => ({
+        from: resourceId,
+        to: reference.resourceId,
+        relationship: "references" as const,
+        evidencePath: reference.evidencePath
+      }))
   ]);
 }
 
