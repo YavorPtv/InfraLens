@@ -105,9 +105,6 @@ export function AnalyzePage() {
         >
           {isLoading ? "Analyzing..." : "Analyze"}
         </button>
-        <span className="muted-note">
-          Requires the local API at `http://localhost:3000`.
-        </span>
       </div>
 
       {error !== null ? (
