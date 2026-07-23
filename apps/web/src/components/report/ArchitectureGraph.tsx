@@ -47,7 +47,14 @@ export function ArchitectureGraph({ report }: ArchitectureGraphProps) {
     () => new Set(report.publiclyReachableResourceIds),
     [report.publiclyReachableResourceIds]
   );
-  const visibleEdges = useMemo(() => selectVisibleEdges(report.edges), [report.edges]);
+  const resourceIds = useMemo(
+    () => new Set(report.resources.map((resource) => resource.id)),
+    [report.resources]
+  );
+  const visibleEdges = useMemo(
+    () => selectVisibleEdges(report.edges, resourceIds),
+    [report.edges, resourceIds]
+  );
   const initialNodes = useMemo(
     () =>
       createGraphNodes(
@@ -124,7 +131,7 @@ export function ArchitectureGraph({ report }: ArchitectureGraphProps) {
         </div>
 
         <ResourceDetails
-          edges={visibleEdges}
+          graphEdges={edges}
           isPublicEntryPoint={selectedResource ? publicEntryPoints.has(selectedResource.id) : false}
           isPubliclyReachable={
             selectedResource ? publiclyReachableResources.has(selectedResource.id) : false
@@ -159,12 +166,12 @@ function ResourceGraphNode({ data, selected }: NodeProps<ResourceFlowNode>) {
 
 function ResourceDetails({
   resource,
-  edges,
+  graphEdges,
   isPublicEntryPoint,
   isPubliclyReachable
 }: {
   resource: ResourceNode | undefined;
-  edges: ArchitectureEdge[];
+  graphEdges: Edge[];
   isPublicEntryPoint: boolean;
   isPubliclyReachable: boolean;
 }) {
@@ -177,8 +184,8 @@ function ResourceDetails({
     );
   }
 
-  const outgoingEdges = edges.filter((edge) => edge.from === resource.id);
-  const incomingEdges = edges.filter((edge) => edge.to === resource.id);
+  const outgoingEdges = graphEdges.filter((edge) => edge.source === resource.id);
+  const incomingEdges = graphEdges.filter((edge) => edge.target === resource.id);
   const propertyCount = Object.keys(resource.properties ?? {}).length;
 
   return (
@@ -269,10 +276,17 @@ function createGraphEdges(edges: ArchitectureEdge[]): Edge[] {
   }));
 }
 
-function selectVisibleEdges(edges: ArchitectureEdge[]): ArchitectureEdge[] {
+function selectVisibleEdges(
+  edges: ArchitectureEdge[],
+  resourceIds: Set<string>
+): ArchitectureEdge[] {
   const edgesByDirection = new Map<string, ArchitectureEdge[]>();
 
   for (const edge of edges) {
+    if (!resourceIds.has(edge.from) || !resourceIds.has(edge.to)) {
+      continue;
+    }
+
     const directionKey = getDirectionalEdgeKey(edge);
     const directionEdges = edgesByDirection.get(directionKey);
 
