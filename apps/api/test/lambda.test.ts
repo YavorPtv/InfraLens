@@ -17,6 +17,7 @@ describe("analyze Lambda handler", () => {
     });
 
     expect(response.statusCode).to.equal(200);
+    expect(response.headers["access-control-allow-origin"]).to.equal("*");
 
     const report = readJson<AnalysisReport>(response);
     expect(report).to.include({
