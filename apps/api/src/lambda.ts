@@ -32,6 +32,7 @@ export type AnalyzeLambdaHandler = (
 ) => Promise<ApiGatewayAnalyzeResponse>;
 
 const jsonHeaders = {
+  "access-control-allow-origin": "*",
   "content-type": "application/json"
 };
 

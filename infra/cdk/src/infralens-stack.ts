@@ -3,7 +3,9 @@ import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import { join } from "node:path";
 import type { Construct } from "constructs";
 
 export class InfraLensStack extends cdk.Stack {
@@ -25,10 +27,16 @@ export class InfraLensStack extends cdk.Stack {
       defaultRootObject: "index.html"
     });
 
-    const analysisFunction = new lambda.Function(this, "AnalysisApiFunction", {
+    const analysisFunction = new nodejs.NodejsFunction(this, "AnalysisApiFunction", {
       architecture: lambda.Architecture.ARM_64,
-      code: lambda.Code.fromInline(getAnalysisHandlerSource()),
-      handler: "index.handler",
+      bundling: {
+        minify: false,
+        sourceMap: true,
+        target: "node20"
+      },
+      depsLockFilePath: join(__dirname, "../../../package-lock.json"),
+      entry: join(__dirname, "../../../apps/api/src/lambda.ts"),
+      handler: "handler",
       memorySize: 512,
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30)
@@ -37,13 +45,48 @@ export class InfraLensStack extends cdk.Stack {
     const api = new apigateway.RestApi(this, "AnalysisApi", {
       defaultCorsPreflightOptions: {
         allowHeaders: ["Content-Type"],
-        allowMethods: ["OPTIONS", "POST"],
+        allowMethods: ["GET", "OPTIONS", "POST"],
         allowOrigins: apigateway.Cors.ALL_ORIGINS
       },
       deployOptions: {
         stageName: "prod"
       }
     });
+
+    const healthResource = api.root.addResource("health");
+    healthResource.addMethod(
+      "GET",
+      new apigateway.MockIntegration({
+        integrationResponses: [
+          {
+            responseParameters: {
+              "method.response.header.Access-Control-Allow-Origin": "'*'"
+            },
+            responseTemplates: {
+              "application/json": JSON.stringify({
+                status: "ok"
+              })
+            },
+            statusCode: "200"
+          }
+        ],
+        requestTemplates: {
+          "application/json": JSON.stringify({
+            statusCode: 200
+          })
+        }
+      }),
+      {
+        methodResponses: [
+          {
+            responseParameters: {
+              "method.response.header.Access-Control-Allow-Origin": true
+            },
+            statusCode: "200"
+          }
+        ]
+      }
+    );
 
     const analyzeResource = api.root.addResource("analyze");
     analyzeResource.addMethod("POST", new apigateway.LambdaIntegration(analysisFunction));
@@ -60,26 +103,4 @@ export class InfraLensStack extends cdk.Stack {
       value: `${api.url}analyze`
     });
   }
-}
-
-function getAnalysisHandlerSource(): string {
-  return `
-exports.handler = async function handler(event) {
-  if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ error: "Method not allowed" })
-    };
-  }
-
-  return {
-    statusCode: 501,
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      error: "Analysis Lambda skeleton is deployed, but analyzer packaging is not wired yet."
-    })
-  };
-};
-`;
 }
