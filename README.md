@@ -94,7 +94,7 @@ Endpoints:
 - `GET /health`
 - `POST /analyze`
 
-`POST /analyze` accepts raw CloudFormation JSON in the request body and returns an `AnalysisReport`.
+`POST /analyze` accepts raw CloudFormation JSON or YAML in the request body and returns an `AnalysisReport`.
 
 ## Run The Web App Locally
 
@@ -166,10 +166,9 @@ The analyzer infers resources from Lambda references in the template. It does no
 
 ## Current Limitations
 
-- CloudFormation JSON is the primary supported input. YAML/CDK source parsing is not implemented yet.
+- CloudFormation JSON and YAML templates are supported. CDK source parsing is not implemented yet; analyze synthesized CloudFormation output instead.
 - The analyzer is template-only and does not call AWS APIs.
 - Lambda source code analysis is not implemented.
-- The web app uses the local API and does not include authentication yet.
-- The CDK stack is a skeleton and does not deploy a fully packaged analyzer Lambda yet.
+- The web app does not include authentication yet.
 - Least-privilege suggestions are conservative and only cover a small set of services.
 - Graph layout is optimized for readability, but infrastructure diagrams cannot be made perfect for every possible template.

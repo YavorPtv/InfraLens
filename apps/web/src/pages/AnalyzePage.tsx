@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { analyzeTemplate } from "../api/analyzeTemplate";
 import { useAnalysisReport } from "../reportState";
 
+const acceptedTemplateExtensions = [".json", ".yaml", ".yml"];
+
 export function AnalyzePage() {
-  const [templateJson, setTemplateJson] = useState("");
+  const [templateInput, setTemplateInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -18,19 +20,19 @@ export function AnalyzePage() {
       return;
     }
 
-    if (!file.name.toLowerCase().endsWith(".json")) {
-      setError("Choose a .json CloudFormation template file.");
+    if (!isAcceptedTemplateFile(file.name)) {
+      setError("Choose a .json, .yaml, or .yml CloudFormation template file.");
       event.target.value = "";
       return;
     }
 
-    setTemplateJson(await file.text());
+    setTemplateInput(await file.text());
     setError(null);
   }
 
   async function handleAnalyze(): Promise<void> {
-    if (templateJson.trim().length === 0) {
-      setError("Paste a CloudFormation template or upload a .json file first.");
+    if (templateInput.trim().length === 0) {
+      setError("Paste a CloudFormation template or upload a template file first.");
       return;
     }
 
@@ -38,7 +40,7 @@ export function AnalyzePage() {
     setError(null);
 
     try {
-      const report = await analyzeTemplate(templateJson);
+      const report = await analyzeTemplate(templateInput);
       setReport(report);
       navigate("/report");
     } catch (analysisError) {
@@ -58,13 +60,13 @@ export function AnalyzePage() {
       <div className="input-toolbar">
         <div>
           <label className="input-label" htmlFor="template-input">
-            CloudFormation JSON
+            CloudFormation Template
           </label>
-          <p className="muted-note">Paste a template or upload a local `.json` file.</p>
+          <p className="muted-note">Paste a JSON or YAML template, or upload a local file.</p>
         </div>
         <div className="file-upload">
           <input
-            accept=".json,application/json"
+            accept=".json,.yaml,.yml,application/json,application/x-yaml,application/yaml,text/yaml"
             className="file-input"
             id="template-file"
             onChange={(event) => {
@@ -87,11 +89,11 @@ export function AnalyzePage() {
         className="template-input"
         id="template-input"
         onChange={(event) => {
-          setTemplateJson(event.target.value);
+          setTemplateInput(event.target.value);
           setError(null);
         }}
         placeholder='Paste a template here, for example { "Resources": {} }'
-        value={templateJson}
+        value={templateInput}
       />
 
       <div className="analyze-actions">
@@ -113,5 +115,13 @@ export function AnalyzePage() {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function isAcceptedTemplateFile(fileName: string): boolean {
+  const normalizedFileName = fileName.toLowerCase();
+
+  return acceptedTemplateExtensions.some((extension) =>
+    normalizedFileName.endsWith(extension)
   );
 }

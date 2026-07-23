@@ -32,6 +32,28 @@ describe("analyze Lambda handler", () => {
     ]);
   });
 
+  it("returns an AnalysisReport for a valid YAML POST body", async () => {
+    const response = await createAnalyzeLambdaHandler()({
+      httpMethod: "POST",
+      body: `
+Resources:
+  Topic:
+    Type: AWS::SNS::Topic
+`
+    });
+
+    expect(response.statusCode).to.equal(200);
+
+    const report = readJson<AnalysisReport>(response);
+    expect(report.resources).to.deep.equal([
+      {
+        id: "Topic",
+        type: "AWS::SNS::Topic",
+        properties: {}
+      }
+    ]);
+  });
+
   it("decodes base64 request bodies", async () => {
     const rawBody = JSON.stringify({
       Resources: {
@@ -68,7 +90,7 @@ describe("analyze Lambda handler", () => {
     });
   });
 
-  it("returns a 400 error for invalid JSON", async () => {
+  it("returns a 400 error for invalid input", async () => {
     const response = await createAnalyzeLambdaHandler()({
       httpMethod: "POST",
       body: "{"
@@ -78,8 +100,8 @@ describe("analyze Lambda handler", () => {
 
     const payload = readJson<ApiErrorResponse>(response);
     expect(payload.error).to.include({
-      code: "INVALID_JSON",
-      message: "Request body must be valid CloudFormation JSON."
+      code: "INVALID_TEMPLATE",
+      message: "Request body must be a valid CloudFormation template."
     });
     expect(payload.error.detail).to.be.a("string");
   });

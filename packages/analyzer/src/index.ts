@@ -30,7 +30,7 @@ export {
   generateLeastPrivilegeResourceSuggestions
 } from "./leastPrivilegeSuggestions";
 export { applyContextualSeverityAdjustments } from "./contextualSeverity";
-export { parseTemplate } from "./parseTemplate";
+export { parseTemplate, parseTemplateInput, templateToResourceNodes } from "./parseTemplate";
 export { detectPublicEntryPoints } from "./publicEntryPoints";
 export { findPubliclyReachableResources } from "./publicReachability";
 export { buildRuntimeArchitectureGraph } from "./runtimeGraph";

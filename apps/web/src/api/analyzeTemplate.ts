@@ -11,13 +11,13 @@ interface ApiErrorResponse {
 const defaultApiBaseUrl = "http://localhost:3000";
 const apiBaseUrl = import.meta.env.VITE_INFRALENS_API_BASE_URL ?? defaultApiBaseUrl;
 
-export async function analyzeTemplate(templateJson: string): Promise<AnalysisReport> {
+export async function analyzeTemplate(templateInput: string): Promise<AnalysisReport> {
   const response = await fetch(getAnalyzeUrl(apiBaseUrl), {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "text/plain; charset=utf-8"
     },
-    body: templateJson
+    body: templateInput
   });
 
   if (!response.ok) {

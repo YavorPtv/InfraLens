@@ -17,6 +17,7 @@
     "test": "mocha -r ts-node/register \"test/**/*.test.ts\""
   },
   "dependencies": {
-    "@infralens/shared": "0.1.0"
+    "@infralens/shared": "0.1.0",
+    "yaml": "^2.9.0"
   }
 }

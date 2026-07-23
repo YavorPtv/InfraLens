@@ -14,7 +14,7 @@ interface CliIo {
   };
 }
 
-const usage = "Usage: npm run analyze -- [--json] <template.json>";
+const usage = "Usage: npm run analyze -- [--json] <template.json|yaml|yml>";
 
 interface CliOptions {
   json: boolean;
