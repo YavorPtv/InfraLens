@@ -34,3 +34,7 @@ export { parseTemplate, parseTemplateInput, templateToResourceNodes } from "./pa
 export { detectPublicEntryPoints } from "./publicEntryPoints";
 export { findPubliclyReachableResources } from "./publicReachability";
 export { buildRuntimeArchitectureGraph } from "./runtimeGraph";
+export {
+  inferIamActionsFromSourceCode,
+  type SourceCodeActionInference
+} from "./sourceCodeAnalysis";
