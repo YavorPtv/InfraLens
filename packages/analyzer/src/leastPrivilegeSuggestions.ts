@@ -211,6 +211,8 @@ function createSuggestionsForStatement(
           ? {}
           : { policyResourceId: policy.policyResourceId }),
         service: service.service,
+        currentActions: matchingActions,
+        suggestedActions,
         actions: suggestedActions,
         currentResource: statement.Resource,
         confidence: getConfidence(suggestedResources, sourceActions),

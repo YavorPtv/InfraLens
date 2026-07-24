@@ -108,6 +108,8 @@ export interface PolicySuggestion {
   policySourceType: "inline-role-policy" | "policy-resource";
   policyResourceId?: ResourceId;
   service: "dynamodb" | "sqs" | "sns";
+  currentActions: string[];
+  suggestedActions: string[];
   actions: string[];
   currentResource: CfnValue;
   confidence: PolicySuggestionConfidence;

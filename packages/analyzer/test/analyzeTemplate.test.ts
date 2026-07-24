@@ -306,6 +306,11 @@ Resources:
     expect(report.leastPrivilegeSuggestions[0]).to.include({
       confidence: "high"
     });
+    expect(report.leastPrivilegeSuggestions[0].currentActions).to.deep.equal(["dynamodb:*"]);
+    expect(report.leastPrivilegeSuggestions[0].suggestedActions).to.deep.equal([
+      "dynamodb:GetItem",
+      "dynamodb:PutItem"
+    ]);
     expect(report.leastPrivilegeSuggestions[0].actions).to.deep.equal([
       "dynamodb:GetItem",
       "dynamodb:PutItem"

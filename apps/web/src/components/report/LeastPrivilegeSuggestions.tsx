@@ -83,8 +83,12 @@ export function LeastPrivilegeSuggestions({ suggestions }: LeastPrivilegeSuggest
                     <dd>{suggestion.service}</dd>
                   </div>
                   <div>
-                    <dt>Actions</dt>
-                    <dd>{suggestion.actions.join(", ")}</dd>
+                    <dt>Current Actions</dt>
+                    <dd>{getCurrentActions(suggestion).join(", ")}</dd>
+                  </div>
+                  <div>
+                    <dt>Suggested Actions</dt>
+                    <dd>{getSuggestedActions(suggestion).join(", ")}</dd>
                   </div>
                 </dl>
 
@@ -187,7 +191,7 @@ function SuggestedResources({ resources }: { resources: PolicySuggestionResource
 function createOriginalPolicyStatement(suggestion: PolicySuggestion): PolicyStatementPreview {
   return {
     Effect: "Allow",
-    Action: formatActions(suggestion.actions),
+    Action: formatActions(getCurrentActions(suggestion)),
     Resource: suggestion.currentResource
   };
 }
@@ -195,13 +199,30 @@ function createOriginalPolicyStatement(suggestion: PolicySuggestion): PolicyStat
 function createSuggestedPolicyStatement(suggestion: PolicySuggestion): PolicyStatementPreview {
   return {
     Effect: "Allow",
-    Action: formatActions(suggestion.actions),
+    Action: formatActions(getSuggestedActions(suggestion)),
     Resource: formatSuggestedResource(suggestion)
   };
 }
 
 function formatActions(actions: string[]): string | string[] {
   return actions.length === 1 ? actions[0] : actions;
+}
+
+function getCurrentActions(suggestion: PolicySuggestion): string[] {
+  return getRuntimeActions(suggestion, "currentActions") ?? suggestion.actions ?? [];
+}
+
+function getSuggestedActions(suggestion: PolicySuggestion): string[] {
+  return getRuntimeActions(suggestion, "suggestedActions") ?? suggestion.actions ?? [];
+}
+
+function getRuntimeActions(
+  suggestion: PolicySuggestion,
+  property: "currentActions" | "suggestedActions"
+): string[] | undefined {
+  const value = (suggestion as Partial<PolicySuggestion>)[property];
+
+  return Array.isArray(value) ? value : undefined;
 }
 
 function formatSuggestedResource(suggestion: PolicySuggestion): CfnValue | CfnValue[] {

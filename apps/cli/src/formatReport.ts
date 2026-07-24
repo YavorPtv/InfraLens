@@ -102,8 +102,10 @@ function formatLeastPrivilegeSuggestions(suggestions: PolicySuggestion[]): strin
   }
 
   return suggestions.flatMap((suggestion) => [
-    `  - [${suggestion.confidence.toUpperCase()}] ${suggestion.lambdaFunctionId} role ${suggestion.roleId} ${suggestion.service} actions: ${suggestion.actions.join(", ")}`,
+    `  - [${suggestion.confidence.toUpperCase()}] ${suggestion.lambdaFunctionId} role ${suggestion.roleId} ${suggestion.service}`,
     `    Policy: ${formatPolicyLocation(suggestion)}`,
+    `    Current Actions: ${suggestion.currentActions.join(", ")}`,
+    `    Suggested Actions: ${suggestion.suggestedActions.join(", ")}`,
     `    Current Resource: ${formatCfnValue(suggestion.currentResource)}`,
     `    Suggested Resource: ${formatSuggestedResources(suggestion)}`,
     `    Evidence: ${suggestion.evidence.statementEvidencePath}`,
