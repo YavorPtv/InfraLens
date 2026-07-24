@@ -2,7 +2,7 @@
 
 InfraLens is a developer-focused AWS architecture analyzer. It parses CloudFormation templates, builds a resource and relationship graph, detects security and reliability risks, and produces evidence-based least-privilege IAM suggestions.
 
-The project is intentionally template-first today. It does not call AWS APIs or inspect deployed accounts.
+The project is intentionally local-first today. It does not call AWS APIs or inspect deployed accounts. Optional Lambda source-code upload is used only to infer IAM actions from recognizable AWS SDK command names.
 
 ## Tech Stack
 
@@ -22,7 +22,7 @@ The project is intentionally template-first today. It does not call AWS APIs or 
 - `apps/api`: local Express API and Lambda-compatible analyze handler
 - `apps/web`: React frontend
 - `infra/cdk`: AWS CDK infrastructure skeleton
-- `examples`: demo CloudFormation templates
+- `examples`: demo CloudFormation templates and source-code fixtures
 - `docs`: architecture and demo documentation
 
 ## Install
@@ -96,6 +96,19 @@ Endpoints:
 
 `POST /analyze` accepts raw CloudFormation JSON or YAML in the request body and returns an `AnalysisReport`.
 
+It also accepts an optional JSON envelope when Lambda source files should be analyzed with the template:
+
+```json
+{
+  "template": "{ \"Resources\": {} }",
+  "sourceFiles": {
+    "handler.ts": "await client.send(new GetCommand({ TableName: tableName }));"
+  }
+}
+```
+
+Source files are not stored. They are scanned only for supported AWS SDK command names that map to IAM actions.
+
 ## Run The Web App Locally
 
 Start the API in one terminal:
@@ -112,6 +125,20 @@ npm run dev --workspace @infralens/web
 ```
 
 Open the Vite URL printed by the dev server, usually `http://localhost:5173`.
+
+On the Analyze page, paste or upload a CloudFormation JSON/YAML template. You can also upload optional Lambda source files with these extensions:
+
+- `.ts`
+- `.js`
+- `.mjs`
+- `.cjs`
+
+For a quick demo, upload:
+
+- `examples/order-service-risky-template.json` as the template
+- `examples/order-handler-source.ts` as the Lambda source file
+
+The source file contains DynamoDB `GetCommand` and `PutCommand` usages, so the least-privilege suggestion can narrow `dynamodb:*` to `dynamodb:GetItem` and `dynamodb:PutItem`.
 
 ## Current Supported AWS Resources And Signals
 
@@ -140,6 +167,7 @@ Graph and exposure analysis currently includes:
 - SQS queue uses dead-letter queue: `dead-letter`
 - Public entry point detection for API Gateway, API Gateway V2, CloudFront, and internet-facing ALBs
 - Public reachability traversal over architecture edges 
+- Source-code IAM action inference from simple AWS SDK v3 command-name matches
 
 ## Current Rules
 
@@ -154,7 +182,7 @@ Contextual severity currently adjusts `IAM_WILDCARD_PERMISSIONS` to critical whe
 
 ## Least-Privilege Suggestions
 
-InfraLens can generate template-only suggestions for narrowing IAM policy statements that allow supported service actions on `Resource: "*"`.
+InfraLens can generate suggestions for narrowing IAM policy statements that allow supported service actions on `Resource: "*"`.
 
 Currently supported target services:
 
@@ -162,13 +190,30 @@ Currently supported target services:
 - SQS queues
 - SNS topics
 
-The analyzer infers resources from Lambda references in the template. It does not inspect Lambda source code.
+The analyzer infers resources from Lambda references in the template. If optional Lambda source files are provided, it can also infer exact IAM actions from supported AWS SDK v3 command names.
+
+Current source-code action inference is intentionally simple matching. Supported command mappings include:
+
+- `GetCommand` -> `dynamodb:GetItem`
+- `PutCommand` -> `dynamodb:PutItem`
+- `UpdateCommand` -> `dynamodb:UpdateItem`
+- `DeleteCommand` -> `dynamodb:DeleteItem`
+- `QueryCommand` -> `dynamodb:Query`
+- `ScanCommand` -> `dynamodb:Scan`
+- `SendMessageCommand` -> `sqs:SendMessage`
+- `PublishCommand` -> `sns:Publish`
+- `GetObjectCommand` -> `s3:GetObject`
+- `PutObjectCommand` -> `s3:PutObject`
+- `DeleteObjectCommand` -> `s3:DeleteObject`
+
+Source-code inference does not parse ASTs yet and does not prove which Lambda owns a file. It is best used by uploading the source file for the Lambda represented in the template.
 
 ## Current Limitations
 
 - CloudFormation JSON and YAML templates are supported. CDK source parsing is not implemented yet; analyze synthesized CloudFormation output instead.
 - The analyzer is template-only and does not call AWS APIs.
-- Lambda source code analysis is not implemented.
+- Lambda source-code analysis is limited to simple AWS SDK v3 command-name matching.
 - The web app does not include authentication yet.
 - Least-privilege suggestions are conservative and only cover a small set of services.
+- Uploaded source files are analyzed in request memory only; there is no source-code storage workflow.
 - Graph layout is optimized for readability, but infrastructure diagrams cannot be made perfect for every possible template.
