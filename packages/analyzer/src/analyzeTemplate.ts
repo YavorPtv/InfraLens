@@ -15,6 +15,7 @@ import { generateLeastPrivilegeResourceSuggestions } from "./leastPrivilegeSugge
 import { detectPublicEntryPoints } from "./publicEntryPoints";
 import { findPubliclyReachableResources } from "./publicReachability";
 import { buildRuntimeArchitectureGraph } from "./runtimeGraph";
+import { inferIamActionsFromSourceCode } from "./sourceCodeAnalysis";
 import { apiGatewayMethodNoAuthRule } from "./rules/apiGatewayMethodNoAuth";
 import { dynamodbMissingPitrRule } from "./rules/dynamodbMissingPitr";
 import { iamWildcardPermissionsRule } from "./rules/iamWildcardPermissions";
@@ -38,7 +39,14 @@ const severityWeights: Record<Severity, number> = {
   critical: 30
 };
 
-export function analyzeTemplate(rawTemplate: string): AnalysisReport {
+export interface AnalyzeTemplateOptions {
+  sourceFiles?: Record<string, string>;
+}
+
+export function analyzeTemplate(
+  rawTemplate: string,
+  options: AnalyzeTemplateOptions = {}
+): AnalysisReport {
   const template = parseTemplateInput(rawTemplate);
   const resources = templateToResourceNodes(template);
   const referenceEdges = referencesToArchitectureEdges(extractCloudFormationReferences(template));
@@ -47,7 +55,13 @@ export function analyzeTemplate(rawTemplate: string): AnalysisReport {
   const publiclyReachableResourceIds = [
     ...findPubliclyReachableResources(publicEntryPointIds, edges)
   ];
-  const leastPrivilegeSuggestions = generateLeastPrivilegeResourceSuggestions(template);
+  const sourceActionInferences =
+    options.sourceFiles === undefined
+      ? []
+      : inferIamActionsFromSourceCode(options.sourceFiles);
+  const leastPrivilegeSuggestions = generateLeastPrivilegeResourceSuggestions(template, {
+    sourceActionInferences
+  });
   const context = createAnalysisContext({
     template,
     resources,

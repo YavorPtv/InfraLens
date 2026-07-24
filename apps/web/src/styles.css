@@ -238,6 +238,72 @@ h2 {
   outline: 3px solid #dbe9ff;
 }
 
+.source-upload-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #dbe2ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 18px;
+}
+
+.source-upload-panel h2 {
+  margin-bottom: 4px;
+  font-size: 20px;
+}
+
+.source-upload-panel .muted-note {
+  margin-bottom: 0;
+}
+
+.source-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.source-file-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.source-file-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #e1e8f0;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 10px 12px;
+}
+
+.source-file-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #243246;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.text-button {
+  border: 0;
+  background: transparent;
+  color: #174ea6;
+  font-weight: 800;
+  padding: 0;
+}
+
+.empty-source-state {
+  margin-bottom: 0;
+  color: #667789;
+  font-size: 14px;
+}
+
 .muted-note {
   color: #667789;
   font-size: 14px;
@@ -596,7 +662,7 @@ h2 {
 
 .policy-suggestion-meta {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   margin: 0;
 }

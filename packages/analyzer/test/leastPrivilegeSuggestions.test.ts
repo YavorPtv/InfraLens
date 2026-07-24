@@ -34,6 +34,8 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
         policyName: "DynamoAccess",
         policySourceType: "inline-role-policy",
         service: "dynamodb",
+        currentActions: ["dynamodb:*"],
+        suggestedActions: ["dynamodb:*"],
         actions: ["dynamodb:*"],
         currentResource: "*",
         confidence: "medium",
@@ -113,6 +115,8 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
         policyName: "DynamoAccess",
         policySourceType: "inline-role-policy",
         service: "dynamodb",
+        currentActions: ["dynamodb:*"],
+        suggestedActions: ["dynamodb:GetItem", "dynamodb:PutItem"],
         actions: ["dynamodb:GetItem", "dynamodb:PutItem"],
         currentResource: "*",
         confidence: "high",
@@ -189,6 +193,8 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
 
     const [suggestion] = generateLeastPrivilegeResourceSuggestions(template);
 
+    expect(suggestion.currentActions).to.deep.equal(["dynamodb:*"]);
+    expect(suggestion.suggestedActions).to.deep.equal(["dynamodb:*"]);
     expect(suggestion.actions).to.deep.equal(["dynamodb:*"]);
     expect(suggestion.confidence).to.equal("medium");
     expect(suggestion.suggestedResources).to.deep.equal([
@@ -253,6 +259,8 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
       service: "sqs",
       confidence: "medium"
     });
+    expect(suggestion.currentActions).to.deep.equal(["sqs:SendMessage"]);
+    expect(suggestion.suggestedActions).to.deep.equal(["sqs:SendMessage"]);
     expect(suggestion.actions).to.deep.equal(["sqs:SendMessage"]);
     expect(suggestion.suggestedResources).to.deep.equal([
       {

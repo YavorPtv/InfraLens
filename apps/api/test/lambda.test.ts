@@ -54,6 +54,50 @@ Resources:
     ]);
   });
 
+  it("accepts optional source files with the template", async () => {
+    const response = await createAnalyzeLambdaHandler()({
+      httpMethod: "POST",
+      body: JSON.stringify({
+        template: JSON.stringify(lambdaDynamoTemplate()),
+        sourceFiles: {
+          "handler.ts": `
+            await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));
+            await client.send(new PutCommand({ TableName: process.env.TABLE_NAME }));
+          `
+        }
+      })
+    });
+
+    expect(response.statusCode).to.equal(200);
+
+    const report = readJson<AnalysisReport>(response);
+    expect(report.leastPrivilegeSuggestions).to.have.lengthOf(1);
+    expect(report.leastPrivilegeSuggestions[0]).to.include({
+      confidence: "high"
+    });
+    expect(report.leastPrivilegeSuggestions[0].currentActions).to.deep.equal(["dynamodb:*"]);
+    expect(report.leastPrivilegeSuggestions[0].suggestedActions).to.deep.equal([
+      "dynamodb:GetItem",
+      "dynamodb:PutItem"
+    ]);
+    expect(report.leastPrivilegeSuggestions[0].actions).to.deep.equal([
+      "dynamodb:GetItem",
+      "dynamodb:PutItem"
+    ]);
+    expect(report.leastPrivilegeSuggestions[0].evidence.sourceActions).to.deep.equal([
+      {
+        action: "dynamodb:GetItem",
+        filePath: "handler.ts",
+        matchedCommand: "GetCommand"
+      },
+      {
+        action: "dynamodb:PutItem",
+        filePath: "handler.ts",
+        matchedCommand: "PutCommand"
+      }
+    ]);
+  });
+
   it("decodes base64 request bodies", async () => {
     const rawBody = JSON.stringify({
       Resources: {
@@ -166,4 +210,51 @@ Resources:
 
 function readJson<T>(response: ApiGatewayAnalyzeResponse): T {
   return JSON.parse(response.body) as T;
+}
+
+function lambdaDynamoTemplate(): Record<string, unknown> {
+  return {
+    Resources: {
+      AppFunction: {
+        Type: "AWS::Lambda::Function",
+        Properties: {
+          Role: {
+            "Fn::GetAtt": ["AppRole", "Arn"]
+          },
+          Environment: {
+            Variables: {
+              TABLE_NAME: {
+                Ref: "AppTable"
+              }
+            }
+          }
+        }
+      },
+      AppRole: {
+        Type: "AWS::IAM::Role",
+        Properties: {
+          Policies: [
+            {
+              PolicyName: "DynamoAccess",
+              PolicyDocument: {
+                Statement: {
+                  Effect: "Allow",
+                  Action: "dynamodb:*",
+                  Resource: "*"
+                }
+              }
+            }
+          ]
+        }
+      },
+      AppTable: {
+        Type: "AWS::DynamoDB::Table",
+        Properties: {
+          PointInTimeRecoverySpecification: {
+            PointInTimeRecoveryEnabled: true
+          }
+        }
+      }
+    }
+  };
 }
