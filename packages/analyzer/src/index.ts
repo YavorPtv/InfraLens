@@ -12,7 +12,7 @@ export {
   type AnalysisContextHelpers,
   type CreateAnalysisContextInput
 } from "./analysisContext";
-export { analyzeTemplate } from "./analyzeTemplate";
+export { analyzeTemplate, type AnalyzeTemplateOptions } from "./analyzeTemplate";
 export {
   extractCloudFormationReferences,
   referencesToArchitectureEdges,

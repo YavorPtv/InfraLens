@@ -1,5 +1,10 @@
 import type { AnalysisReport } from "@infralens/shared";
 
+export interface AnalyzeTemplateRequest {
+  templateInput: string;
+  sourceFiles?: Record<string, string>;
+}
+
 interface ApiErrorResponse {
   error?: {
     code?: string;
@@ -11,13 +16,24 @@ interface ApiErrorResponse {
 const defaultApiBaseUrl = "http://localhost:3000";
 const apiBaseUrl = import.meta.env.VITE_INFRALENS_API_BASE_URL ?? defaultApiBaseUrl;
 
-export async function analyzeTemplate(templateInput: string): Promise<AnalysisReport> {
+export async function analyzeTemplate({
+  templateInput,
+  sourceFiles
+}: AnalyzeTemplateRequest): Promise<AnalysisReport> {
+  const hasSourceFiles = sourceFiles !== undefined && Object.keys(sourceFiles).length > 0;
   const response = await fetch(getAnalyzeUrl(apiBaseUrl), {
     method: "POST",
     headers: {
-      "Content-Type": "text/plain; charset=utf-8"
+      "Content-Type": hasSourceFiles
+        ? "application/json; charset=utf-8"
+        : "text/plain; charset=utf-8"
     },
-    body: templateInput
+    body: hasSourceFiles
+      ? JSON.stringify({
+          template: templateInput,
+          sourceFiles
+        })
+      : templateInput
   });
 
   if (!response.ok) {
