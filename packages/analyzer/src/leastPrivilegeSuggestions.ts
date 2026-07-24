@@ -3,7 +3,8 @@ import type {
   CfnValue,
   PolicySuggestion,
   PolicySuggestionConfidence,
-  PolicySuggestionResourceCandidate
+  PolicySuggestionResourceCandidate,
+  PolicySuggestionSourceActionEvidence
 } from "@infralens/shared";
 import {
   findLambdaExecutionRole,
@@ -14,6 +15,11 @@ import {
   type LambdaRoleLookup
 } from "./iamPolicyLookup";
 import { extractResourceReferences, type ResourceReference } from "./resourceReferences";
+import type { SourceCodeActionInference } from "./sourceCodeAnalysis";
+
+export interface GenerateLeastPrivilegeResourceSuggestionsOptions {
+  sourceActionInferences?: SourceCodeActionInference[];
+}
 
 interface SupportedService {
   service: PolicySuggestion["service"];
@@ -59,7 +65,8 @@ const supportedServices: SupportedService[] = [
 ];
 
 export function generateLeastPrivilegeResourceSuggestions(
-  template: CfnTemplate
+  template: CfnTemplate,
+  options: GenerateLeastPrivilegeResourceSuggestionsOptions = {}
 ): PolicySuggestion[] {
   return Object.entries(template.Resources).flatMap(([resourceId, resource]) => {
     if (resource.Type !== "AWS::Lambda::Function") {
@@ -71,13 +78,14 @@ export function generateLeastPrivilegeResourceSuggestions(
       return [];
     }
 
-    return generateSuggestionsForLambdaRole(template, lambdaRole);
+    return generateSuggestionsForLambdaRole(template, lambdaRole, options.sourceActionInferences ?? []);
   });
 }
 
 function generateSuggestionsForLambdaRole(
   template: CfnTemplate,
-  lambdaRole: LambdaRoleLookup
+  lambdaRole: LambdaRoleLookup,
+  sourceActionInferences: SourceCodeActionInference[]
 ): PolicySuggestion[] {
   const lambdaReferences = extractResourceReferences(
     lambdaRole.lambdaFunction,
@@ -92,7 +100,8 @@ function generateSuggestionsForLambdaRole(
         lambdaReferences,
         policy,
         statement,
-        evidencePath
+        evidencePath,
+        sourceActionInferences
       )
     )
   );
@@ -163,7 +172,8 @@ function createSuggestionsForStatement(
   lambdaReferences: ResourceReference[],
   policy: PolicyDocumentLookup,
   statement: Record<string, CfnValue>,
-  statementEvidencePath: string
+  statementEvidencePath: string,
+  sourceActionInferences: SourceCodeActionInference[]
 ): PolicySuggestion[] {
   if (statement.Effect !== "Allow" || !isWildcardResource(statement.Resource)) {
     return [];
@@ -183,6 +193,14 @@ function createSuggestionsForStatement(
       service
     );
 
+    const sourceActions = findSourceActionsForService(
+      sourceActionInferences,
+      service.service,
+      matchingActions
+    );
+    const suggestedActions =
+      sourceActions.length > 0 ? sourceActions.map((sourceAction) => sourceAction.action) : matchingActions;
+
     return [
       {
         lambdaFunctionId: lambdaRole.lambdaFunctionId,
@@ -193,17 +211,18 @@ function createSuggestionsForStatement(
           ? {}
           : { policyResourceId: policy.policyResourceId }),
         service: service.service,
-        actions: matchingActions,
+        actions: suggestedActions,
         currentResource: statement.Resource,
-        confidence: getConfidence(suggestedResources),
+        confidence: getConfidence(suggestedResources, sourceActions),
         suggestedResources,
-        explanation: buildExplanation(service.service, suggestedResources),
+        explanation: buildExplanation(service.service, suggestedResources, sourceActions),
         evidence: {
           lambdaFunctionId: lambdaRole.lambdaFunctionId,
           lambdaRoleEvidencePath: lambdaRole.evidencePath,
           policyEvidencePath: policy.policyEvidencePath,
           statementEvidencePath,
-          inferredResources: suggestedResources
+          inferredResources: suggestedResources,
+          ...(sourceActions.length === 0 ? {} : { sourceActions })
         }
       }
     ];
@@ -250,6 +269,47 @@ function isActionForService(action: string, service: string): boolean {
   return action.toLowerCase().startsWith(`${service}:`);
 }
 
+function findSourceActionsForService(
+  sourceActionInferences: SourceCodeActionInference[],
+  service: PolicySuggestion["service"],
+  policyActions: string[]
+): PolicySuggestionSourceActionEvidence[] {
+  const sourceActionsByAction = new Map<string, PolicySuggestionSourceActionEvidence>();
+
+  for (const inference of sourceActionInferences) {
+    if (
+      !isActionForService(inference.action, service) ||
+      !policyActions.some((policyAction) => actionCovers(policyAction, inference.action)) ||
+      sourceActionsByAction.has(inference.action)
+    ) {
+      continue;
+    }
+
+    sourceActionsByAction.set(inference.action, {
+      action: inference.action,
+      filePath: inference.filePath,
+      matchedCommand: inference.matchedCommand
+    });
+  }
+
+  return [...sourceActionsByAction.values()];
+}
+
+function actionCovers(policyAction: string, inferredAction: string): boolean {
+  const normalizedPolicyAction = policyAction.toLowerCase();
+  const normalizedInferredAction = inferredAction.toLowerCase();
+
+  if (normalizedPolicyAction === normalizedInferredAction) {
+    return true;
+  }
+
+  if (normalizedPolicyAction.endsWith(":*")) {
+    return normalizedInferredAction.startsWith(normalizedPolicyAction.slice(0, -1));
+  }
+
+  return false;
+}
+
 function isWildcardResource(resource: CfnValue | undefined): resource is CfnValue {
   if (resource === "*") {
     return true;
@@ -259,13 +319,14 @@ function isWildcardResource(resource: CfnValue | undefined): resource is CfnValu
 }
 
 function getConfidence(
-  suggestedResources: PolicySuggestionResourceCandidate[]
+  suggestedResources: PolicySuggestionResourceCandidate[],
+  sourceActions: PolicySuggestionSourceActionEvidence[]
 ): PolicySuggestionConfidence {
-  if (suggestedResources.length === 1) {
+  if (suggestedResources.length === 1 && sourceActions.length > 0) {
     return "high";
   }
 
-  if (suggestedResources.length > 1) {
+  if (suggestedResources.length > 0) {
     return "medium";
   }
 
@@ -274,8 +335,13 @@ function getConfidence(
 
 function buildExplanation(
   service: PolicySuggestion["service"],
-  suggestedResources: PolicySuggestionResourceCandidate[]
+  suggestedResources: PolicySuggestionResourceCandidate[],
+  sourceActions: PolicySuggestionSourceActionEvidence[]
 ): string {
+  if (suggestedResources.length === 1 && sourceActions.length > 0) {
+    return `The Lambda function references one ${service} resource, and source code uses exact ${service} SDK commands, so both Action and Resource can likely be narrowed.`;
+  }
+
   if (suggestedResources.length === 1) {
     return `The Lambda function references one ${service} resource, so Resource "*" can likely be narrowed to that resource.`;
   }

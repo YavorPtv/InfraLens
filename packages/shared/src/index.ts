@@ -92,6 +92,13 @@ export interface PolicySuggestionEvidence {
   policyEvidencePath: EvidencePath;
   statementEvidencePath: EvidencePath;
   inferredResources: PolicySuggestionResourceCandidate[];
+  sourceActions?: PolicySuggestionSourceActionEvidence[];
+}
+
+export interface PolicySuggestionSourceActionEvidence {
+  action: string;
+  filePath: string;
+  matchedCommand: string;
 }
 
 export interface PolicySuggestion {

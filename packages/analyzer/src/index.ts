@@ -27,7 +27,8 @@ export {
   type LambdaRoleLookup
 } from "./iamPolicyLookup";
 export {
-  generateLeastPrivilegeResourceSuggestions
+  generateLeastPrivilegeResourceSuggestions,
+  type GenerateLeastPrivilegeResourceSuggestionsOptions
 } from "./leastPrivilegeSuggestions";
 export { applyContextualSeverityAdjustments } from "./contextualSeverity";
 export { parseTemplate, parseTemplateInput, templateToResourceNodes } from "./parseTemplate";

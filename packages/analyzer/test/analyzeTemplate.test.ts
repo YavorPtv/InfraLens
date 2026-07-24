@@ -243,7 +243,7 @@ Resources:
       roleId: "AppRole",
       policyName: "DynamoAccess",
       service: "dynamodb",
-      confidence: "high"
+      confidence: "medium"
     });
   });
 });

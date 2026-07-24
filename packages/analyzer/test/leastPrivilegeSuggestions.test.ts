@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import type { CfnResource, CfnTemplate, CfnValue } from "@infralens/shared";
-import { generateLeastPrivilegeResourceSuggestions } from "../src";
+import { generateLeastPrivilegeResourceSuggestions, inferIamActionsFromSourceCode } from "../src";
 
 describe("generateLeastPrivilegeResourceSuggestions", () => {
   it("suggests narrowing DynamoDB wildcard resources to the table referenced by the Lambda", () => {
@@ -36,7 +36,7 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
         service: "dynamodb",
         actions: ["dynamodb:*"],
         currentResource: "*",
-        confidence: "high",
+        confidence: "medium",
         suggestedResources: [
           {
             resourceId: "AppTable",
@@ -70,6 +70,139 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
         }
       }
     ]);
+  });
+
+  it("uses source-code actions and template resources for high-confidence DynamoDB suggestions", () => {
+    const template: CfnTemplate = {
+      Resources: {
+        AppFunction: lambdaFunctionWithRoleAndEnvironment({
+          TABLE_NAME: {
+            Ref: "OrdersTable"
+          }
+        }),
+        AppRole: roleWithInlinePolicy({
+          PolicyName: "DynamoAccess",
+          PolicyDocument: {
+            Statement: {
+              Effect: "Allow",
+              Action: "dynamodb:*",
+              Resource: "*"
+            }
+          }
+        }),
+        OrdersTable: {
+          Type: "AWS::DynamoDB::Table"
+        }
+      }
+    };
+    const sourceActionInferences = inferIamActionsFromSourceCode({
+      "src/order-handler.ts": `
+        await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));
+        await client.send(new PutCommand({ TableName: process.env.TABLE_NAME }));
+      `
+    });
+
+    expect(
+      generateLeastPrivilegeResourceSuggestions(template, {
+        sourceActionInferences
+      })
+    ).to.deep.equal([
+      {
+        lambdaFunctionId: "AppFunction",
+        roleId: "AppRole",
+        policyName: "DynamoAccess",
+        policySourceType: "inline-role-policy",
+        service: "dynamodb",
+        actions: ["dynamodb:GetItem", "dynamodb:PutItem"],
+        currentResource: "*",
+        confidence: "high",
+        suggestedResources: [
+          {
+            resourceId: "OrdersTable",
+            resourceType: "AWS::DynamoDB::Table",
+            referenceEvidencePath:
+              "Resources.AppFunction.Properties.Environment.Variables.TABLE_NAME.Ref",
+            suggestedResource: {
+              "Fn::GetAtt": ["OrdersTable", "Arn"]
+            }
+          }
+        ],
+        explanation:
+          "The Lambda function references one dynamodb resource, and source code uses exact dynamodb SDK commands, so both Action and Resource can likely be narrowed.",
+        evidence: {
+          lambdaFunctionId: "AppFunction",
+          lambdaRoleEvidencePath: "Resources.AppFunction.Properties.Role.Fn::GetAtt[0]",
+          policyEvidencePath: "Resources.AppRole.Properties.Policies[0]",
+          statementEvidencePath:
+            "Resources.AppRole.Properties.Policies[0].PolicyDocument.Statement",
+          inferredResources: [
+            {
+              resourceId: "OrdersTable",
+              resourceType: "AWS::DynamoDB::Table",
+              referenceEvidencePath:
+                "Resources.AppFunction.Properties.Environment.Variables.TABLE_NAME.Ref",
+              suggestedResource: {
+                "Fn::GetAtt": ["OrdersTable", "Arn"]
+              }
+            }
+          ],
+          sourceActions: [
+            {
+              action: "dynamodb:GetItem",
+              filePath: "src/order-handler.ts",
+              matchedCommand: "GetCommand"
+            },
+            {
+              action: "dynamodb:PutItem",
+              filePath: "src/order-handler.ts",
+              matchedCommand: "PutCommand"
+            }
+          ]
+        }
+      }
+    ]);
+  });
+
+  it("keeps template-only broad actions when source-code inferences are unavailable", () => {
+    const template: CfnTemplate = {
+      Resources: {
+        AppFunction: lambdaFunctionWithRoleAndEnvironment({
+          TABLE_NAME: {
+            Ref: "OrdersTable"
+          }
+        }),
+        AppRole: roleWithInlinePolicy({
+          PolicyName: "DynamoAccess",
+          PolicyDocument: {
+            Statement: {
+              Effect: "Allow",
+              Action: "dynamodb:*",
+              Resource: "*"
+            }
+          }
+        }),
+        OrdersTable: {
+          Type: "AWS::DynamoDB::Table"
+        }
+      }
+    };
+
+    const [suggestion] = generateLeastPrivilegeResourceSuggestions(template);
+
+    expect(suggestion.actions).to.deep.equal(["dynamodb:*"]);
+    expect(suggestion.confidence).to.equal("medium");
+    expect(suggestion.suggestedResources).to.deep.equal([
+      {
+        resourceId: "OrdersTable",
+        resourceType: "AWS::DynamoDB::Table",
+        referenceEvidencePath:
+          "Resources.AppFunction.Properties.Environment.Variables.TABLE_NAME.Ref",
+        suggestedResource: {
+          "Fn::GetAtt": ["OrdersTable", "Arn"]
+        }
+      }
+    ]);
+    expect(suggestion.evidence.sourceActions).to.equal(undefined);
   });
 
   it("suggests narrowing SQS wildcard resources from an attached IAM policy", () => {
@@ -118,7 +251,7 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
       policySourceType: "policy-resource",
       policyResourceId: "QueuePolicy",
       service: "sqs",
-      confidence: "high"
+      confidence: "medium"
     });
     expect(suggestion.actions).to.deep.equal(["sqs:SendMessage"]);
     expect(suggestion.suggestedResources).to.deep.equal([
@@ -164,7 +297,7 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
     const [suggestion] = generateLeastPrivilegeResourceSuggestions(template);
 
     expect(suggestion.service).to.equal("sns");
-    expect(suggestion.confidence).to.equal("high");
+    expect(suggestion.confidence).to.equal("medium");
     expect(suggestion.suggestedResources).to.deep.equal([
       {
         resourceId: "AlertsTopic",
