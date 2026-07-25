@@ -142,6 +142,31 @@ export interface AnalysisReport extends AnalysisGraph, PublicExposure {
   leastPrivilegeSuggestions: PolicySuggestion[];
 }
 
+export interface ChangedResource {
+  resourceId: ResourceId;
+  oldResource: ResourceNode;
+  newResource: ResourceNode;
+}
+
+export interface ResourceDiffSummary {
+  added: ResourceNode[];
+  removed: ResourceNode[];
+  changed: ChangedResource[];
+}
+
+export interface FindingDiffSummary {
+  introduced: Finding[];
+  resolved: Finding[];
+  unchanged: Finding[];
+}
+
+export interface DiffReport {
+  oldReport: AnalysisReport;
+  newReport: AnalysisReport;
+  resources: ResourceDiffSummary;
+  findings: FindingDiffSummary;
+}
+
 export interface AnalysisContext extends AnalysisGraph, Pick<PublicExposure, "publiclyReachableResourceIds"> {
   template: CfnTemplate;
 }

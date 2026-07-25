@@ -39,3 +39,7 @@ export {
   inferIamActionsFromSourceCode,
   type SourceCodeActionInference
 } from "./sourceCodeAnalysis";
+export {
+  analyzeTemplateDiff,
+  type AnalyzeTemplateDiffOptions
+} from "./templateDiff";
