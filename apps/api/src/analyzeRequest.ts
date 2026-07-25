@@ -1,10 +1,21 @@
-import { analyzeTemplate, type AnalyzeTemplateOptions } from "@infralens/analyzer";
-import type { AnalysisReport } from "@infralens/shared";
+import {
+  analyzeTemplate,
+  analyzeTemplateDiff,
+  type AnalyzeTemplateDiffOptions,
+  type AnalyzeTemplateOptions
+} from "@infralens/analyzer";
+import type { AnalysisReport, DiffReport } from "@infralens/shared";
 
 export type AnalyzeTemplateHandler = (
   rawTemplate: string,
   options?: AnalyzeTemplateOptions
 ) => AnalysisReport;
+
+export type AnalyzeTemplateDiffHandler = (
+  oldTemplate: string,
+  newTemplate: string,
+  options?: AnalyzeTemplateDiffOptions
+) => DiffReport;
 
 export type ApiErrorCode =
   | "MISSING_BODY"
@@ -23,6 +34,11 @@ export interface ApiErrorResponse {
 export interface AnalyzeApiRequest {
   template: string;
   sourceFiles?: Record<string, string>;
+}
+
+export interface DiffApiRequest {
+  oldTemplate: string;
+  newTemplate: string;
 }
 
 export class ApiRequestError extends Error {
@@ -70,6 +86,37 @@ export function analyzeCloudFormationBody(
   }
 }
 
+export function diffCloudFormationBody(
+  rawBody: string | undefined,
+  diff: AnalyzeTemplateDiffHandler = analyzeTemplateDiff
+): DiffReport {
+  if (rawBody === undefined || rawBody.trim().length === 0) {
+    throw new ApiRequestError(400, "MISSING_BODY", "Request body is required.");
+  }
+
+  const request = parseDiffApiRequest(rawBody);
+
+  try {
+    return diff(request.oldTemplate, request.newTemplate);
+  } catch (error) {
+    if (isInvalidTemplateError(error)) {
+      throw new ApiRequestError(
+        400,
+        "INVALID_TEMPLATE",
+        "Request body must include valid old and new CloudFormation templates.",
+        getErrorMessage(error)
+      );
+    }
+
+    throw new ApiRequestError(
+      500,
+      "ANALYSIS_ERROR",
+      "Template diff analysis failed unexpectedly.",
+      getErrorMessage(error)
+    );
+  }
+}
+
 function parseAnalyzeApiRequest(rawBody: string): AnalyzeApiRequest {
   const parsedBody = tryParseJson(rawBody);
 
@@ -92,6 +139,39 @@ function parseAnalyzeApiRequest(rawBody: string): AnalyzeApiRequest {
   return {
     template: parsedBody.template,
     ...(sourceFiles === undefined ? {} : { sourceFiles })
+  };
+}
+
+function parseDiffApiRequest(rawBody: string): DiffApiRequest {
+  const parsedBody = tryParseJson(rawBody);
+
+  if (!isRecord(parsedBody)) {
+    throw new ApiRequestError(
+      400,
+      "INVALID_TEMPLATE",
+      "Request body must be JSON with oldTemplate and newTemplate strings."
+    );
+  }
+
+  if (typeof parsedBody.oldTemplate !== "string" || parsedBody.oldTemplate.trim().length === 0) {
+    throw new ApiRequestError(
+      400,
+      "INVALID_TEMPLATE",
+      "Request body must include a non-empty oldTemplate string."
+    );
+  }
+
+  if (typeof parsedBody.newTemplate !== "string" || parsedBody.newTemplate.trim().length === 0) {
+    throw new ApiRequestError(
+      400,
+      "INVALID_TEMPLATE",
+      "Request body must include a non-empty newTemplate string."
+    );
+  }
+
+  return {
+    oldTemplate: parsedBody.oldTemplate,
+    newTemplate: parsedBody.newTemplate
   };
 }
 

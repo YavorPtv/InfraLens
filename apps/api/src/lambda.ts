@@ -1,7 +1,9 @@
 import {
   analyzeCloudFormationBody,
+  diffCloudFormationBody,
   toApiErrorResponse,
   toApiRequestError,
+  type AnalyzeTemplateDiffHandler,
   type AnalyzeTemplateHandler,
   type ApiErrorResponse
 } from "./analyzeRequest";
@@ -9,10 +11,13 @@ import {
 export interface ApiGatewayAnalyzeRequest {
   body?: string | null;
   httpMethod?: string;
+  path?: string;
+  rawPath?: string;
   isBase64Encoded?: boolean;
   requestContext?: {
     http?: {
       method?: string;
+      path?: string;
     };
   };
 }
@@ -25,6 +30,7 @@ export interface ApiGatewayAnalyzeResponse {
 
 export interface CreateAnalyzeLambdaHandlerOptions {
   analyze?: AnalyzeTemplateHandler;
+  diff?: AnalyzeTemplateDiffHandler;
 }
 
 export type AnalyzeLambdaHandler = (
@@ -40,6 +46,7 @@ export function createAnalyzeLambdaHandler(
   options: CreateAnalyzeLambdaHandlerOptions = {}
 ): AnalyzeLambdaHandler {
   const analyze = options.analyze;
+  const diff = options.diff;
 
   return async function analyzeLambdaHandler(event) {
     if (getHttpMethod(event) !== "POST") {
@@ -53,8 +60,20 @@ export function createAnalyzeLambdaHandler(
 
     try {
       const rawBody = decodeRequestBody(event);
-      const report = analyzeCloudFormationBody(rawBody, analyze);
-      return jsonResponse(200, report);
+      if (isDiffPath(event)) {
+        return jsonResponse(200, diffCloudFormationBody(rawBody, diff));
+      }
+
+      if (isAnalyzePath(event)) {
+        return jsonResponse(200, analyzeCloudFormationBody(rawBody, analyze));
+      }
+
+      return jsonResponse(404, {
+        error: {
+          code: "NOT_FOUND",
+          message: "Use POST /analyze or POST /diff."
+        }
+      });
     } catch (error) {
       const apiError = toApiRequestError(error);
       return jsonResponse(apiError.statusCode, toApiErrorResponse(apiError));
@@ -66,6 +85,20 @@ export const handler = createAnalyzeLambdaHandler();
 
 function getHttpMethod(event: ApiGatewayAnalyzeRequest): string | undefined {
   return event.httpMethod ?? event.requestContext?.http?.method;
+}
+
+function getPath(event: ApiGatewayAnalyzeRequest): string | undefined {
+  return event.rawPath ?? event.path ?? event.requestContext?.http?.path;
+}
+
+function isAnalyzePath(event: ApiGatewayAnalyzeRequest): boolean {
+  const path = getPath(event);
+
+  return path === undefined || path.endsWith("/analyze");
+}
+
+function isDiffPath(event: ApiGatewayAnalyzeRequest): boolean {
+  return getPath(event)?.endsWith("/diff") === true;
 }
 
 function decodeRequestBody(event: ApiGatewayAnalyzeRequest): string | undefined {

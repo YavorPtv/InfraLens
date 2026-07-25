@@ -317,6 +317,125 @@ h2 {
   padding: 12px 14px;
 }
 
+.compare-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.compare-input-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: stretch;
+}
+
+.compare-input-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.compare-template-input {
+  min-height: 300px;
+}
+
+.diff-report,
+.diff-section {
+  display: grid;
+  gap: 18px;
+}
+
+.diff-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.diff-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.diff-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #dbe2ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 16px;
+}
+
+.diff-panel h3 {
+  margin: 0;
+  color: #111827;
+  font-size: 18px;
+}
+
+.diff-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.resource-change,
+.finding-change {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #e1e8f0;
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 12px;
+}
+
+.resource-change strong {
+  overflow-wrap: anywhere;
+  color: #111827;
+  font-weight: 800;
+}
+
+.resource-change span,
+.finding-change span {
+  overflow-wrap: anywhere;
+  color: #667789;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.resource-change-added {
+  border-color: #b9e5c8;
+  background: #f3fbf6;
+}
+
+.resource-change-removed {
+  border-color: #f2c5c2;
+  background: #fff8f7;
+}
+
+.resource-change-changed {
+  border-color: #d9c48a;
+  background: #fffbeb;
+}
+
+.finding-change h4 {
+  margin: 0;
+  color: #111827;
+  font-size: 16px;
+}
+
+.finding-change p {
+  margin-bottom: 0;
+  color: #3f4d5f;
+}
+
+.finding-change-severe {
+  border-color: #e59f9b;
+  background: #fff3f2;
+  box-shadow: inset 4px 0 0 #c5221f;
+}
+
 .report-summary {
   display: grid;
   gap: 28px;
@@ -1081,6 +1200,9 @@ h2 {
   }
 
   .intro-grid,
+  .compare-input-grid,
+  .diff-grid,
+  .diff-summary-grid,
   .report-placeholder,
   .score-overview,
   .architecture-content,
