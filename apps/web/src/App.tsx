@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/AppLayout";
 import { AnalyzePage } from "./pages/AnalyzePage";
+import { ComparePage } from "./pages/ComparePage";
 import { HomePage } from "./pages/HomePage";
 import { ReportPage } from "./pages/ReportPage";
 import { AnalysisReportProvider } from "./reportState";
@@ -12,6 +13,7 @@ export function App() {
         <Route element={<AppLayout />} path="/">
           <Route index element={<HomePage />} />
           <Route element={<AnalyzePage />} path="analyze" />
+          <Route element={<ComparePage />} path="compare" />
           <Route element={<ReportPage />} path="report" />
           <Route element={<Navigate replace to="/" />} path="*" />
         </Route>

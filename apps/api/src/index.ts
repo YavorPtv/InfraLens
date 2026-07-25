@@ -6,30 +6,34 @@ import express, {
   type Request,
   type Response
 } from "express";
-import { analyzeTemplate } from "@infralens/analyzer";
+import { analyzeTemplate, analyzeTemplateDiff } from "@infralens/analyzer";
 import {
   analyzeCloudFormationBody,
   ApiRequestError,
+  diffCloudFormationBody,
   getErrorMessage,
   toApiErrorResponse,
   toApiRequestError,
   type ApiErrorCode,
+  type AnalyzeTemplateDiffHandler,
   type AnalyzeTemplateHandler,
   type ApiErrorResponse
 } from "./analyzeRequest";
 
 export const apiAppName = "InfraLens API";
 
-export type { AnalyzeTemplateHandler, ApiErrorCode, ApiErrorResponse };
-export { analyzeCloudFormationBody };
+export type { AnalyzeTemplateDiffHandler, AnalyzeTemplateHandler, ApiErrorCode, ApiErrorResponse };
+export { analyzeCloudFormationBody, diffCloudFormationBody };
 
 export interface CreateApiAppOptions {
   analyze?: AnalyzeTemplateHandler;
+  diff?: AnalyzeTemplateDiffHandler;
   allowedOrigins?: string[];
 }
 
 export function createApiApp(options: CreateApiAppOptions = {}): Express {
   const analyze = options.analyze ?? analyzeTemplate;
+  const diff = options.diff ?? analyzeTemplateDiff;
   const allowedOrigins = options.allowedOrigins ?? getAllowedOrigins();
   const app = express();
 
@@ -62,10 +66,18 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     }
   });
 
+  app.post("/diff", (request, response) => {
+    try {
+      response.json(diffCloudFormationBody(getRawTemplateBody(request), diff));
+    } catch (error) {
+      writeApiError(response, toApiRequestError(error));
+    }
+  });
+
   app.use((_request, response) => {
     writeApiError(
       response,
-      new ApiRequestError(404, "NOT_FOUND", "Use GET /health or POST /analyze.")
+      new ApiRequestError(404, "NOT_FOUND", "Use GET /health, POST /analyze, or POST /diff.")
     );
   });
 

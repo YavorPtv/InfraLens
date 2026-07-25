@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import type { AnalysisReport } from "@infralens/shared";
+import type { AnalysisReport, DiffReport } from "@infralens/shared";
 import { createAnalyzeLambdaHandler, type ApiGatewayAnalyzeResponse } from "../src/lambda";
 import type { ApiErrorResponse } from "../src";
 
@@ -95,6 +95,53 @@ Resources:
         filePath: "handler.ts",
         matchedCommand: "PutCommand"
       }
+    ]);
+  });
+
+  it("returns a DiffReport for POST /diff", async () => {
+    const response = await createAnalyzeLambdaHandler()({
+      httpMethod: "POST",
+      path: "/diff",
+      body: JSON.stringify({
+        oldTemplate: JSON.stringify({
+          Resources: {
+            OrdersTable: {
+              Type: "AWS::DynamoDB::Table"
+            }
+          }
+        }),
+        newTemplate: JSON.stringify({
+          Resources: {
+            OrdersTable: {
+              Type: "AWS::DynamoDB::Table",
+              Properties: {
+                PointInTimeRecoverySpecification: {
+                  PointInTimeRecoveryEnabled: true
+                }
+              }
+            },
+            PublicPostMethod: {
+              Type: "AWS::ApiGateway::Method",
+              Properties: {
+                AuthorizationType: "NONE"
+              }
+            }
+          }
+        })
+      })
+    });
+
+    expect(response.statusCode).to.equal(200);
+
+    const report = readJson<DiffReport>(response);
+    expect(report.resources.added.map((resource) => resource.id)).to.deep.equal([
+      "PublicPostMethod"
+    ]);
+    expect(report.findings.resolved.map(toFindingLabel)).to.deep.equal([
+      "DYNAMODB_MISSING_PITR:OrdersTable"
+    ]);
+    expect(report.findings.introduced.map(toFindingLabel)).to.deep.equal([
+      "API_GATEWAY_METHOD_NO_AUTH:PublicPostMethod"
     ]);
   });
 
@@ -210,6 +257,10 @@ Resources:
 
 function readJson<T>(response: ApiGatewayAnalyzeResponse): T {
   return JSON.parse(response.body) as T;
+}
+
+function toFindingLabel(finding: { ruleId: string; resourceId: string }): string {
+  return `${finding.ruleId}:${finding.resourceId}`;
 }
 
 function lambdaDynamoTemplate(): Record<string, unknown> {

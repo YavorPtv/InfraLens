@@ -1,7 +1,7 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { expect } from "chai";
-import type { AnalysisReport } from "@infralens/shared";
+import type { AnalysisReport, DiffReport } from "@infralens/shared";
 import type { ApiErrorResponse } from "../src";
 import { createApiApp } from "../src";
 
@@ -145,6 +145,66 @@ Resources:
     ]);
   });
 
+  it("returns a DiffReport from POST /diff", async () => {
+    const response = await postDiff({
+      oldTemplate: JSON.stringify({
+        Resources: {
+          OrdersTable: {
+            Type: "AWS::DynamoDB::Table"
+          }
+        }
+      }),
+      newTemplate: JSON.stringify({
+        Resources: {
+          OrdersTable: {
+            Type: "AWS::DynamoDB::Table",
+            Properties: {
+              PointInTimeRecoverySpecification: {
+                PointInTimeRecoveryEnabled: true
+              }
+            }
+          },
+          PublicPostMethod: {
+            Type: "AWS::ApiGateway::Method",
+            Properties: {
+              AuthorizationType: "NONE"
+            }
+          }
+        }
+      })
+    });
+
+    expect(response.status).to.equal(200);
+
+    const report = await readJson<DiffReport>(response);
+    expect(report.resources.added.map((resource) => resource.id)).to.deep.equal([
+      "PublicPostMethod"
+    ]);
+    expect(report.resources.changed.map((resource) => resource.resourceId)).to.deep.equal([
+      "OrdersTable"
+    ]);
+    expect(report.findings.resolved.map(toFindingLabel)).to.deep.equal([
+      "DYNAMODB_MISSING_PITR:OrdersTable"
+    ]);
+    expect(report.findings.introduced.map(toFindingLabel)).to.deep.equal([
+      "API_GATEWAY_METHOD_NO_AUTH:PublicPostMethod"
+    ]);
+  });
+
+  it("returns a useful error for a missing diff request body", async () => {
+    const response = await fetch(`${baseUrl}/diff`, {
+      method: "POST"
+    });
+
+    expect(response.status).to.equal(400);
+    expect(await readJson<ApiErrorResponse>(response)).to.deep.equal({
+      error: {
+        code: "MISSING_BODY",
+        message: "Request body is required."
+      }
+    });
+  });
+
   it("returns a useful error for a missing request body", async () => {
     const response = await postAnalyze();
 
@@ -200,10 +260,24 @@ Resources:
       }
     });
   }
+
+  function postDiff(body: { oldTemplate: string; newTemplate: string }): Promise<Response> {
+    return fetch(`${baseUrl}/diff`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+  }
 });
 
 async function readJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
+}
+
+function toFindingLabel(finding: { ruleId: string; resourceId: string }): string {
+  return `${finding.ruleId}:${finding.resourceId}`;
 }
 
 function lambdaDynamoTemplate(): Record<string, unknown> {
