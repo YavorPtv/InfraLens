@@ -177,3 +177,9 @@ export interface Rule {
   severity: Severity;
   evaluate: (context: AnalysisContext) => Finding[];
 }
+
+export {
+  exportAnalysisReportToJson,
+  exportAnalysisReportToMarkdown,
+  exportDiffReportToMarkdown
+} from "./reportExport";

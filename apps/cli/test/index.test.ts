@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "chai";
@@ -26,6 +26,46 @@ describe("CLI main", () => {
     });
     expect(report.findings).to.deep.equal([]);
     expect(report.edges).to.deep.equal([]);
+  });
+
+  it("prints an analysis report as Markdown with --markdown", () => {
+    const templatePath = writeTemplateFixture({
+      Resources: {
+        Queue: {
+          Type: "AWS::SQS::Queue"
+        }
+      }
+    });
+    const io = createTestIo();
+
+    const exitCode = main(["--markdown", templatePath], io);
+
+    expect(exitCode).to.equal(0);
+    expect(io.stderrOutput).to.equal("");
+    expect(io.stdoutOutput).to.contain("# InfraLens Analysis Report");
+    expect(io.stdoutOutput).to.contain("## Severity Summary");
+    expect(io.stdoutOutput).to.contain("SQS queue is missing a dead-letter queue");
+    expect(io.stdoutOutput).to.contain("Evidence path:");
+    expect(io.stdoutOutput).to.contain("Suggestion:");
+  });
+
+  it("writes selected output to a file with --output", () => {
+    const templatePath = writeTemplateFixture({
+      Resources: {
+        Topic: {
+          Type: "AWS::SNS::Topic"
+        }
+      }
+    });
+    const outputPath = writeOutputPath("report.md");
+    const io = createTestIo();
+
+    const exitCode = main(["--markdown", "--output", outputPath, templatePath], io);
+
+    expect(exitCode).to.equal(0);
+    expect(io.stderrOutput).to.equal("");
+    expect(io.stdoutOutput).to.contain(`Report written to ${outputPath}`);
+    expect(readFileSync(outputPath, "utf8")).to.contain("# InfraLens Analysis Report");
   });
 
   it("analyzes YAML template files", () => {
@@ -85,7 +125,19 @@ Resources:
     expect(exitCode).to.equal(1);
     expect(io.stdoutOutput).to.equal("");
     expect(io.stderrOutput).to.equal(
-      "Error: Unknown option --yaml.\nUsage: npm run analyze -- [--json] <template.json|yaml|yml>\n"
+      "Error: Unknown option --yaml.\nUsage: npm run analyze -- [--json|--markdown] [--output <report.json|report.md>] <template.json|yaml|yml>\n"
+    );
+  });
+
+  it("reports conflicting export formats cleanly", () => {
+    const io = createTestIo();
+
+    const exitCode = main(["--json", "--markdown", "template.json"], io);
+
+    expect(exitCode).to.equal(1);
+    expect(io.stdoutOutput).to.equal("");
+    expect(io.stderrOutput).to.equal(
+      "Error: Choose either --json or --markdown, not both.\nUsage: npm run analyze -- [--json|--markdown] [--output <report.json|report.md>] <template.json|yaml|yml>\n"
     );
   });
 
@@ -119,6 +171,22 @@ function writeRawFixture(contents: string, fileName = "template.json"): string {
   });
 
   return templatePath;
+}
+
+function writeOutputPath(fileName: string): string {
+  const directory = mkdtempSync(join(tmpdir(), "infralens-cli-output-"));
+  const outputPath = join(directory, fileName);
+
+  process.on("exit", () => {
+    if (existsSync(directory)) {
+      rmSync(directory, {
+        force: true,
+        recursive: true
+      });
+    }
+  });
+
+  return outputPath;
 }
 
 function createTestIo() {

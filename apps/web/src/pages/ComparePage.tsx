@@ -1,6 +1,8 @@
 import { useRef, useState, type ChangeEvent, type RefObject } from "react";
+import { exportDiffReportToMarkdown } from "@infralens/shared";
 import type { ChangedResource, DiffReport, Finding, ResourceNode } from "@infralens/shared";
 import { compareTemplates } from "../api/compareTemplates";
+import { downloadTextFile } from "../downloadTextFile";
 
 const acceptedTemplateExtensions = [".json", ".yaml", ".yml"];
 
@@ -181,6 +183,27 @@ function TemplateInputPanel({
 function DiffReportView({ report }: { report: DiffReport }) {
   return (
     <div className="diff-report">
+      <div className="report-export-bar">
+        <div>
+          <h2>Diff Report</h2>
+          <p className="muted-note">Download this comparison as a Markdown report.</p>
+        </div>
+        <div className="report-export-actions">
+          <button
+            className="secondary-button"
+            onClick={() =>
+              downloadTextFile({
+                contents: exportDiffReportToMarkdown(report),
+                fileName: "infralens-diff-report.md",
+                mimeType: "text/markdown"
+              })
+            }
+            type="button"
+          >
+            Download Markdown
+          </button>
+        </div>
+      </div>
       <DiffSummary report={report} />
 
       <section className="diff-section">

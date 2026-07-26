@@ -441,6 +441,32 @@ h2 {
   gap: 28px;
 }
 
+.report-export-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid #dbe2ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 18px;
+}
+
+.report-export-bar h2 {
+  margin-bottom: 4px;
+}
+
+.report-export-bar p {
+  margin-bottom: 0;
+}
+
+.report-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .score-overview {
   display: grid;
   grid-template-columns: minmax(220px, 0.35fr) minmax(0, 1fr);
@@ -1222,6 +1248,19 @@ h2 {
   .policy-suggestion-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .report-export-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .report-export-actions {
+    justify-content: stretch;
+  }
+
+  .report-export-actions .secondary-button {
+    width: 100%;
   }
 
   .copy-policy-button {
