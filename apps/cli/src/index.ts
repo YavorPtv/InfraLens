@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { analyzeTemplate } from "@infralens/analyzer";
+import { exportAnalysisReportToJson, exportAnalysisReportToMarkdown } from "@infralens/shared";
 import { formatAnalysisReport } from "./formatReport";
 
 interface CliIo {
@@ -14,10 +15,13 @@ interface CliIo {
   };
 }
 
-const usage = "Usage: npm run analyze -- [--json] <template.json|yaml|yml>";
+const usage =
+  "Usage: npm run analyze -- [--json|--markdown] [--output <report.json|report.md>] <template.json|yaml|yml>";
 
 interface CliOptions {
   json: boolean;
+  markdown: boolean;
+  outputPath?: string;
   templatePath?: string;
   error?: string;
 }
@@ -47,7 +51,15 @@ export function main(argv: string[] = process.argv.slice(2), io: CliIo = process
 
   try {
     const report = analyzeTemplate(rawTemplate);
-    const output = options.json ? JSON.stringify(report, null, 2) : formatAnalysisReport(report);
+    const output = formatOutput(report, options);
+
+    if (options.outputPath !== undefined) {
+      const resolvedOutputPath = resolve(options.outputPath);
+      writeFileSync(resolvedOutputPath, `${output}\n`, "utf8");
+      io.stdout.write(`Report written to ${resolvedOutputPath}\n`);
+      return 0;
+    }
+
     io.stdout.write(`${output}\n`);
     return 0;
   } catch (error) {
@@ -58,12 +70,35 @@ export function main(argv: string[] = process.argv.slice(2), io: CliIo = process
 
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
-    json: false
+    json: false,
+    markdown: false
   };
 
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
     if (arg === "--json") {
       options.json = true;
+      continue;
+    }
+
+    if (arg === "--markdown") {
+      options.markdown = true;
+      continue;
+    }
+
+    if (arg === "--output") {
+      const outputPath = argv[index + 1];
+
+      if (outputPath === undefined || outputPath.startsWith("-")) {
+        return {
+          ...options,
+          error: "--output requires a file path."
+        };
+      }
+
+      options.outputPath = outputPath;
+      index += 1;
       continue;
     }
 
@@ -84,7 +119,26 @@ function parseArgs(argv: string[]): CliOptions {
     options.templatePath = arg;
   }
 
+  if (options.json && options.markdown) {
+    return {
+      ...options,
+      error: "Choose either --json or --markdown, not both."
+    };
+  }
+
   return options;
+}
+
+function formatOutput(report: ReturnType<typeof analyzeTemplate>, options: CliOptions): string {
+  if (options.json) {
+    return exportAnalysisReportToJson(report);
+  }
+
+  if (options.markdown) {
+    return exportAnalysisReportToMarkdown(report);
+  }
+
+  return formatAnalysisReport(report);
 }
 
 function getErrorMessage(error: unknown): string {
