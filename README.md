@@ -82,11 +82,25 @@ Print the full `AnalysisReport` as JSON:
 npm run analyze -- --json examples/order-service-risky-template.json
 ```
 
+Compare two templates and print a readable `DiffReport` summary:
+
+```sh
+npm run diff -- examples/simple-good-template.json examples/simple-bad-template.json
+```
+
+The same diff command also supports JSON and Markdown output:
+
+```sh
+npm run diff -- --json examples/simple-good-template.json examples/simple-bad-template.json
+npm run analyze -- --diff --markdown examples/simple-good-template.json examples/simple-bad-template.json
+```
+
 Windows PowerShell equivalent:
 
 ```powershell
 npm.cmd run analyze -- examples\order-service-risky-template.json
 npm.cmd run analyze -- --json examples\order-service-risky-template.json
+npm.cmd run diff -- examples\simple-good-template.json examples\simple-bad-template.json
 ```
 
 ## Run The API Locally
