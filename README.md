@@ -57,6 +57,17 @@ Run a full build:
 npm run build
 ```
 
+## CI
+
+GitHub Actions runs the same core workspace checks on pushes and pull requests:
+
+```sh
+npm ci
+npm run typecheck
+npm run test
+npm run build
+```
+
 ## Run The CLI
 
 Analyze a template with readable output:
