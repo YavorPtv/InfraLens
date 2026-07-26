@@ -4,7 +4,20 @@ import { join } from "node:path";
 import { expect } from "chai";
 import { main } from "../src";
 
+const tempDirectories: string[] = [];
+
 describe("CLI main", () => {
+  afterEach(() => {
+    for (const directory of tempDirectories.splice(0)) {
+      if (existsSync(directory)) {
+        rmSync(directory, {
+          force: true,
+          recursive: true
+        });
+      }
+    }
+  });
+
   it("prints the full analysis report as formatted JSON with --json", () => {
     const templatePath = writeTemplateFixture({
       Resources: {
@@ -68,6 +81,86 @@ describe("CLI main", () => {
     expect(readFileSync(outputPath, "utf8")).to.contain("# InfraLens Analysis Report");
   });
 
+  it("prints a readable diff report with --diff", () => {
+    const oldTemplatePath = writeTemplateFixture(createOldDiffTemplate(), "old-template.json");
+    const newTemplatePath = writeTemplateFixture(createNewDiffTemplate(), "new-template.json");
+    const io = createTestIo();
+
+    const exitCode = main(["--diff", oldTemplatePath, newTemplatePath], io);
+
+    expect(exitCode).to.equal(0);
+    expect(io.stderrOutput).to.equal("");
+    expect(io.stdoutOutput).to.contain("InfraLens Diff Summary");
+    expect(io.stdoutOutput).to.contain("Added resources:");
+    expect(io.stdoutOutput).to.contain("WildcardRole (AWS::IAM::Role)");
+    expect(io.stdoutOutput).to.contain("Removed resources:");
+    expect(io.stdoutOutput).to.contain("RetiredTable (AWS::DynamoDB::Table)");
+    expect(io.stdoutOutput).to.contain("Changed resources:");
+    expect(io.stdoutOutput).to.contain("ChangedTopic (AWS::SNS::Topic -> AWS::SNS::Topic)");
+    expect(io.stdoutOutput).to.contain("Newly introduced findings:");
+    expect(io.stdoutOutput).to.contain(
+      "[NEW HIGH RISK] WildcardRole - IAM policy allows wildcard actions on wildcard resources"
+    );
+    expect(io.stdoutOutput).to.contain("Resolved findings:");
+    expect(io.stdoutOutput).to.contain("DYNAMODB_MISSING_PITR");
+    expect(io.stdoutOutput).to.contain("Unchanged findings:");
+    expect(io.stdoutOutput).to.contain("SQS_MISSING_DLQ");
+  });
+
+  it("prints a diff report as JSON with --diff --json", () => {
+    const oldTemplatePath = writeTemplateFixture(createOldDiffTemplate(), "old-template.json");
+    const newTemplatePath = writeTemplateFixture(createNewDiffTemplate(), "new-template.json");
+    const io = createTestIo();
+
+    const exitCode = main(["--diff", "--json", oldTemplatePath, newTemplatePath], io);
+
+    expect(exitCode).to.equal(0);
+    expect(io.stderrOutput).to.equal("");
+
+    const report = JSON.parse(io.stdoutOutput);
+    expect(report.resources.added.map((resource: { id: string }) => resource.id)).to.deep.equal([
+      "WildcardRole"
+    ]);
+    expect(report.resources.removed.map((resource: { id: string }) => resource.id)).to.deep.equal([
+      "RetiredTable"
+    ]);
+    expect(
+      report.findings.introduced.map((finding: { ruleId: string }) => finding.ruleId)
+    ).to.deep.equal(["IAM_WILDCARD_PERMISSIONS"]);
+  });
+
+  it("prints a diff report as Markdown with --diff --markdown", () => {
+    const oldTemplatePath = writeTemplateFixture(createOldDiffTemplate(), "old-template.json");
+    const newTemplatePath = writeTemplateFixture(createNewDiffTemplate(), "new-template.json");
+    const io = createTestIo();
+
+    const exitCode = main(["--diff", "--markdown", oldTemplatePath, newTemplatePath], io);
+
+    expect(exitCode).to.equal(0);
+    expect(io.stderrOutput).to.equal("");
+    expect(io.stdoutOutput).to.contain("# InfraLens Diff Report");
+    expect(io.stdoutOutput).to.contain("### Added Resources");
+    expect(io.stdoutOutput).to.contain("### Introduced Findings");
+    expect(io.stdoutOutput).to.contain("IAM policy allows wildcard actions on wildcard resources");
+  });
+
+  it("writes diff output to a file with --diff --output", () => {
+    const oldTemplatePath = writeTemplateFixture(createOldDiffTemplate(), "old-template.json");
+    const newTemplatePath = writeTemplateFixture(createNewDiffTemplate(), "new-template.json");
+    const outputPath = writeOutputPath("diff-report.md");
+    const io = createTestIo();
+
+    const exitCode = main(
+      ["--diff", "--markdown", "--output", outputPath, oldTemplatePath, newTemplatePath],
+      io
+    );
+
+    expect(exitCode).to.equal(0);
+    expect(io.stderrOutput).to.equal("");
+    expect(io.stdoutOutput).to.contain(`Report written to ${outputPath}`);
+    expect(readFileSync(outputPath, "utf8")).to.contain("# InfraLens Diff Report");
+  });
+
   it("analyzes YAML template files", () => {
     const templatePath = writeRawFixture(
       `
@@ -124,9 +217,8 @@ Resources:
 
     expect(exitCode).to.equal(1);
     expect(io.stdoutOutput).to.equal("");
-    expect(io.stderrOutput).to.equal(
-      "Error: Unknown option --yaml.\nUsage: npm run analyze -- [--json|--markdown] [--output <report.json|report.md>] <template.json|yaml|yml>\n"
-    );
+    expect(io.stderrOutput).to.contain("Error: Unknown option --yaml.");
+    expect(io.stderrOutput).to.contain("Usage:");
   });
 
   it("reports conflicting export formats cleanly", () => {
@@ -136,9 +228,45 @@ Resources:
 
     expect(exitCode).to.equal(1);
     expect(io.stdoutOutput).to.equal("");
-    expect(io.stderrOutput).to.equal(
-      "Error: Choose either --json or --markdown, not both.\nUsage: npm run analyze -- [--json|--markdown] [--output <report.json|report.md>] <template.json|yaml|yml>\n"
+    expect(io.stderrOutput).to.contain("Error: Choose either --json or --markdown, not both.");
+    expect(io.stderrOutput).to.contain("Usage:");
+  });
+
+  it("reports missing diff template paths cleanly", () => {
+    const io = createTestIo();
+
+    const exitCode = main(["--diff", "old-template.json"], io);
+
+    expect(exitCode).to.equal(1);
+    expect(io.stdoutOutput).to.equal("");
+    expect(io.stderrOutput).to.contain(
+      "Error: Diff analysis requires old and new CloudFormation template paths."
     );
+    expect(io.stderrOutput).to.contain("Usage:");
+  });
+
+  it("reports missing old diff template files cleanly", () => {
+    const newTemplatePath = writeTemplateFixture(createNewDiffTemplate(), "new-template.json");
+    const io = createTestIo();
+
+    const exitCode = main(["--diff", "missing-old-template.json", newTemplatePath], io);
+
+    expect(exitCode).to.equal(1);
+    expect(io.stdoutOutput).to.equal("");
+    expect(io.stderrOutput).to.contain("Error: Could not read old template file at");
+  });
+
+  it("reports invalid diff templates cleanly", () => {
+    const oldTemplatePath = writeRawFixture(JSON.stringify({ Description: "No resources" }));
+    const newTemplatePath = writeTemplateFixture(createNewDiffTemplate(), "new-template.json");
+    const io = createTestIo();
+
+    const exitCode = main(["--diff", oldTemplatePath, newTemplatePath], io);
+
+    expect(exitCode).to.equal(1);
+    expect(io.stdoutOutput).to.equal("");
+    expect(io.stderrOutput).to.contain("Error: Could not compare CloudFormation templates.");
+    expect(io.stderrOutput).to.contain("missing Resources object");
   });
 
   it("reports invalid templates cleanly", () => {
@@ -154,21 +282,15 @@ Resources:
   });
 });
 
-function writeTemplateFixture(template: unknown): string {
-  return writeRawFixture(JSON.stringify(template));
+function writeTemplateFixture(template: unknown, fileName = "template.json"): string {
+  return writeRawFixture(JSON.stringify(template), fileName);
 }
 
 function writeRawFixture(contents: string, fileName = "template.json"): string {
   const directory = mkdtempSync(join(tmpdir(), "infralens-cli-"));
   const templatePath = join(directory, fileName);
+  tempDirectories.push(directory);
   writeFileSync(templatePath, contents);
-
-  process.on("exit", () => {
-    rmSync(directory, {
-      force: true,
-      recursive: true
-    });
-  });
 
   return templatePath;
 }
@@ -176,15 +298,7 @@ function writeRawFixture(contents: string, fileName = "template.json"): string {
 function writeOutputPath(fileName: string): string {
   const directory = mkdtempSync(join(tmpdir(), "infralens-cli-output-"));
   const outputPath = join(directory, fileName);
-
-  process.on("exit", () => {
-    if (existsSync(directory)) {
-      rmSync(directory, {
-        force: true,
-        recursive: true
-      });
-    }
-  });
+  tempDirectories.push(directory);
 
   return outputPath;
 }
@@ -206,4 +320,53 @@ function createTestIo() {
   };
 
   return io;
+}
+
+function createOldDiffTemplate(): unknown {
+  return {
+    Resources: {
+      WorkQueue: {
+        Type: "AWS::SQS::Queue"
+      },
+      RetiredTable: {
+        Type: "AWS::DynamoDB::Table"
+      },
+      ChangedTopic: {
+        Type: "AWS::SNS::Topic"
+      }
+    }
+  };
+}
+
+function createNewDiffTemplate(): unknown {
+  return {
+    Resources: {
+      WorkQueue: {
+        Type: "AWS::SQS::Queue"
+      },
+      ChangedTopic: {
+        Type: "AWS::SNS::Topic",
+        Properties: {
+          DisplayName: "Changed topic"
+        }
+      },
+      WildcardRole: {
+        Type: "AWS::IAM::Role",
+        Properties: {
+          Policies: [
+            {
+              PolicyName: "BroadAccess",
+              PolicyDocument: {
+                Statement: {
+                  Effect: "Allow",
+                  Action: "*",
+                  Resource: "*"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  };
 }
