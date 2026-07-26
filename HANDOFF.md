@@ -2,7 +2,7 @@
 
 ## Current Repo State
 
-- Current branch at handoff time: `master`
+- Current branch at handoff time: `main`
 - Working tree at handoff time: clean
 - Latest visible commits:
   - `e49c5ef Add template diff UI (#34)`
@@ -199,4 +199,3 @@ npm.cmd run analyze -- --json examples\order-service-risky-template.json
 - Add source inference display/evidence improvements in the least-privilege UI.
 - Add `POST /diff` support to deployed CDK API Gateway routes if not already connected in infrastructure.
 - Add tests or fixture docs for the Compare Templates page workflow.
-
