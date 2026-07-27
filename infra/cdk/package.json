@@ -6,7 +6,8 @@
     "build": "tsc -p tsconfig.json",
     "diff": "cdk diff",
     "synth": "cdk synth",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test": "mocha -r ts-node/register \"test/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.261.0",
