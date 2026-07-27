@@ -1,5 +1,10 @@
 import { useState } from "react";
-import type { CfnValue, PolicySuggestion, PolicySuggestionResourceCandidate } from "@infralens/shared";
+import type {
+  CfnValue,
+  PolicySuggestion,
+  PolicySuggestionResourceCandidate,
+  PolicySuggestionSourceActionEvidence
+} from "@infralens/shared";
 
 interface LeastPrivilegeSuggestionsProps {
   suggestions: PolicySuggestion[];
@@ -68,6 +73,8 @@ export function LeastPrivilegeSuggestions({ suggestions }: LeastPrivilegeSuggest
                 </div>
 
                 <p>{suggestion.explanation}</p>
+
+                <SourceInferenceEvidence suggestion={suggestion} />
 
                 <dl className="policy-suggestion-meta">
                   <div>
@@ -188,6 +195,104 @@ function SuggestedResources({ resources }: { resources: PolicySuggestionResource
   );
 }
 
+function SourceInferenceEvidence({ suggestion }: { suggestion: PolicySuggestion }) {
+  const sourceActions = suggestion.evidence.sourceActions ?? [];
+
+  if (sourceActions.length === 0) {
+    return (
+      <section className="source-inference-panel source-inference-template-only">
+        <div className="source-inference-heading">
+          <h4>Source Inference</h4>
+          <span className="source-kind-pill source-kind-template">Template-only</span>
+        </div>
+        <p>
+          This suggestion did not use source-code action inference. Resource narrowing is based on
+          CloudFormation references only.
+        </p>
+      </section>
+    );
+  }
+
+  const hasUncertainMapping = sourceActions.some((action) => action.confidence !== "high");
+
+  return (
+    <section
+      className={
+        hasUncertainMapping
+          ? "source-inference-panel source-inference-review"
+          : "source-inference-panel"
+      }
+    >
+      <div className="source-inference-heading">
+        <div>
+          <h4>Source Inference</h4>
+          <p>
+            Policy suggestion confidence and source-file mapping confidence are related signals,
+            but they are not the same thing.
+          </p>
+        </div>
+        <span className="source-kind-pill source-kind-source">Source-based</span>
+      </div>
+
+      {hasUncertainMapping ? (
+        <p className="source-review-warning">
+          Review source-file mapping before applying action narrowing.
+        </p>
+      ) : null}
+
+      <ul className="source-action-list">
+        {sourceActions.map((action) => (
+          <li key={`${action.filePath}-${action.action}-${action.matchedCommand}`}>
+            <div className="source-action-summary">
+              <strong>
+                Detected {action.matchedCommand} in {action.filePath}
+                {" -> "}
+                {action.action}
+              </strong>
+              <span
+                className={`source-mapping-pill source-mapping-${getMappingConfidence(action)}`}
+              >
+                {formatConfidence(getMappingConfidence(action))} mapping
+              </span>
+            </div>
+
+            <dl className="source-action-evidence">
+              <EvidenceItem label="Lambda logical ID" value={getMappedLambda(action)} />
+              <EvidenceItem label="Source file path" value={action.filePath} />
+              <EvidenceItem label="Detected SDK command" value={action.matchedCommand} />
+              <EvidenceItem label="Inferred IAM action" value={action.action} />
+              <EvidenceItem label="SDK command confidence" value="High" />
+              <EvidenceItem
+                label="Mapping confidence"
+                value={formatConfidence(getMappingConfidence(action))}
+              />
+              <EvidenceItem label="Mapping source" value={getMappingSourceLabel(action.evidence)} />
+              <EvidenceItem label="Mapping evidence" value={formatMappingEvidence(action)} />
+              <EvidenceItem
+                label="Related CloudFormation resource"
+                value={formatRelatedResources(suggestion.suggestedResources)}
+              />
+              <EvidenceItem
+                label="Resource evidence"
+                value={formatResourceEvidence(suggestion.suggestedResources)}
+              />
+            </dl>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function EvidenceItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+}
+
 function createOriginalPolicyStatement(suggestion: PolicySuggestion): PolicyStatementPreview {
   return {
     Effect: "Allow",
@@ -245,6 +350,90 @@ function formatPolicySource(suggestion: PolicySuggestion): string {
       : "attached policy resource";
 
   return `${policyName} (${source})`;
+}
+
+function getMappedLambda(action: PolicySuggestionSourceActionEvidence): string {
+  return action.lambdaFunctionId.length > 0 ? action.lambdaFunctionId : "Unknown";
+}
+
+function getMappingConfidence(
+  action: PolicySuggestionSourceActionEvidence
+): PolicySuggestionSourceActionEvidence["confidence"] {
+  return action.confidence;
+}
+
+function getMappingSourceLabel(evidence: string): string {
+  if (evidence.startsWith("sourceFileMappings.")) {
+    return "Explicit mapping";
+  }
+
+  if (evidence.includes(".Properties.Handler")) {
+    return "Handler match";
+  }
+
+  if (evidence.includes(".Properties.Code.")) {
+    return "Code path match";
+  }
+
+  if (evidence.includes(".Metadata.")) {
+    return "Metadata match";
+  }
+
+  if (evidence.startsWith("source file name matched")) {
+    return "File-name match";
+  }
+
+  if (evidence === "single Lambda function in template") {
+    return "Fallback inference";
+  }
+
+  return "Inference evidence";
+}
+
+function formatMappingEvidence(action: PolicySuggestionSourceActionEvidence): string {
+  const mappingSource = getMappingSourceLabel(action.evidence);
+
+  if (mappingSource === "Handler match") {
+    return `Mapped ${action.filePath} to ${action.lambdaFunctionId} from ${action.evidence}.`;
+  }
+
+  if (mappingSource === "Explicit mapping") {
+    return `${action.filePath} mapped to ${action.lambdaFunctionId} by explicit request input.`;
+  }
+
+  if (mappingSource === "File-name match") {
+    return `${action.filePath} mapped to ${action.lambdaFunctionId} from file-name matching.`;
+  }
+
+  if (mappingSource === "Fallback inference") {
+    return `${action.filePath} mapped to ${action.lambdaFunctionId} because the template has one Lambda.`;
+  }
+
+  return `${action.filePath} mapped to ${action.lambdaFunctionId} using ${action.evidence}.`;
+}
+
+function formatRelatedResources(resources: PolicySuggestionResourceCandidate[]): string {
+  if (resources.length === 0) {
+    return "No related CloudFormation resource inferred.";
+  }
+
+  return resources.map((resource) => resource.resourceId).join(", ");
+}
+
+function formatResourceEvidence(resources: PolicySuggestionResourceCandidate[]): string {
+  if (resources.length === 0) {
+    return "No resource reference evidence.";
+  }
+
+  return resources
+    .map((resource) => `${formatReferenceName(resource.referenceEvidencePath)} references ${resource.resourceId}`)
+    .join("; ");
+}
+
+function formatReferenceName(evidencePath: string): string {
+  const variableMatch = evidencePath.match(/\.Variables\.([^.[]+)/);
+
+  return variableMatch?.[1] ?? evidencePath;
 }
 
 function formatConfidence(confidence: PolicySuggestion["confidence"]): string {
