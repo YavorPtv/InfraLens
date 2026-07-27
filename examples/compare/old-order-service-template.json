@@ -1,0 +1,41 @@
+{
+  "Resources": {
+    "OrdersTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": "orders",
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "orderId",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "orderId",
+            "KeyType": "HASH"
+          }
+        ]
+      }
+    },
+    "OrderQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "QueueName": "order-processing"
+      }
+    },
+    "OrderLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": "/aws/lambda/order-service-worker"
+      }
+    },
+    "LegacyTopic": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": {
+        "TopicName": "legacy-order-events"
+      }
+    }
+  }
+}

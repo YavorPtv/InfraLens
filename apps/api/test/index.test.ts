@@ -1,5 +1,7 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { expect } from "chai";
 import type { AnalysisReport, DiffReport } from "@infralens/shared";
 import type { ApiErrorResponse } from "../src";
@@ -200,6 +202,43 @@ Resources:
     ]);
   });
 
+  it("returns expected compare workflow results from fixture templates", async () => {
+    const response = await postDiff({
+      oldTemplate: readExampleFixture("compare/old-order-service-template.json"),
+      newTemplate: readExampleFixture("compare/new-order-service-template.json")
+    });
+
+    expect(response.status).to.equal(200);
+
+    const report = await readJson<DiffReport>(response);
+    expect(report.resources.added.map((resource) => resource.id)).to.deep.equal([
+      "OrderDeadLetterQueue",
+      "OrdersApi",
+      "OrdersResource",
+      "PublicOrdersMethod",
+      "ReportRole",
+      "UploadBucket"
+    ]);
+    expect(report.resources.removed.map((resource) => resource.id)).to.deep.equal([
+      "LegacyTopic"
+    ]);
+    expect(report.resources.changed.map((resource) => resource.resourceId)).to.deep.equal([
+      "OrdersTable",
+      "OrderQueue",
+      "OrderLogGroup"
+    ]);
+    expect(report.findings.introduced.map(toFindingLabel)).to.have.members([
+      "IAM_WILDCARD_PERMISSIONS:ReportRole",
+      "S3_PUBLIC_ACCESS_BLOCK_MISSING:UploadBucket",
+      "API_GATEWAY_METHOD_NO_AUTH:PublicOrdersMethod"
+    ]);
+    expect(report.findings.resolved.map(toFindingLabel)).to.have.members([
+      "DYNAMODB_MISSING_PITR:OrdersTable",
+      "SQS_MISSING_DLQ:OrderQueue",
+      "LOG_GROUP_MISSING_RETENTION:OrderLogGroup"
+    ]);
+  });
+
   it("returns a useful error for a missing diff request body", async () => {
     const response = await fetch(`${baseUrl}/diff`, {
       method: "POST"
@@ -287,6 +326,10 @@ async function readJson<T>(response: Response): Promise<T> {
 
 function toFindingLabel(finding: { ruleId: string; resourceId: string }): string {
   return `${finding.ruleId}:${finding.resourceId}`;
+}
+
+function readExampleFixture(fixtureName: string): string {
+  return readFileSync(resolve("../../examples", fixtureName), "utf8");
 }
 
 function lambdaDynamoTemplate(): Record<string, unknown> {
