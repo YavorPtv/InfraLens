@@ -34,6 +34,7 @@ export interface ApiErrorResponse {
 export interface AnalyzeApiRequest {
   template: string;
   sourceFiles?: Record<string, string>;
+  sourceFileMappings?: Record<string, string>;
 }
 
 export interface DiffApiRequest {
@@ -65,7 +66,14 @@ export function analyzeCloudFormationBody(
   try {
     return analyze(
       request.template,
-      request.sourceFiles === undefined ? {} : { sourceFiles: request.sourceFiles }
+      request.sourceFiles === undefined && request.sourceFileMappings === undefined
+        ? {}
+        : {
+            ...(request.sourceFiles === undefined ? {} : { sourceFiles: request.sourceFiles }),
+            ...(request.sourceFileMappings === undefined
+              ? {}
+              : { sourceFileMappings: request.sourceFileMappings })
+          }
     );
   } catch (error) {
     if (isInvalidTemplateError(error)) {
@@ -135,10 +143,12 @@ function parseAnalyzeApiRequest(rawBody: string): AnalyzeApiRequest {
   }
 
   const sourceFiles = parseSourceFiles(parsedBody.sourceFiles);
+  const sourceFileMappings = parseSourceFileMappings(parsedBody.sourceFileMappings);
 
   return {
     template: parsedBody.template,
-    ...(sourceFiles === undefined ? {} : { sourceFiles })
+    ...(sourceFiles === undefined ? {} : { sourceFiles }),
+    ...(sourceFileMappings === undefined ? {} : { sourceFileMappings })
   };
 }
 
@@ -211,6 +221,36 @@ function parseSourceFiles(value: unknown): Record<string, string> | undefined {
   }
 
   return sourceFiles;
+}
+
+function parseSourceFileMappings(value: unknown): Record<string, string> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    throw new ApiRequestError(
+      400,
+      "INVALID_TEMPLATE",
+      "sourceFileMappings must be an object with source file paths as keys and Lambda logical ids as values."
+    );
+  }
+
+  const sourceFileMappings: Record<string, string> = {};
+
+  for (const [filePath, lambdaFunctionId] of Object.entries(value)) {
+    if (typeof lambdaFunctionId !== "string" || lambdaFunctionId.trim().length === 0) {
+      throw new ApiRequestError(
+        400,
+        "INVALID_TEMPLATE",
+        "sourceFileMappings must be an object with source file paths as keys and Lambda logical ids as values."
+      );
+    }
+
+    sourceFileMappings[filePath] = lambdaFunctionId;
+  }
+
+  return sourceFileMappings;
 }
 
 export function toApiRequestError(error: unknown): ApiRequestError {

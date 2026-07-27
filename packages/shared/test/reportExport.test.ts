@@ -160,7 +160,10 @@ function createAnalysisReport(overrides: Partial<AnalysisReport> = {}): Analysis
             {
               action: "dynamodb:GetItem",
               filePath: "handler.ts",
-              matchedCommand: "GetCommand"
+              lambdaFunctionId: "AppFunction",
+              matchedCommand: "GetCommand",
+              confidence: "medium",
+              evidence: "Resources.AppFunction.Properties.Handler"
             }
           ]
         }

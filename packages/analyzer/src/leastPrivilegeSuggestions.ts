@@ -195,6 +195,7 @@ function createSuggestionsForStatement(
 
     const sourceActions = findSourceActionsForService(
       sourceActionInferences,
+      lambdaRole.lambdaFunctionId,
       service.service,
       matchingActions
     );
@@ -273,6 +274,7 @@ function isActionForService(action: string, service: string): boolean {
 
 function findSourceActionsForService(
   sourceActionInferences: SourceCodeActionInference[],
+  lambdaFunctionId: string,
   service: PolicySuggestion["service"],
   policyActions: string[]
 ): PolicySuggestionSourceActionEvidence[] {
@@ -280,6 +282,7 @@ function findSourceActionsForService(
 
   for (const inference of sourceActionInferences) {
     if (
+      inference.lambdaFunctionId !== lambdaFunctionId ||
       !isActionForService(inference.action, service) ||
       !policyActions.some((policyAction) => actionCovers(policyAction, inference.action)) ||
       sourceActionsByAction.has(inference.action)
@@ -290,7 +293,10 @@ function findSourceActionsForService(
     sourceActionsByAction.set(inference.action, {
       action: inference.action,
       filePath: inference.filePath,
-      matchedCommand: inference.matchedCommand
+      lambdaFunctionId: inference.lambdaFunctionId,
+      matchedCommand: inference.matchedCommand,
+      confidence: inference.confidence,
+      evidence: inference.evidence
     });
   }
 

@@ -98,7 +98,10 @@ export interface PolicySuggestionEvidence {
 export interface PolicySuggestionSourceActionEvidence {
   action: string;
   filePath: string;
+  lambdaFunctionId: ResourceId;
   matchedCommand: string;
+  confidence: "low" | "medium" | "high";
+  evidence: EvidencePath;
 }
 
 export interface PolicySuggestion {

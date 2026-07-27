@@ -60,10 +60,13 @@ Resources:
       body: JSON.stringify({
         template: JSON.stringify(lambdaDynamoTemplate()),
         sourceFiles: {
-          "handler.ts": `
+          "src/order-handler.ts": `
             await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));
             await client.send(new PutCommand({ TableName: process.env.TABLE_NAME }));
           `
+        },
+        sourceFileMappings: {
+          "src/order-handler.ts": "AppFunction"
         }
       })
     });
@@ -87,13 +90,19 @@ Resources:
     expect(report.leastPrivilegeSuggestions[0].evidence.sourceActions).to.deep.equal([
       {
         action: "dynamodb:GetItem",
-        filePath: "handler.ts",
-        matchedCommand: "GetCommand"
+        filePath: "src/order-handler.ts",
+        lambdaFunctionId: "AppFunction",
+        matchedCommand: "GetCommand",
+        confidence: "high",
+        evidence: "sourceFileMappings.src/order-handler.ts"
       },
       {
         action: "dynamodb:PutItem",
-        filePath: "handler.ts",
-        matchedCommand: "PutCommand"
+        filePath: "src/order-handler.ts",
+        lambdaFunctionId: "AppFunction",
+        matchedCommand: "PutCommand",
+        confidence: "high",
+        evidence: "sourceFileMappings.src/order-handler.ts"
       }
     ]);
   });

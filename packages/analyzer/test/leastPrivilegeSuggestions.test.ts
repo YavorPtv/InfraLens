@@ -102,6 +102,11 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
         await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));
         await client.send(new PutCommand({ TableName: process.env.TABLE_NAME }));
       `
+    }, {
+      template,
+      sourceFileMappings: {
+        "src/order-handler.ts": "AppFunction"
+      }
     });
 
     expect(
@@ -154,12 +159,18 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
             {
               action: "dynamodb:GetItem",
               filePath: "src/order-handler.ts",
-              matchedCommand: "GetCommand"
+              lambdaFunctionId: "AppFunction",
+              matchedCommand: "GetCommand",
+              confidence: "high",
+              evidence: "sourceFileMappings.src/order-handler.ts"
             },
             {
               action: "dynamodb:PutItem",
               filePath: "src/order-handler.ts",
-              matchedCommand: "PutCommand"
+              lambdaFunctionId: "AppFunction",
+              matchedCommand: "PutCommand",
+              confidence: "high",
+              evidence: "sourceFileMappings.src/order-handler.ts"
             }
           ]
         }

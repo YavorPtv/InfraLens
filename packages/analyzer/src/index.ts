@@ -37,7 +37,10 @@ export { findPubliclyReachableResources } from "./publicReachability";
 export { buildRuntimeArchitectureGraph } from "./runtimeGraph";
 export {
   inferIamActionsFromSourceCode,
-  type SourceCodeActionInference
+  type InferIamActionsFromSourceCodeOptions,
+  type SourceCodeActionInference,
+  type SourceCodeActionInferenceConfidence,
+  type SourceFileLambdaMapping
 } from "./sourceCodeAnalysis";
 export {
   analyzeTemplateDiff,

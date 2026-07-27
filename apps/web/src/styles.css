@@ -281,6 +281,13 @@ h2 {
   padding: 10px 12px;
 }
 
+.source-file-details {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 8px;
+}
+
 .source-file-list span {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -288,6 +295,21 @@ h2 {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 13px;
   font-weight: 700;
+}
+
+.source-file-mapping-input {
+  width: min(100%, 320px);
+  border: 1px solid #cad4e0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172033;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.source-file-mapping-input:focus {
+  border-color: #1f6feb;
+  outline: 3px solid #dbe9ff;
 }
 
 .text-button {
@@ -1275,6 +1297,15 @@ h2 {
   .input-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .source-file-list li {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .source-file-mapping-input {
+    width: 100%;
   }
 
   h1 {
