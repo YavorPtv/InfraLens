@@ -6,8 +6,9 @@ Initial AWS CDK skeleton for hosting InfraLens.
 
 - S3 bucket for frontend build artifacts
 - CloudFront distribution in front of the frontend bucket
-- Lambda function bundled from the API analyze handler
+- Lambda function bundled from the API handler
 - API Gateway REST API with `POST /analyze`
+- API Gateway REST API with `POST /diff`
 - API Gateway REST API with `GET /health`
 
 CloudFront is configured with an SPA fallback so routes such as `/analyze` and `/report` return `index.html` on browser refresh.
@@ -35,6 +36,7 @@ After deployment, get these stack outputs:
 - `FrontendDistributionDomainName`
 - `FrontendDistributionId`
 - `AnalysisApiBaseUrl`
+- `AnalysisDiffApiUrl`
 
 Build the React app with the deployed API Gateway base URL:
 

@@ -154,6 +154,42 @@ Resources:
     ]);
   });
 
+  it("returns a 400 error for a missing diff request body", async () => {
+    const response = await createAnalyzeLambdaHandler()({
+      httpMethod: "POST",
+      path: "/diff"
+    });
+
+    expect(response.statusCode).to.equal(400);
+    expect(readJson<ApiErrorResponse>(response)).to.deep.equal({
+      error: {
+        code: "MISSING_BODY",
+        message: "Request body is required."
+      }
+    });
+  });
+
+  it("returns a 400 error for invalid diff input", async () => {
+    const response = await createAnalyzeLambdaHandler()({
+      httpMethod: "POST",
+      path: "/diff",
+      body: JSON.stringify({
+        oldTemplate: "",
+        newTemplate: JSON.stringify({
+          Resources: {}
+        })
+      })
+    });
+
+    expect(response.statusCode).to.equal(400);
+    expect(readJson<ApiErrorResponse>(response)).to.deep.equal({
+      error: {
+        code: "INVALID_TEMPLATE",
+        message: "Request body must include a non-empty oldTemplate string."
+      }
+    });
+  });
+
   it("decodes base64 request bodies", async () => {
     const rawBody = JSON.stringify({
       Resources: {
@@ -258,7 +294,7 @@ Resources:
     expect(readJson<ApiErrorResponse>(response)).to.deep.equal({
       error: {
         code: "NOT_FOUND",
-        message: "Use POST /analyze."
+        message: "Use POST /analyze or POST /diff."
       }
     });
   });

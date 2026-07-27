@@ -102,8 +102,7 @@ export class InfraLensStack extends cdk.Stack {
       }
     );
 
-    const analyzeResource = api.root.addResource("analyze");
-    analyzeResource.addMethod("POST", new apigateway.LambdaIntegration(analysisFunction));
+    addAnalysisApiRoutes(api, analysisFunction);
 
     cdk.Tags.of(this).add("Project", "InfraLens");
 
@@ -119,8 +118,22 @@ export class InfraLensStack extends cdk.Stack {
     new cdk.CfnOutput(this, "AnalysisApiUrl", {
       value: `${api.url}analyze`
     });
+    new cdk.CfnOutput(this, "AnalysisDiffApiUrl", {
+      value: `${api.url}diff`
+    });
     new cdk.CfnOutput(this, "AnalysisApiBaseUrl", {
       value: api.url
     });
   }
+}
+
+export function addAnalysisApiRoutes(
+  api: apigateway.RestApi,
+  analysisFunction: lambda.IFunction
+): void {
+  const analyzeResource = api.root.addResource("analyze");
+  analyzeResource.addMethod("POST", new apigateway.LambdaIntegration(analysisFunction));
+
+  const diffResource = api.root.addResource("diff");
+  diffResource.addMethod("POST", new apigateway.LambdaIntegration(analysisFunction));
 }

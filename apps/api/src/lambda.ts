@@ -53,7 +53,7 @@ export function createAnalyzeLambdaHandler(
       return jsonResponse(405, {
         error: {
           code: "NOT_FOUND",
-          message: "Use POST /analyze."
+          message: "Use POST /analyze or POST /diff."
         }
       });
     }
