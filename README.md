@@ -118,6 +118,7 @@ Endpoints:
 
 - `GET /health`
 - `POST /analyze`
+- `POST /diff`
 
 `POST /analyze` accepts raw CloudFormation JSON or YAML in the request body and returns an `AnalysisReport`.
 
@@ -133,6 +134,17 @@ It also accepts an optional JSON envelope when Lambda source files should be ana
 ```
 
 Source files are not stored. They are scanned only for supported AWS SDK command names that map to IAM actions.
+
+`POST /diff` accepts old and new template strings and returns a `DiffReport`:
+
+```json
+{
+  "oldTemplate": "{ \"Resources\": {} }",
+  "newTemplate": "{ \"Resources\": {} }"
+}
+```
+
+For a compare workflow demo, use `examples/compare/old-order-service-template.json` and `examples/compare/new-order-service-template.json`. The fixture README documents the expected added, removed, changed, introduced, and resolved results.
 
 ## Run The Web App Locally
 
@@ -164,6 +176,13 @@ For a quick demo, upload:
 - `examples/order-handler-source.ts` as the Lambda source file
 
 The source file contains DynamoDB `GetCommand` and `PutCommand` usages, so the least-privilege suggestion can narrow `dynamodb:*` to `dynamodb:GetItem` and `dynamodb:PutItem`.
+
+On the Compare Templates page, paste:
+
+- `examples/compare/old-order-service-template.json` into the old template field
+- `examples/compare/new-order-service-template.json` into the new template field
+
+The expected results are documented in `examples/compare/README.md`.
 
 ## Current Supported AWS Resources And Signals
 
