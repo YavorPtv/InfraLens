@@ -41,6 +41,7 @@ const severityWeights: Record<Severity, number> = {
 
 export interface AnalyzeTemplateOptions {
   sourceFiles?: Record<string, string>;
+  sourceFileMappings?: Record<string, string>;
 }
 
 export function analyzeTemplate(
@@ -58,7 +59,10 @@ export function analyzeTemplate(
   const sourceActionInferences =
     options.sourceFiles === undefined
       ? []
-      : inferIamActionsFromSourceCode(options.sourceFiles);
+      : inferIamActionsFromSourceCode(options.sourceFiles, {
+          template,
+          sourceFileMappings: options.sourceFileMappings
+        });
   const leastPrivilegeSuggestions = generateLeastPrivilegeResourceSuggestions(template, {
     sourceActionInferences
   });

@@ -193,12 +193,13 @@ Resources:
     const report = analyzeTemplate(
       JSON.stringify({
         Resources: {
-          AppFunction: {
-            Type: "AWS::Lambda::Function",
-            Properties: {
-              Role: {
-                "Fn::GetAtt": ["AppRole", "Arn"]
-              },
+      AppFunction: {
+        Type: "AWS::Lambda::Function",
+        Properties: {
+          Handler: "handler.handler",
+          Role: {
+            "Fn::GetAtt": ["AppRole", "Arn"]
+          },
               Environment: {
                 Variables: {
                   TABLE_NAME: {
@@ -254,6 +255,7 @@ Resources:
           AppFunction: {
             Type: "AWS::Lambda::Function",
             Properties: {
+              Handler: "handler.handler",
               Role: {
                 "Fn::GetAtt": ["AppRole", "Arn"]
               },
@@ -319,12 +321,155 @@ Resources:
       {
         action: "dynamodb:GetItem",
         filePath: "handler.ts",
-        matchedCommand: "GetCommand"
+        lambdaFunctionId: "AppFunction",
+        matchedCommand: "GetCommand",
+        confidence: "medium",
+        evidence: "Resources.AppFunction.Properties.Handler"
       },
       {
         action: "dynamodb:PutItem",
         filePath: "handler.ts",
-        matchedCommand: "PutCommand"
+        lambdaFunctionId: "AppFunction",
+        matchedCommand: "PutCommand",
+        confidence: "medium",
+        evidence: "Resources.AppFunction.Properties.Handler"
+      }
+    ]);
+  });
+
+  it("keeps source actions scoped to the Lambda function that owns the source file", () => {
+    const report = analyzeTemplate(
+      JSON.stringify({
+        Resources: {
+          OrdersFunction: {
+            Type: "AWS::Lambda::Function",
+            Properties: {
+              Handler: "handlers/orders.handler",
+              Role: {
+                "Fn::GetAtt": ["OrdersRole", "Arn"]
+              },
+              Environment: {
+                Variables: {
+                  TABLE_NAME: {
+                    Ref: "OrdersTable"
+                  }
+                }
+              }
+            }
+          },
+          OrdersRole: {
+            Type: "AWS::IAM::Role",
+            Properties: {
+              Policies: [
+                {
+                  PolicyName: "OrdersAccess",
+                  PolicyDocument: {
+                    Statement: {
+                      Effect: "Allow",
+                      Action: "dynamodb:*",
+                      Resource: "*"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          OrdersTable: {
+            Type: "AWS::DynamoDB::Table",
+            Properties: {
+              PointInTimeRecoverySpecification: {
+                PointInTimeRecoveryEnabled: true
+              }
+            }
+          },
+          QueuePublisherFunction: {
+            Type: "AWS::Lambda::Function",
+            Properties: {
+              Handler: "handlers/publisher.handler",
+              Role: {
+                "Fn::GetAtt": ["QueuePublisherRole", "Arn"]
+              },
+              Environment: {
+                Variables: {
+                  QUEUE_URL: {
+                    Ref: "WorkQueue"
+                  }
+                }
+              }
+            }
+          },
+          QueuePublisherRole: {
+            Type: "AWS::IAM::Role",
+            Properties: {
+              Policies: [
+                {
+                  PolicyName: "QueueAccess",
+                  PolicyDocument: {
+                    Statement: {
+                      Effect: "Allow",
+                      Action: "sqs:*",
+                      Resource: "*"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          WorkQueue: {
+            Type: "AWS::SQS::Queue",
+            Properties: {
+              RedrivePolicy: {
+                deadLetterTargetArn: {
+                  "Fn::GetAtt": ["DeadLetterQueue", "Arn"]
+                },
+                maxReceiveCount: 3
+              }
+            }
+          },
+          DeadLetterQueue: {
+            Type: "AWS::SQS::Queue"
+          }
+        }
+      }),
+      {
+        sourceFiles: {
+          "handlers/orders.ts": `
+            await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));
+          `,
+          "handlers/publisher.ts": `
+            await client.send(new SendMessageCommand({ QueueUrl: process.env.QUEUE_URL }));
+          `
+        }
+      }
+    );
+
+    const ordersSuggestion = report.leastPrivilegeSuggestions.find(
+      (suggestion) => suggestion.lambdaFunctionId === "OrdersFunction"
+    );
+    const queueSuggestion = report.leastPrivilegeSuggestions.find(
+      (suggestion) => suggestion.lambdaFunctionId === "QueuePublisherFunction"
+    );
+
+    expect(ordersSuggestion?.suggestedActions).to.deep.equal(["dynamodb:GetItem"]);
+    expect(ordersSuggestion?.evidence.sourceActions).to.deep.equal([
+      {
+        action: "dynamodb:GetItem",
+        filePath: "handlers/orders.ts",
+        lambdaFunctionId: "OrdersFunction",
+        matchedCommand: "GetCommand",
+        confidence: "medium",
+        evidence: "Resources.OrdersFunction.Properties.Handler"
+      }
+    ]);
+    expect(queueSuggestion?.suggestedActions).to.deep.equal(["sqs:SendMessage"]);
+    expect(queueSuggestion?.evidence.sourceActions).to.deep.equal([
+      {
+        action: "sqs:SendMessage",
+        filePath: "handlers/publisher.ts",
+        lambdaFunctionId: "QueuePublisherFunction",
+        matchedCommand: "SendMessageCommand",
+        confidence: "medium",
+        evidence: "Resources.QueuePublisherFunction.Properties.Handler"
       }
     ]);
   });

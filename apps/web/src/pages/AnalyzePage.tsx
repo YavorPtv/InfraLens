@@ -9,6 +9,7 @@ const acceptedSourceExtensions = [".ts", ".js", ".mjs", ".cjs"];
 interface SourceFileInput {
   path: string;
   content: string;
+  lambdaFunctionId?: string;
 }
 
 export function AnalyzePage() {
@@ -76,7 +77,8 @@ export function AnalyzePage() {
     try {
       const report = await analyzeTemplate({
         templateInput,
-        sourceFiles: toSourceFileMap(sourceFiles)
+        sourceFiles: toSourceFileMap(sourceFiles),
+        sourceFileMappings: toSourceFileMappings(sourceFiles)
       });
       setReport(report);
       navigate("/report");
@@ -175,7 +177,28 @@ export function AnalyzePage() {
           <ul className="source-file-list" aria-label="Selected source files">
             {sourceFiles.map((file) => (
               <li key={file.path}>
-                <span>{file.path}</span>
+                <div className="source-file-details">
+                  <span>{file.path}</span>
+                  <input
+                    aria-label={`Lambda logical ID for ${file.path}`}
+                    className="source-file-mapping-input"
+                    onChange={(event) => {
+                      setSourceFiles((currentFiles) =>
+                        currentFiles.map((currentFile) =>
+                          currentFile.path === file.path
+                            ? {
+                                ...currentFile,
+                                lambdaFunctionId: event.target.value
+                              }
+                            : currentFile
+                        )
+                      );
+                    }}
+                    placeholder="Lambda logical ID"
+                    type="text"
+                    value={file.lambdaFunctionId ?? ""}
+                  />
+                </div>
                 <button
                   className="text-button"
                   onClick={() => {
@@ -252,4 +275,16 @@ function toSourceFileMap(sourceFiles: SourceFileInput[]): Record<string, string>
   }
 
   return Object.fromEntries(sourceFiles.map((file) => [file.path, file.content]));
+}
+
+function toSourceFileMappings(sourceFiles: SourceFileInput[]): Record<string, string> | undefined {
+  const mappings = sourceFiles.flatMap((file) => {
+    const lambdaFunctionId = file.lambdaFunctionId?.trim();
+
+    return lambdaFunctionId === undefined || lambdaFunctionId.length === 0
+      ? []
+      : [[file.path, lambdaFunctionId] as const];
+  });
+
+  return mappings.length === 0 ? undefined : Object.fromEntries(mappings);
 }

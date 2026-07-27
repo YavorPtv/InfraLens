@@ -18,17 +18,23 @@ describe("inferIamActionsFromSourceCode", () => {
       {
         action: "dynamodb:GetItem",
         filePath: "src/handler.ts",
-        matchedCommand: "GetCommand"
+        matchedCommand: "GetCommand",
+        confidence: "low",
+        evidence: "No Lambda source mapping found for src/handler.ts."
       },
       {
         action: "dynamodb:PutItem",
         filePath: "src/handler.ts",
-        matchedCommand: "PutCommand"
+        matchedCommand: "PutCommand",
+        confidence: "low",
+        evidence: "No Lambda source mapping found for src/handler.ts."
       },
       {
         action: "sqs:SendMessage",
         filePath: "src/handler.ts",
-        matchedCommand: "SendMessageCommand"
+        matchedCommand: "SendMessageCommand",
+        confidence: "low",
+        evidence: "No Lambda source mapping found for src/handler.ts."
       }
     ]);
   });
@@ -47,12 +53,91 @@ describe("inferIamActionsFromSourceCode", () => {
       {
         action: "dynamodb:Query",
         filePath: "src/orders.ts",
-        matchedCommand: "QueryCommand"
+        matchedCommand: "QueryCommand",
+        confidence: "low",
+        evidence: "No Lambda source mapping found for src/orders.ts."
       },
       {
         action: "s3:PutObject",
         filePath: "src/uploads.ts",
-        matchedCommand: "PutObjectCommand"
+        matchedCommand: "PutObjectCommand",
+        confidence: "low",
+        evidence: "No Lambda source mapping found for src/uploads.ts."
+      }
+    ]);
+  });
+
+  it("maps source files to Lambda functions from handler paths", () => {
+    const inferences = inferIamActionsFromSourceCode(
+      {
+        "src/orders.ts": `
+          await client.send(new GetCommand({ TableName: "Orders" }));
+        `
+      },
+      {
+        template: {
+          Resources: {
+            OrdersFunction: {
+              Type: "AWS::Lambda::Function",
+              Properties: {
+                Handler: "src/orders.handler"
+              }
+            }
+          }
+        }
+      }
+    );
+
+    expect(inferences).to.deep.equal([
+      {
+        action: "dynamodb:GetItem",
+        filePath: "src/orders.ts",
+        lambdaFunctionId: "OrdersFunction",
+        matchedCommand: "GetCommand",
+        confidence: "medium",
+        evidence: "Resources.OrdersFunction.Properties.Handler"
+      }
+    ]);
+  });
+
+  it("uses explicit source file mappings before automatic mappings", () => {
+    const inferences = inferIamActionsFromSourceCode(
+      {
+        "src/shared.ts": `
+          await client.send(new SendMessageCommand({ QueueUrl: queueUrl }));
+        `
+      },
+      {
+        template: {
+          Resources: {
+            OrdersFunction: {
+              Type: "AWS::Lambda::Function",
+              Properties: {
+                Handler: "src/orders.handler"
+              }
+            },
+            QueueFunction: {
+              Type: "AWS::Lambda::Function",
+              Properties: {
+                Handler: "src/queue.handler"
+              }
+            }
+          }
+        },
+        sourceFileMappings: {
+          "src/shared.ts": "QueueFunction"
+        }
+      }
+    );
+
+    expect(inferences).to.deep.equal([
+      {
+        action: "sqs:SendMessage",
+        filePath: "src/shared.ts",
+        lambdaFunctionId: "QueueFunction",
+        matchedCommand: "SendMessageCommand",
+        confidence: "high",
+        evidence: "sourceFileMappings.src/shared.ts"
       }
     ]);
   });
@@ -117,7 +202,9 @@ describe("inferIamActionsFromSourceCode", () => {
       {
         action: "s3:GetObject",
         filePath: "src/repeated.ts",
-        matchedCommand: "GetObjectCommand"
+        matchedCommand: "GetObjectCommand",
+        confidence: "low",
+        evidence: "No Lambda source mapping found for src/repeated.ts."
       }
     ]);
   });
