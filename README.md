@@ -242,3 +242,5 @@ Source-code inference does not parse ASTs yet and does not prove which Lambda ow
 - Least-privilege suggestions are conservative and only cover a small set of services.
 - Uploaded source files are analyzed in request memory only; there is no source-code storage workflow.
 - Graph layout is optimized for readability, but infrastructure diagrams cannot be made perfect for every possible template.
+- InfraLens can detect AWS SDK usage in uploaded source files, but it cannot always safely assign actions from shared imported files to a specific Lambda unless the Lambda-to-file import relationship is known.
+- InfraLens can show suggestions, but it cannot yet apply selected fixes to automatically generate an improved CloudFormation template for the user to review or compare.

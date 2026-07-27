@@ -20,6 +20,7 @@ export interface SourceFileLambdaMapping {
 export interface InferIamActionsFromSourceCodeOptions {
   template?: CfnTemplate;
   sourceFileMappings?: Record<string, string>;
+  sourceFileExclusions?: string[];
 }
 
 interface AwsSdkCommandActionMapping {
@@ -79,9 +80,12 @@ export function inferIamActionsFromSourceCode(
   options: InferIamActionsFromSourceCodeOptions = {}
 ): SourceCodeActionInference[] {
   const sourceFileMappings = mapSourceFilesToLambdaFunctions(files, options);
+  const sourceFileExclusions = new Set(options.sourceFileExclusions ?? []);
 
   return Object.entries(files).flatMap(([filePath, sourceCode]) =>
-    inferIamActionsFromSourceFile(filePath, sourceCode, sourceFileMappings.get(filePath))
+    sourceFileExclusions.has(filePath)
+      ? []
+      : inferIamActionsFromSourceFile(filePath, sourceCode, sourceFileMappings.get(filePath))
   );
 }
 
@@ -114,8 +118,13 @@ function mapSourceFilesToLambdaFunctions(
 ): Map<string, SourceFileLambdaMapping> {
   const mappings = new Map<string, SourceFileLambdaMapping>();
   const lambdaFunctions = getLambdaFunctions(options.template);
+  const sourceFileExclusions = new Set(options.sourceFileExclusions ?? []);
 
   for (const filePath of Object.keys(files)) {
+    if (sourceFileExclusions.has(filePath)) {
+      continue;
+    }
+
     const explicitMapping = getExplicitMapping(filePath, options.sourceFileMappings, lambdaFunctions);
     if (explicitMapping !== undefined) {
       mappings.set(filePath, explicitMapping);

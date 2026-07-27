@@ -142,6 +142,31 @@ describe("inferIamActionsFromSourceCode", () => {
     ]);
   });
 
+  it("excludes source files marked as shared from Lambda-specific inference", () => {
+    const inferences = inferIamActionsFromSourceCode(
+      {
+        "src/shared.ts": `
+          await client.send(new SendMessageCommand({ QueueUrl: queueUrl }));
+        `
+      },
+      {
+        template: {
+          Resources: {
+            QueueFunction: {
+              Type: "AWS::Lambda::Function",
+              Properties: {
+                Handler: "src/shared.handler"
+              }
+            }
+          }
+        },
+        sourceFileExclusions: ["src/shared.ts"]
+      }
+    );
+
+    expect(inferences).to.deep.equal([]);
+  });
+
   it("supports the initial command-to-action mapping", () => {
     const commandNames = [
       "GetCommand",

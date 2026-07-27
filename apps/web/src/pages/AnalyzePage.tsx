@@ -1,15 +1,24 @@
-import { useRef, useState, type ChangeEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { analyzeTemplate } from "../api/analyzeTemplate";
 import { useAnalysisReport } from "../reportState";
 
 const acceptedTemplateExtensions = [".json", ".yaml", ".yml"];
 const acceptedSourceExtensions = [".ts", ".js", ".mjs", ".cjs"];
+const autoDetectMappingValue = "__auto_detect__";
+const sharedSourceMappingValue = "__shared_source__";
+const manualMappingValue = "__manual_lambda_id__";
 
 interface SourceFileInput {
   path: string;
   content: string;
-  lambdaFunctionId?: string;
+  mappingSelection: string;
+  manualLambdaFunctionId?: string;
+}
+
+interface UploadedSourceFileInput {
+  path: string;
+  content: string;
 }
 
 export function AnalyzePage() {
@@ -21,6 +30,10 @@ export function AnalyzePage() {
   const sourceFileInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
   const { setReport } = useAnalysisReport();
+  const lambdaLogicalIds = useMemo(
+    () => extractLambdaLogicalIds(templateInput),
+    [templateInput]
+  );
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
@@ -78,7 +91,8 @@ export function AnalyzePage() {
       const report = await analyzeTemplate({
         templateInput,
         sourceFiles: toSourceFileMap(sourceFiles),
-        sourceFileMappings: toSourceFileMappings(sourceFiles)
+        sourceFileMappings: toSourceFileMappings(sourceFiles, lambdaLogicalIds),
+        sourceFileExclusions: toSourceFileExclusions(sourceFiles, lambdaLogicalIds)
       });
       setReport(report);
       navigate("/report");
@@ -173,31 +187,71 @@ export function AnalyzePage() {
           ) : null}
         </div>
 
+        {sourceFiles.length > 0 && lambdaLogicalIds.length === 0 ? (
+          <p className="lambda-empty-state">
+            {templateInput.trim().length === 0
+              ? "Paste or upload a template to list available Lambda functions."
+              : "No AWS::Lambda::Function resources were found in the current template."}
+          </p>
+        ) : null}
+
         {sourceFiles.length > 0 ? (
           <ul className="source-file-list" aria-label="Selected source files">
             {sourceFiles.map((file) => (
               <li key={file.path}>
                 <div className="source-file-details">
-                  <span>{file.path}</span>
-                  <input
-                    aria-label={`Lambda logical ID for ${file.path}`}
-                    className="source-file-mapping-input"
-                    onChange={(event) => {
-                      setSourceFiles((currentFiles) =>
-                        currentFiles.map((currentFile) =>
-                          currentFile.path === file.path
-                            ? {
-                                ...currentFile,
-                                lambdaFunctionId: event.target.value
-                              }
-                            : currentFile
-                        )
-                      );
-                    }}
-                    placeholder="Lambda logical ID"
-                    type="text"
-                    value={file.lambdaFunctionId ?? ""}
-                  />
+                  <span className="source-file-name">{file.path}</span>
+                  <div className="source-file-mapping-controls">
+                    <select
+                      aria-label={`Lambda mapping for ${file.path}`}
+                      className="source-file-mapping-select"
+                      onChange={(event) => {
+                        setSourceFiles((currentFiles) =>
+                          currentFiles.map((currentFile) =>
+                            currentFile.path === file.path
+                              ? {
+                                  ...currentFile,
+                                  mappingSelection: event.target.value
+                                }
+                              : currentFile
+                          )
+                        );
+                      }}
+                      value={getMappingSelection(file, lambdaLogicalIds)}
+                    >
+                      <option value={autoDetectMappingValue}>Auto-detect</option>
+                      <option value={sharedSourceMappingValue}>
+                        Shared / not a Lambda handler
+                      </option>
+                      {lambdaLogicalIds.map((lambdaLogicalId) => (
+                        <option key={lambdaLogicalId} value={lambdaLogicalId}>
+                          {lambdaLogicalId}
+                        </option>
+                      ))}
+                      <option value={manualMappingValue}>Manual ID...</option>
+                    </select>
+                    {getMappingSelection(file, lambdaLogicalIds) === manualMappingValue ? (
+                      <input
+                        aria-label={`Manual Lambda logical ID for ${file.path}`}
+                        className="source-file-mapping-input"
+                        onChange={(event) => {
+                          setSourceFiles((currentFiles) =>
+                            currentFiles.map((currentFile) =>
+                              currentFile.path === file.path
+                                ? {
+                                    ...currentFile,
+                                    manualLambdaFunctionId: event.target.value
+                                  }
+                                : currentFile
+                            )
+                          );
+                        }}
+                        placeholder="Lambda logical ID"
+                        type="text"
+                        value={file.manualLambdaFunctionId ?? ""}
+                      />
+                    ) : null}
+                  </div>
                 </div>
                 <button
                   className="text-button"
@@ -258,12 +312,17 @@ function isAcceptedSourceFile(fileName: string): boolean {
 
 function mergeSourceFiles(
   currentFiles: SourceFileInput[],
-  uploadedFiles: SourceFileInput[]
+  uploadedFiles: UploadedSourceFileInput[]
 ): SourceFileInput[] {
   const filesByPath = new Map(currentFiles.map((file) => [file.path, file]));
 
   for (const file of uploadedFiles) {
-    filesByPath.set(file.path, file);
+    const currentFile = filesByPath.get(file.path);
+    filesByPath.set(file.path, {
+      ...file,
+      mappingSelection: currentFile?.mappingSelection ?? autoDetectMappingValue,
+      manualLambdaFunctionId: currentFile?.manualLambdaFunctionId
+    });
   }
 
   return [...filesByPath.values()];
@@ -277,14 +336,138 @@ function toSourceFileMap(sourceFiles: SourceFileInput[]): Record<string, string>
   return Object.fromEntries(sourceFiles.map((file) => [file.path, file.content]));
 }
 
-function toSourceFileMappings(sourceFiles: SourceFileInput[]): Record<string, string> | undefined {
+function toSourceFileMappings(
+  sourceFiles: SourceFileInput[],
+  lambdaLogicalIds: string[]
+): Record<string, string> | undefined {
   const mappings = sourceFiles.flatMap((file) => {
-    const lambdaFunctionId = file.lambdaFunctionId?.trim();
+    const mappingSelection = getMappingSelection(file, lambdaLogicalIds);
+    const lambdaFunctionId =
+      mappingSelection === manualMappingValue
+        ? file.manualLambdaFunctionId?.trim()
+        : mappingSelection;
 
-    return lambdaFunctionId === undefined || lambdaFunctionId.length === 0
+    return lambdaFunctionId === autoDetectMappingValue ||
+      lambdaFunctionId === sharedSourceMappingValue ||
+      lambdaFunctionId === undefined ||
+      lambdaFunctionId.length === 0
       ? []
       : [[file.path, lambdaFunctionId] as const];
   });
 
   return mappings.length === 0 ? undefined : Object.fromEntries(mappings);
+}
+
+function toSourceFileExclusions(
+  sourceFiles: SourceFileInput[],
+  lambdaLogicalIds: string[]
+): string[] | undefined {
+  const exclusions = sourceFiles
+    .filter((file) => getMappingSelection(file, lambdaLogicalIds) === sharedSourceMappingValue)
+    .map((file) => file.path);
+
+  return exclusions.length === 0 ? undefined : exclusions;
+}
+
+function getMappingSelection(file: SourceFileInput, lambdaLogicalIds: string[]): string {
+  if (
+    file.mappingSelection === autoDetectMappingValue ||
+    file.mappingSelection === sharedSourceMappingValue ||
+    file.mappingSelection === manualMappingValue ||
+    lambdaLogicalIds.includes(file.mappingSelection)
+  ) {
+    return file.mappingSelection;
+  }
+
+  return autoDetectMappingValue;
+}
+
+function extractLambdaLogicalIds(templateInput: string): string[] {
+  const jsonTemplate = tryParseJsonObject(templateInput);
+  const lambdaLogicalIds =
+    jsonTemplate === undefined
+      ? extractLambdaLogicalIdsFromYaml(templateInput)
+      : extractLambdaLogicalIdsFromObject(jsonTemplate);
+
+  return [...new Set(lambdaLogicalIds)].sort((left, right) => left.localeCompare(right));
+}
+
+function extractLambdaLogicalIdsFromObject(template: Record<string, unknown>): string[] {
+  const resources = template.Resources;
+
+  if (!isRecord(resources)) {
+    return [];
+  }
+
+  return Object.entries(resources).flatMap(([logicalId, resource]) =>
+    isRecord(resource) && resource.Type === "AWS::Lambda::Function" ? [logicalId] : []
+  );
+}
+
+function extractLambdaLogicalIdsFromYaml(templateInput: string): string[] {
+  const lambdaLogicalIds = new Set<string>();
+  let resourcesIndent: number | undefined;
+  let currentResource: { logicalId: string; indent: number } | undefined;
+
+  for (const line of templateInput.split(/\r?\n/)) {
+    const trimmedLine = line.trim();
+
+    if (trimmedLine.length === 0 || trimmedLine.startsWith("#")) {
+      continue;
+    }
+
+    const indent = getIndent(line);
+    if (/^Resources\s*:/.test(trimmedLine)) {
+      resourcesIndent = indent;
+      currentResource = undefined;
+      continue;
+    }
+
+    if (resourcesIndent === undefined) {
+      continue;
+    }
+
+    if (indent <= resourcesIndent) {
+      resourcesIndent = undefined;
+      currentResource = undefined;
+      continue;
+    }
+
+    const resourceMatch = trimmedLine.match(/^([A-Za-z0-9]+)\s*:\s*$/);
+    if (resourceMatch !== null && indent > resourcesIndent) {
+      currentResource = {
+        logicalId: resourceMatch[1],
+        indent
+      };
+      continue;
+    }
+
+    if (
+      currentResource !== undefined &&
+      indent > currentResource.indent &&
+      /^Type\s*:\s*['"]?AWS::Lambda::Function['"]?\s*$/.test(trimmedLine)
+    ) {
+      lambdaLogicalIds.add(currentResource.logicalId);
+    }
+  }
+
+  return [...lambdaLogicalIds];
+}
+
+function tryParseJsonObject(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsedValue = JSON.parse(value) as unknown;
+
+    return isRecord(parsedValue) ? parsedValue : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getIndent(line: string): number {
+  return line.length - line.trimStart().length;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
