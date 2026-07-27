@@ -4,6 +4,7 @@ export interface AnalyzeTemplateRequest {
   templateInput: string;
   sourceFiles?: Record<string, string>;
   sourceFileMappings?: Record<string, string>;
+  sourceFileExclusions?: string[];
 }
 
 interface ApiErrorResponse {
@@ -20,23 +21,29 @@ const apiBaseUrl = import.meta.env.VITE_INFRALENS_API_BASE_URL ?? defaultApiBase
 export async function analyzeTemplate({
   templateInput,
   sourceFiles,
-  sourceFileMappings
+  sourceFileMappings,
+  sourceFileExclusions
 }: AnalyzeTemplateRequest): Promise<AnalysisReport> {
   const hasSourceFiles = sourceFiles !== undefined && Object.keys(sourceFiles).length > 0;
   const hasSourceFileMappings =
     sourceFileMappings !== undefined && Object.keys(sourceFileMappings).length > 0;
+  const hasSourceFileExclusions =
+    sourceFileExclusions !== undefined && sourceFileExclusions.length > 0;
+  const hasRequestEnvelope =
+    hasSourceFiles || hasSourceFileMappings || hasSourceFileExclusions;
   const response = await fetch(getAnalyzeUrl(apiBaseUrl), {
     method: "POST",
     headers: {
-      "Content-Type": hasSourceFiles || hasSourceFileMappings
+      "Content-Type": hasRequestEnvelope
         ? "application/json; charset=utf-8"
         : "text/plain; charset=utf-8"
     },
-    body: hasSourceFiles || hasSourceFileMappings
+    body: hasRequestEnvelope
       ? JSON.stringify({
           template: templateInput,
           ...(sourceFiles === undefined ? {} : { sourceFiles }),
-          ...(sourceFileMappings === undefined ? {} : { sourceFileMappings })
+          ...(sourceFileMappings === undefined ? {} : { sourceFileMappings }),
+          ...(sourceFileExclusions === undefined ? {} : { sourceFileExclusions })
         })
       : templateInput
   });

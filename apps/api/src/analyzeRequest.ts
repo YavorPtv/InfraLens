@@ -35,6 +35,7 @@ export interface AnalyzeApiRequest {
   template: string;
   sourceFiles?: Record<string, string>;
   sourceFileMappings?: Record<string, string>;
+  sourceFileExclusions?: string[];
 }
 
 export interface DiffApiRequest {
@@ -66,13 +67,18 @@ export function analyzeCloudFormationBody(
   try {
     return analyze(
       request.template,
-      request.sourceFiles === undefined && request.sourceFileMappings === undefined
+      request.sourceFiles === undefined &&
+        request.sourceFileMappings === undefined &&
+        request.sourceFileExclusions === undefined
         ? {}
         : {
             ...(request.sourceFiles === undefined ? {} : { sourceFiles: request.sourceFiles }),
             ...(request.sourceFileMappings === undefined
               ? {}
-              : { sourceFileMappings: request.sourceFileMappings })
+              : { sourceFileMappings: request.sourceFileMappings }),
+            ...(request.sourceFileExclusions === undefined
+              ? {}
+              : { sourceFileExclusions: request.sourceFileExclusions })
           }
     );
   } catch (error) {
@@ -144,11 +150,13 @@ function parseAnalyzeApiRequest(rawBody: string): AnalyzeApiRequest {
 
   const sourceFiles = parseSourceFiles(parsedBody.sourceFiles);
   const sourceFileMappings = parseSourceFileMappings(parsedBody.sourceFileMappings);
+  const sourceFileExclusions = parseSourceFileExclusions(parsedBody.sourceFileExclusions);
 
   return {
     template: parsedBody.template,
     ...(sourceFiles === undefined ? {} : { sourceFiles }),
-    ...(sourceFileMappings === undefined ? {} : { sourceFileMappings })
+    ...(sourceFileMappings === undefined ? {} : { sourceFileMappings }),
+    ...(sourceFileExclusions === undefined ? {} : { sourceFileExclusions })
   };
 }
 
@@ -251,6 +259,36 @@ function parseSourceFileMappings(value: unknown): Record<string, string> | undef
   }
 
   return sourceFileMappings;
+}
+
+function parseSourceFileExclusions(value: unknown): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new ApiRequestError(
+      400,
+      "INVALID_TEMPLATE",
+      "sourceFileExclusions must be an array of source file paths."
+    );
+  }
+
+  const sourceFileExclusions: string[] = [];
+
+  for (const filePath of value) {
+    if (typeof filePath !== "string" || filePath.trim().length === 0) {
+      throw new ApiRequestError(
+        400,
+        "INVALID_TEMPLATE",
+        "sourceFileExclusions must be an array of source file paths."
+      );
+    }
+
+    sourceFileExclusions.push(filePath);
+  }
+
+  return sourceFileExclusions;
 }
 
 export function toApiRequestError(error: unknown): ApiRequestError {
