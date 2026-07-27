@@ -1,0 +1,92 @@
+{
+  "Resources": {
+    "OrdersFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Handler": "handlers/orders.handler",
+        "Role": {
+          "Fn::GetAtt": ["OrdersRole", "Arn"]
+        },
+        "Environment": {
+          "Variables": {
+            "TABLE_NAME": {
+              "Ref": "OrdersTable"
+            }
+          }
+        }
+      }
+    },
+    "OrdersRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "Policies": [
+          {
+            "PolicyName": "OrdersAccess",
+            "PolicyDocument": {
+              "Statement": {
+                "Effect": "Allow",
+                "Action": "dynamodb:*",
+                "Resource": "*"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "OrdersTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true
+        }
+      }
+    },
+    "QueuePublisherFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Handler": "handlers/publisher.handler",
+        "Role": {
+          "Fn::GetAtt": ["QueuePublisherRole", "Arn"]
+        },
+        "Environment": {
+          "Variables": {
+            "QUEUE_URL": {
+              "Ref": "WorkQueue"
+            }
+          }
+        }
+      }
+    },
+    "QueuePublisherRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "Policies": [
+          {
+            "PolicyName": "QueueAccess",
+            "PolicyDocument": {
+              "Statement": {
+                "Effect": "Allow",
+                "Action": "sqs:*",
+                "Resource": "*"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "WorkQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": ["DeadLetterQueue", "Arn"]
+          },
+          "maxReceiveCount": 3
+        }
+      }
+    },
+    "DeadLetterQueue": {
+      "Type": "AWS::SQS::Queue"
+    }
+  }
+}

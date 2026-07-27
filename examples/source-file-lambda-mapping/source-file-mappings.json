@@ -1,0 +1,4 @@
+{
+  "handlers/orders.ts": "OrdersFunction",
+  "handlers/publisher.ts": "QueuePublisherFunction"
+}
