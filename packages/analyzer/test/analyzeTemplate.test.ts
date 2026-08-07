@@ -434,9 +434,15 @@ Resources:
       {
         sourceFiles: {
           "handlers/orders.ts": `
-            await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));
+            import { getOrder } from "../shared/orders-db";
           `,
           "handlers/publisher.ts": `
+            import { publishWork } from "../shared/queue-client";
+          `,
+          "shared/orders-db.ts": `
+            await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));
+          `,
+          "shared/queue-client.ts": `
             await client.send(new SendMessageCommand({ QueueUrl: process.env.QUEUE_URL }));
           `
         }
@@ -454,8 +460,10 @@ Resources:
     expect(ordersSuggestion?.evidence.sourceActions).to.deep.equal([
       {
         action: "dynamodb:GetItem",
-        filePath: "handlers/orders.ts",
+        filePath: "shared/orders-db.ts",
         lambdaFunctionId: "OrdersFunction",
+        rootFilePath: "handlers/orders.ts",
+        importChain: ["handlers/orders.ts", "shared/orders-db.ts"],
         matchedCommand: "GetCommand",
         confidence: "medium",
         evidence: "Resources.OrdersFunction.Properties.Handler"
@@ -465,8 +473,10 @@ Resources:
     expect(queueSuggestion?.evidence.sourceActions).to.deep.equal([
       {
         action: "sqs:SendMessage",
-        filePath: "handlers/publisher.ts",
+        filePath: "shared/queue-client.ts",
         lambdaFunctionId: "QueuePublisherFunction",
+        rootFilePath: "handlers/publisher.ts",
+        importChain: ["handlers/publisher.ts", "shared/queue-client.ts"],
         matchedCommand: "SendMessageCommand",
         confidence: "medium",
         evidence: "Resources.QueuePublisherFunction.Properties.Handler"

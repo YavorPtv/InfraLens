@@ -294,6 +294,10 @@ function findSourceActionsForService(
       action: inference.action,
       filePath: inference.filePath,
       lambdaFunctionId: inference.lambdaFunctionId,
+      ...(inference.rootFilePath === undefined
+        ? {}
+        : { rootFilePath: inference.rootFilePath }),
+      ...(inference.importChain === undefined ? {} : { importChain: inference.importChain }),
       matchedCommand: inference.matchedCommand,
       confidence: inference.confidence,
       evidence: inference.evidence
