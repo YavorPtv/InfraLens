@@ -6,6 +6,8 @@ export interface SourceCodeActionInference {
   action: string;
   filePath: string;
   lambdaFunctionId?: string;
+  rootFilePath?: string;
+  importChain?: string[];
   matchedCommand: string;
   confidence: SourceCodeActionInferenceConfidence;
   evidence: string;
@@ -27,6 +29,13 @@ interface AwsSdkCommandActionMapping {
   commandName: string;
   action: string;
 }
+
+interface ReachableSourceFile {
+  filePath: string;
+  importChain: string[];
+}
+
+const sourceExtensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
 const awsSdkCommandActionMappings: AwsSdkCommandActionMapping[] = [
   {
@@ -81,19 +90,48 @@ export function inferIamActionsFromSourceCode(
 ): SourceCodeActionInference[] {
   const sourceFileMappings = mapSourceFilesToLambdaFunctions(files, options);
   const sourceFileExclusions = new Set(options.sourceFileExclusions ?? []);
+  const importGraph = buildSourceFileImportGraph(files);
+  const reachedSourceFiles = new Set<string>();
+  const inferences = new Map<string, SourceCodeActionInference>();
 
-  return Object.entries(files).flatMap(([filePath, sourceCode]) =>
-    sourceFileExclusions.has(filePath)
-      ? []
-      : inferIamActionsFromSourceFile(filePath, sourceCode, sourceFileMappings.get(filePath))
-  );
+  for (const [rootFilePath, sourceFileMapping] of sourceFileMappings) {
+    for (const reachableFile of findReachableSourceFiles(rootFilePath, importGraph)) {
+      reachedSourceFiles.add(reachableFile.filePath);
+
+      for (const inference of inferIamActionsFromSourceFile(
+        reachableFile.filePath,
+        files[reachableFile.filePath],
+        sourceFileMapping,
+        rootFilePath,
+        reachableFile.importChain
+      )) {
+        addStrongestInference(inferences, inference);
+      }
+    }
+  }
+
+  for (const [filePath, sourceCode] of Object.entries(files)) {
+    if (sourceFileExclusions.has(filePath) || reachedSourceFiles.has(filePath)) {
+      continue;
+    }
+
+    for (const inference of inferIamActionsFromSourceFile(filePath, sourceCode)) {
+      addStrongestInference(inferences, inference);
+    }
+  }
+
+  return [...inferences.values()];
 }
 
 function inferIamActionsFromSourceFile(
   filePath: string,
   sourceCode: string,
-  sourceFileMapping: SourceFileLambdaMapping | undefined
+  sourceFileMapping?: SourceFileLambdaMapping,
+  rootFilePath?: string,
+  importChain?: string[]
 ): SourceCodeActionInference[] {
+  const isImportedSource = rootFilePath !== undefined && rootFilePath !== filePath;
+
   return awsSdkCommandActionMappings.flatMap((commandMapping) =>
     containsCommand(sourceCode, commandMapping.commandName)
       ? [
@@ -103,6 +141,7 @@ function inferIamActionsFromSourceFile(
             ...(sourceFileMapping === undefined
               ? {}
               : { lambdaFunctionId: sourceFileMapping.lambdaFunctionId }),
+            ...(isImportedSource ? { rootFilePath, importChain } : {}),
             matchedCommand: commandMapping.commandName,
             confidence: sourceFileMapping?.confidence ?? "low",
             evidence: sourceFileMapping?.evidence ?? `No Lambda source mapping found for ${filePath}.`
@@ -119,6 +158,9 @@ function mapSourceFilesToLambdaFunctions(
   const mappings = new Map<string, SourceFileLambdaMapping>();
   const lambdaFunctions = getLambdaFunctions(options.template);
   const sourceFileExclusions = new Set(options.sourceFileExclusions ?? []);
+  const availableRootFileCount = Object.keys(files).filter(
+    (filePath) => !sourceFileExclusions.has(filePath)
+  ).length;
 
   for (const filePath of Object.keys(files)) {
     if (sourceFileExclusions.has(filePath)) {
@@ -131,7 +173,11 @@ function mapSourceFilesToLambdaFunctions(
       continue;
     }
 
-    const automaticMapping = getAutomaticMapping(filePath, lambdaFunctions);
+    const automaticMapping = getAutomaticMapping(
+      filePath,
+      lambdaFunctions,
+      availableRootFileCount === 1
+    );
     if (automaticMapping !== undefined) {
       mappings.set(filePath, automaticMapping);
     }
@@ -175,13 +221,14 @@ function getExplicitMapping(
 
 function getAutomaticMapping(
   filePath: string,
-  lambdaFunctions: Array<{ resourceId: string; resource: CfnResource }>
+  lambdaFunctions: Array<{ resourceId: string; resource: CfnResource }>,
+  allowSingleLambdaFallback: boolean
 ): SourceFileLambdaMapping | undefined {
   const candidates = lambdaFunctions.flatMap((lambdaFunction) =>
     getMappingCandidatesForLambda(filePath, lambdaFunction.resourceId, lambdaFunction.resource)
   );
 
-  if (candidates.length === 0 && lambdaFunctions.length === 1) {
+  if (candidates.length === 0 && lambdaFunctions.length === 1 && allowSingleLambdaFallback) {
     return {
       lambdaFunctionId: lambdaFunctions[0].resourceId,
       confidence: "low",
@@ -371,7 +418,175 @@ function getFileStem(filePath: string): string {
 }
 
 function stripSourceExtension(filePath: string): string {
-  return filePath.replace(/\.(ts|js|mjs|cjs)$/i, "");
+  return filePath.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/i, "");
+}
+
+function buildSourceFileImportGraph(files: Record<string, string>): Map<string, string[]> {
+  const filePathsByNormalizedPath = new Map<string, string[]>();
+
+  for (const filePath of Object.keys(files)) {
+    const normalizedPath = normalizeLocalPath(filePath);
+    const matchingPaths = filePathsByNormalizedPath.get(normalizedPath) ?? [];
+    matchingPaths.push(filePath);
+    filePathsByNormalizedPath.set(normalizedPath, matchingPaths);
+  }
+
+  return new Map(
+    Object.entries(files).map(([filePath, sourceCode]) => {
+      const imports = new Set<string>();
+
+      for (const importSpecifier of extractLocalImportSpecifiers(sourceCode)) {
+        const resolvedFilePath = resolveLocalImport(
+          filePath,
+          importSpecifier,
+          filePathsByNormalizedPath
+        );
+
+        if (resolvedFilePath !== undefined) {
+          imports.add(resolvedFilePath);
+        }
+      }
+
+      return [filePath, [...imports]];
+    })
+  );
+}
+
+function extractLocalImportSpecifiers(sourceCode: string): string[] {
+  const importSpecifiers = new Set<string>();
+  const esModuleImportPattern =
+    /\bimport\s+(?:type\s+)?(?:[^"'`;]*?\s+from\s+)?["']([^"']+)["']/g;
+  const commonJsRequirePattern = /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
+
+  for (const pattern of [esModuleImportPattern, commonJsRequirePattern]) {
+    for (const match of sourceCode.matchAll(pattern)) {
+      const importSpecifier = match[1];
+      if (isRelativeImport(importSpecifier)) {
+        importSpecifiers.add(importSpecifier);
+      }
+    }
+  }
+
+  return [...importSpecifiers];
+}
+
+function resolveLocalImport(
+  importingFilePath: string,
+  importSpecifier: string,
+  filePathsByNormalizedPath: Map<string, string[]>
+): string | undefined {
+  const importingDirectory = getSourceDirectory(importingFilePath);
+  const importPath = normalizeLocalPath(`${importingDirectory}/${importSpecifier}`);
+  const candidatePaths = hasSourceExtension(importPath)
+    ? [importPath]
+    : [
+        ...sourceExtensions.map((extension) => `${importPath}${extension}`),
+        ...sourceExtensions.map((extension) => `${importPath}/index${extension}`)
+      ];
+  const matchingPaths = candidatePaths.flatMap(
+    (candidatePath) => filePathsByNormalizedPath.get(candidatePath) ?? []
+  );
+
+  return matchingPaths.length === 1 ? matchingPaths[0] : undefined;
+}
+
+function findReachableSourceFiles(
+  rootFilePath: string,
+  importGraph: Map<string, string[]>
+): ReachableSourceFile[] {
+  const reachableFiles: ReachableSourceFile[] = [];
+  const visited = new Set<string>();
+  const queue: ReachableSourceFile[] = [
+    {
+      filePath: rootFilePath,
+      importChain: [rootFilePath]
+    }
+  ];
+
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+    const currentFile = queue[queueIndex];
+    if (visited.has(currentFile.filePath)) {
+      continue;
+    }
+
+    visited.add(currentFile.filePath);
+    reachableFiles.push(currentFile);
+
+    for (const importedFilePath of importGraph.get(currentFile.filePath) ?? []) {
+      if (!visited.has(importedFilePath)) {
+        queue.push({
+          filePath: importedFilePath,
+          importChain: [...currentFile.importChain, importedFilePath]
+        });
+      }
+    }
+  }
+
+  return reachableFiles;
+}
+
+function addStrongestInference(
+  inferences: Map<string, SourceCodeActionInference>,
+  candidate: SourceCodeActionInference
+): void {
+  const inferenceKey = `${candidate.lambdaFunctionId ?? ""}\u0000${candidate.filePath}\u0000${candidate.action}`;
+  const existing = inferences.get(inferenceKey);
+
+  if (existing === undefined || isStrongerInference(candidate, existing)) {
+    inferences.set(inferenceKey, candidate);
+  }
+}
+
+function isStrongerInference(
+  candidate: SourceCodeActionInference,
+  existing: SourceCodeActionInference
+): boolean {
+  const candidateConfidence = getConfidenceScore(candidate.confidence);
+  const existingConfidence = getConfidenceScore(existing.confidence);
+
+  if (candidateConfidence !== existingConfidence) {
+    return candidateConfidence > existingConfidence;
+  }
+
+  return (candidate.importChain?.length ?? 1) < (existing.importChain?.length ?? 1);
+}
+
+function isRelativeImport(importSpecifier: string): boolean {
+  return importSpecifier.startsWith("./") || importSpecifier.startsWith("../");
+}
+
+function hasSourceExtension(filePath: string): boolean {
+  return sourceExtensions.some((extension) => filePath.toLowerCase().endsWith(extension));
+}
+
+function getSourceDirectory(filePath: string): string {
+  const normalizedPath = normalizeLocalPath(filePath);
+  const lastSlashIndex = normalizedPath.lastIndexOf("/");
+
+  return lastSlashIndex === -1 ? "" : normalizedPath.slice(0, lastSlashIndex);
+}
+
+function normalizeLocalPath(filePath: string): string {
+  const segments: string[] = [];
+
+  for (const segment of filePath.replace(/\\/g, "/").split("/")) {
+    if (segment.length === 0 || segment === ".") {
+      continue;
+    }
+
+    if (segment === "..") {
+      if (segments.length === 0) {
+        return `../${segments.join("/")}`;
+      }
+
+      segments.pop();
+      continue;
+    }
+
+    segments.push(segment);
+  }
+
+  return segments.join("/");
 }
 
 function normalizeIdentifier(value: string): string {

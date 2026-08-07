@@ -258,7 +258,13 @@ function SourceInferenceEvidence({ suggestion }: { suggestion: PolicySuggestion 
 
             <dl className="source-action-evidence">
               <EvidenceItem label="Lambda logical ID" value={getMappedLambda(action)} />
+              {action.rootFilePath === undefined ? null : (
+                <EvidenceItem label="Handler source file" value={action.rootFilePath} />
+              )}
               <EvidenceItem label="Source file path" value={action.filePath} />
+              {action.importChain === undefined ? null : (
+                <EvidenceItem label="Import chain" value={action.importChain.join(" -> ")} />
+              )}
               <EvidenceItem label="Detected SDK command" value={action.matchedCommand} />
               <EvidenceItem label="Inferred IAM action" value={action.action} />
               <EvidenceItem label="SDK command confidence" value="High" />
@@ -392,24 +398,29 @@ function getMappingSourceLabel(evidence: string): string {
 
 function formatMappingEvidence(action: PolicySuggestionSourceActionEvidence): string {
   const mappingSource = getMappingSourceLabel(action.evidence);
+  const mappedFilePath = action.rootFilePath ?? action.filePath;
+  const importEvidence =
+    action.importChain === undefined
+      ? ""
+      : ` ${action.filePath} is reachable through ${action.importChain.join(" -> ")}.`;
 
   if (mappingSource === "Handler match") {
-    return `Mapped ${action.filePath} to ${action.lambdaFunctionId} from ${action.evidence}.`;
+    return `Mapped ${mappedFilePath} to ${action.lambdaFunctionId} from ${action.evidence}.${importEvidence}`;
   }
 
   if (mappingSource === "Explicit mapping") {
-    return `${action.filePath} mapped to ${action.lambdaFunctionId} by explicit request input.`;
+    return `${mappedFilePath} mapped to ${action.lambdaFunctionId} by explicit request input.${importEvidence}`;
   }
 
   if (mappingSource === "File-name match") {
-    return `${action.filePath} mapped to ${action.lambdaFunctionId} from file-name matching.`;
+    return `${mappedFilePath} mapped to ${action.lambdaFunctionId} from file-name matching.${importEvidence}`;
   }
 
   if (mappingSource === "Fallback inference") {
-    return `${action.filePath} mapped to ${action.lambdaFunctionId} because the template has one Lambda.`;
+    return `${mappedFilePath} mapped to ${action.lambdaFunctionId} because the template has one Lambda.${importEvidence}`;
   }
 
-  return `${action.filePath} mapped to ${action.lambdaFunctionId} using ${action.evidence}.`;
+  return `${mappedFilePath} mapped to ${action.lambdaFunctionId} using ${action.evidence}.${importEvidence}`;
 }
 
 function formatRelatedResources(resources: PolicySuggestionResourceCandidate[]): string {

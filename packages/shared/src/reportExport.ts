@@ -188,7 +188,13 @@ function formatSourceActionEvidence(suggestion: PolicySuggestion): string[] {
     "- Source action evidence:",
     ...sourceActions.map(
       (action) =>
-        `  - \`${action.action}\` from \`${action.filePath}\` for Lambda \`${action.lambdaFunctionId}\` matched \`${action.matchedCommand}\` (${action.confidence} confidence, evidence: \`${action.evidence}\`)`
+        `  - \`${action.action}\` from \`${action.filePath}\` for Lambda \`${action.lambdaFunctionId}\` matched \`${action.matchedCommand}\` (${action.confidence} confidence, evidence: \`${action.evidence}\`)${
+          action.importChain === undefined
+            ? ""
+            : `; handler root: \`${action.rootFilePath}\`; import chain: ${action.importChain
+                .map((filePath) => `\`${filePath}\``)
+                .join(" -> ")}`
+        }`
     )
   ];
 }

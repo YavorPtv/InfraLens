@@ -31,6 +31,9 @@ describe("report export", () => {
     expect(output).to.contain(
       "`OrdersTable` (AWS::DynamoDB::Table, evidence: `Resources.AppFunction.Properties.Environment.Variables.TABLE_NAME.Ref`)"
     );
+    expect(output).to.contain(
+      "handler root: `handler.ts`; import chain: `handler.ts` -> `shared/db.ts`"
+    );
   });
 
   it("exports a diff report to Markdown", () => {
@@ -159,8 +162,10 @@ function createAnalysisReport(overrides: Partial<AnalysisReport> = {}): Analysis
           sourceActions: [
             {
               action: "dynamodb:GetItem",
-              filePath: "handler.ts",
+              filePath: "shared/db.ts",
               lambdaFunctionId: "AppFunction",
+              rootFilePath: "handler.ts",
+              importChain: ["handler.ts", "shared/db.ts"],
               matchedCommand: "GetCommand",
               confidence: "medium",
               evidence: "Resources.AppFunction.Properties.Handler"
