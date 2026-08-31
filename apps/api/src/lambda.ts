@@ -1,10 +1,12 @@
 import {
   analyzeCloudFormationBody,
+  applyCloudFormationBody,
   diffCloudFormationBody,
   toApiErrorResponse,
   toApiRequestError,
   type AnalyzeTemplateDiffHandler,
   type AnalyzeTemplateHandler,
+  type ApplyTemplateFixesHandler,
   type ApiErrorResponse
 } from "./analyzeRequest";
 
@@ -31,6 +33,7 @@ export interface ApiGatewayAnalyzeResponse {
 export interface CreateAnalyzeLambdaHandlerOptions {
   analyze?: AnalyzeTemplateHandler;
   diff?: AnalyzeTemplateDiffHandler;
+  apply?: ApplyTemplateFixesHandler;
 }
 
 export type AnalyzeLambdaHandler = (
@@ -47,13 +50,14 @@ export function createAnalyzeLambdaHandler(
 ): AnalyzeLambdaHandler {
   const analyze = options.analyze;
   const diff = options.diff;
+  const apply = options.apply;
 
   return async function analyzeLambdaHandler(event) {
     if (getHttpMethod(event) !== "POST") {
       return jsonResponse(405, {
         error: {
           code: "NOT_FOUND",
-          message: "Use POST /analyze or POST /diff."
+          message: "Use POST /analyze, POST /diff, or POST /apply."
         }
       });
     }
@@ -64,6 +68,10 @@ export function createAnalyzeLambdaHandler(
         return jsonResponse(200, diffCloudFormationBody(rawBody, diff));
       }
 
+      if (isApplyPath(event)) {
+        return jsonResponse(200, applyCloudFormationBody(rawBody, apply));
+      }
+
       if (isAnalyzePath(event)) {
         return jsonResponse(200, analyzeCloudFormationBody(rawBody, analyze));
       }
@@ -71,7 +79,7 @@ export function createAnalyzeLambdaHandler(
       return jsonResponse(404, {
         error: {
           code: "NOT_FOUND",
-          message: "Use POST /analyze or POST /diff."
+          message: "Use POST /analyze, POST /diff, or POST /apply."
         }
       });
     } catch (error) {
@@ -99,6 +107,10 @@ function isAnalyzePath(event: ApiGatewayAnalyzeRequest): boolean {
 
 function isDiffPath(event: ApiGatewayAnalyzeRequest): boolean {
   return getPath(event)?.endsWith("/diff") === true;
+}
+
+function isApplyPath(event: ApiGatewayAnalyzeRequest): boolean {
+  return getPath(event)?.endsWith("/apply") === true;
 }
 
 function decodeRequestBody(event: ApiGatewayAnalyzeRequest): string | undefined {

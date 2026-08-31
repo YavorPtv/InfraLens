@@ -29,7 +29,7 @@ export function AnalyzePage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sourceFileInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
-  const { setReport } = useAnalysisReport();
+  const { setOriginalTemplateInput, setReport } = useAnalysisReport();
   const lambdaLogicalIds = useMemo(
     () => extractLambdaLogicalIds(templateInput),
     [templateInput]
@@ -95,9 +95,11 @@ export function AnalyzePage() {
         sourceFileExclusions: toSourceFileExclusions(sourceFiles, lambdaLogicalIds)
       });
       setReport(report);
+      setOriginalTemplateInput(templateInput);
       navigate("/report");
     } catch (analysisError) {
       setReport(null);
+      setOriginalTemplateInput(null);
       setError(
         analysisError instanceof Error
           ? analysisError.message

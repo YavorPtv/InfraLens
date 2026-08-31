@@ -46,3 +46,9 @@ export {
   analyzeTemplateDiff,
   type AnalyzeTemplateDiffOptions
 } from "./templateDiff";
+export {
+  applyTemplateFixes,
+  createLeastPrivilegeTemplateFix,
+  generateFindingTemplateFixes,
+  generateLeastPrivilegeTemplateFixes
+} from "./templateFixes";

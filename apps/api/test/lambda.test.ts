@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import type { AnalysisReport, DiffReport } from "@infralens/shared";
+import type { AnalysisReport, ApplySuggestionsResult, DiffReport } from "@infralens/shared";
 import { createAnalyzeLambdaHandler, type ApiGatewayAnalyzeResponse } from "../src/lambda";
 import type { ApiErrorResponse } from "../src";
 
@@ -154,6 +154,38 @@ Resources:
     ]);
   });
 
+  it("applies selected fixes for POST /apply", async () => {
+    const template = JSON.stringify({
+      Resources: {
+        OrdersTable: {
+          Type: "AWS::DynamoDB::Table"
+        }
+      }
+    });
+    const analysisResponse = await createAnalyzeLambdaHandler()({
+      httpMethod: "POST",
+      path: "/analyze",
+      body: template
+    });
+    const report = readJson<AnalysisReport>(analysisResponse);
+    const fix = report.templateFixes?.find((candidate) => candidate.applicability === "applicable");
+
+    const response = await createAnalyzeLambdaHandler()({
+      httpMethod: "POST",
+      path: "/apply",
+      body: JSON.stringify({ template, fixes: fix === undefined ? [] : [fix] })
+    });
+
+    expect(response.statusCode).to.equal(200);
+    const result = readJson<ApplySuggestionsResult>(response);
+    expect(result.appliedFixCount).to.equal(1);
+    expect(result.modifiedTemplate.Resources.OrdersTable.Properties).to.deep.equal({
+      PointInTimeRecoverySpecification: {
+        PointInTimeRecoveryEnabled: true
+      }
+    });
+  });
+
   it("returns a 400 error for a missing diff request body", async () => {
     const response = await createAnalyzeLambdaHandler()({
       httpMethod: "POST",
@@ -294,7 +326,7 @@ Resources:
     expect(readJson<ApiErrorResponse>(response)).to.deep.equal({
       error: {
         code: "NOT_FOUND",
-        message: "Use POST /analyze or POST /diff."
+        message: "Use POST /analyze, POST /diff, or POST /apply."
       }
     });
   });

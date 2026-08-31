@@ -119,6 +119,7 @@ Endpoints:
 - `GET /health`
 - `POST /analyze`
 - `POST /diff`
+- `POST /apply`
 
 `POST /analyze` accepts raw CloudFormation JSON or YAML in the request body and returns an `AnalysisReport`.
 
@@ -143,6 +144,20 @@ Source files are not stored. They are scanned only for supported AWS SDK command
   "newTemplate": "{ \"Resources\": {} }"
 }
 ```
+
+`POST /apply` accepts an original template string and explicitly selected structured fixes from an
+`AnalysisReport`. It returns a new modified template plus a result for each fix. The original
+template is never modified:
+
+```json
+{
+  "template": "{ \"Resources\": {} }",
+  "fixes": []
+}
+```
+
+Fixes that no longer match their expected target, conflict with another selected fix, or require
+manual review are returned as failures instead of being applied to a different location.
 
 For a compare workflow demo, use `examples/compare/old-order-service-template.json` and `examples/compare/new-order-service-template.json`. The fixture README documents the expected added, removed, changed, introduced, and resolved results.
 
@@ -176,6 +191,11 @@ For a quick demo, upload:
 - `examples/order-handler-source.ts` as the Lambda source file
 
 The source file contains DynamoDB `GetCommand` and `PutCommand` usages, so the least-privilege suggestion can narrow `dynamodb:*` to `dynamodb:GetItem` and `dynamodb:PutItem`.
+
+After analysis, the Apply Suggestions section lists deterministic fixes separately from suggestions
+that require manual review. Select the fixes to apply, then review, copy, or download the generated
+CloudFormation JSON. **Compare with original** opens the existing template diff workflow with both
+templates preloaded.
 
 On the Compare Templates page, paste:
 
@@ -234,7 +254,7 @@ Currently supported target services:
 - SQS queues
 - SNS topics
 
-The analyzer infers resources from Lambda references in the template. If optional Lambda source files are provided, it can also infer exact IAM actions from supported AWS SDK v3 command names.
+The analyzer infers resources from Lambda references in the template. If optional Lambda source files are provided, it can also infer exact IAM actions from supported AWS SDK v3 command names. Source files can be mapped explicitly or matched to Lambda handlers, and actions from resolved local imports can contribute to every Lambda that reaches the shared file.
 
 Current source-code action inference is intentionally simple matching. Supported command mappings include:
 
@@ -250,7 +270,25 @@ Current source-code action inference is intentionally simple matching. Supported
 - `PutObjectCommand` -> `s3:PutObject`
 - `DeleteObjectCommand` -> `s3:DeleteObject`
 
-Source-code inference does not parse ASTs yet and does not prove which Lambda owns a file. It is best used by uploading the source file for the Lambda represented in the template.
+Source-code inference does not parse a full AST or analyze `node_modules`. Relative imports between uploaded JavaScript and TypeScript files are resolved conservatively; unresolved or ambiguous imports are ignored.
+
+## Apply Suggestions
+
+Analysis reports include structured fixes rather than deriving template changes from free-form
+remediation text. The current deterministic fix set includes:
+
+- Enabling all S3 public access block settings
+- Enabling DynamoDB point-in-time recovery
+- Narrowing an IAM statement from `Resource: "*"` when exactly one referenced resource is known
+- Narrowing IAM actions when high-confidence source evidence provides exact actions
+
+CloudWatch Logs retention remains manual-review because InfraLens does not currently have a single
+concrete retention value that is safe for every workload. Mixed-service IAM statements, ambiguous
+resource candidates, stale paths, and low-confidence replacements are also left unchanged.
+
+Applying fixes creates a new CloudFormation JSON template. Logical IDs, unrelated properties, and
+intrinsic functions such as `Ref`, `Fn::GetAtt`, and `Fn::Sub` are preserved. InfraLens does not
+write to the uploaded file or deploy the generated template.
 
 ## Current Limitations
 
@@ -261,4 +299,3 @@ Source-code inference does not parse ASTs yet and does not prove which Lambda ow
 - Least-privilege suggestions are conservative and only cover a small set of services.
 - Uploaded source files are analyzed in request memory only; there is no source-code storage workflow.
 - Graph layout is optimized for readability, but infrastructure diagrams cannot be made perfect for every possible template.
-- InfraLens can show suggestions, but it cannot yet apply selected fixes to automatically generate an improved CloudFormation template for the user to review or compare.

@@ -1,4 +1,5 @@
-import { useRef, useState, type ChangeEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type RefObject } from "react";
+import { useLocation } from "react-router-dom";
 import { exportDiffReportToMarkdown } from "@infralens/shared";
 import type { ChangedResource, DiffReport, Finding, ResourceNode } from "@infralens/shared";
 import { compareTemplates } from "../api/compareTemplates";
@@ -8,14 +9,55 @@ const acceptedTemplateExtensions = [".json", ".yaml", ".yml"];
 
 type TemplateSide = "old" | "new";
 
+interface CompareNavigationState {
+  oldTemplateInput: string;
+  newTemplateInput: string;
+  compareImmediately?: boolean;
+}
+
 export function ComparePage() {
-  const [oldTemplateInput, setOldTemplateInput] = useState("");
-  const [newTemplateInput, setNewTemplateInput] = useState("");
+  const location = useLocation();
+  const navigationState = getCompareNavigationState(location.state);
+  const [oldTemplateInput, setOldTemplateInput] = useState(
+    navigationState?.oldTemplateInput ?? ""
+  );
+  const [newTemplateInput, setNewTemplateInput] = useState(
+    navigationState?.newTemplateInput ?? ""
+  );
   const [diffReport, setDiffReport] = useState<DiffReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const oldFileInputRef = useRef<HTMLInputElement | null>(null);
   const newFileInputRef = useRef<HTMLInputElement | null>(null);
+  const handledNavigationState = useRef(false);
+
+  useEffect(() => {
+    if (
+      handledNavigationState.current ||
+      navigationState?.compareImmediately !== true
+    ) {
+      return;
+    }
+
+    handledNavigationState.current = true;
+    setIsLoading(true);
+    setError(null);
+
+    void compareTemplates({
+      oldTemplateInput: navigationState.oldTemplateInput,
+      newTemplateInput: navigationState.newTemplateInput
+    })
+      .then(setDiffReport)
+      .catch((comparisonError: unknown) => {
+        setDiffReport(null);
+        setError(
+          comparisonError instanceof Error
+            ? comparisonError.message
+            : "Template comparison failed. Check both templates and try again."
+        );
+      })
+      .finally(() => setIsLoading(false));
+  }, [navigationState]);
 
   async function handleFileChange(
     event: ChangeEvent<HTMLInputElement>,
@@ -363,4 +405,20 @@ function isAcceptedTemplateFile(fileName: string): boolean {
   return acceptedTemplateExtensions.some((extension) =>
     normalizedFileName.endsWith(extension)
   );
+}
+
+function getCompareNavigationState(value: unknown): CompareNavigationState | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const state = value as Partial<CompareNavigationState>;
+  return typeof state.oldTemplateInput === "string" &&
+    typeof state.newTemplateInput === "string"
+    ? {
+        oldTemplateInput: state.oldTemplateInput,
+        newTemplateInput: state.newTemplateInput,
+        compareImmediately: state.compareImmediately === true
+      }
+    : null;
 }
