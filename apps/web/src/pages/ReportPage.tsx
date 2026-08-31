@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { exportAnalysisReportToJson, exportAnalysisReportToMarkdown } from "@infralens/shared";
 import { useAnalysisReport } from "../reportState";
 import { ArchitectureGraph } from "../components/report/ArchitectureGraph";
+import { ApplySuggestionsPanel } from "../components/report/ApplySuggestionsPanel";
 import { FindingsReport } from "../components/report/FindingsReport";
 import { LeastPrivilegeSuggestions } from "../components/report/LeastPrivilegeSuggestions";
 import { ScoreOverview } from "../components/report/ScoreOverview";
@@ -9,7 +10,7 @@ import { SeveritySummary } from "../components/report/SeveritySummary";
 import { downloadTextFile } from "../downloadTextFile";
 
 export function ReportPage() {
-  const { report } = useAnalysisReport();
+  const { originalTemplateInput, report } = useAnalysisReport();
 
   if (report === null) {
     return (
@@ -69,6 +70,10 @@ export function ReportPage() {
       <ScoreOverview report={report} />
       <ArchitectureGraph report={report} />
       <LeastPrivilegeSuggestions suggestions={report.leastPrivilegeSuggestions} />
+      <ApplySuggestionsPanel
+        fixes={report.templateFixes ?? []}
+        originalTemplateInput={originalTemplateInput}
+      />
 
       <div className="report-grid">
         <SeveritySummary summary={report.summary} />

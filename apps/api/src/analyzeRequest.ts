@@ -1,10 +1,20 @@
 import {
   analyzeTemplate,
   analyzeTemplateDiff,
+  applyTemplateFixes,
+  parseTemplateInput,
   type AnalyzeTemplateDiffOptions,
   type AnalyzeTemplateOptions
 } from "@infralens/analyzer";
-import type { AnalysisReport, DiffReport } from "@infralens/shared";
+import type {
+  AnalysisReport,
+  ApplySuggestionsResult,
+  CfnTemplate,
+  DiffReport,
+  TemplateFix,
+  TemplatePatch,
+  TemplatePathSegment
+} from "@infralens/shared";
 
 export type AnalyzeTemplateHandler = (
   rawTemplate: string,
@@ -17,9 +27,15 @@ export type AnalyzeTemplateDiffHandler = (
   options?: AnalyzeTemplateDiffOptions
 ) => DiffReport;
 
+export type ApplyTemplateFixesHandler = (
+  template: CfnTemplate,
+  fixes: TemplateFix[]
+) => ApplySuggestionsResult;
+
 export type ApiErrorCode =
   | "MISSING_BODY"
   | "INVALID_TEMPLATE"
+  | "INVALID_FIX"
   | "ANALYSIS_ERROR"
   | "NOT_FOUND";
 
@@ -41,6 +57,11 @@ export interface AnalyzeApiRequest {
 export interface DiffApiRequest {
   oldTemplate: string;
   newTemplate: string;
+}
+
+export interface ApplyApiRequest {
+  template: string;
+  fixes: TemplateFix[];
 }
 
 export class ApiRequestError extends Error {
@@ -131,6 +152,37 @@ export function diffCloudFormationBody(
   }
 }
 
+export function applyCloudFormationBody(
+  rawBody: string | undefined,
+  apply: ApplyTemplateFixesHandler = applyTemplateFixes
+): ApplySuggestionsResult {
+  if (rawBody === undefined || rawBody.trim().length === 0) {
+    throw new ApiRequestError(400, "MISSING_BODY", "Request body is required.");
+  }
+
+  const request = parseApplyApiRequest(rawBody);
+
+  try {
+    return apply(parseTemplateInput(request.template), request.fixes);
+  } catch (error) {
+    if (isInvalidTemplateError(error)) {
+      throw new ApiRequestError(
+        400,
+        "INVALID_TEMPLATE",
+        "Request body must include a valid CloudFormation template.",
+        getErrorMessage(error)
+      );
+    }
+
+    throw new ApiRequestError(
+      500,
+      "ANALYSIS_ERROR",
+      "Applying template suggestions failed unexpectedly.",
+      getErrorMessage(error)
+    );
+  }
+}
+
 function parseAnalyzeApiRequest(rawBody: string): AnalyzeApiRequest {
   const parsedBody = tryParseJson(rawBody);
 
@@ -191,6 +243,115 @@ function parseDiffApiRequest(rawBody: string): DiffApiRequest {
     oldTemplate: parsedBody.oldTemplate,
     newTemplate: parsedBody.newTemplate
   };
+}
+
+function parseApplyApiRequest(rawBody: string): ApplyApiRequest {
+  const parsedBody = tryParseJson(rawBody);
+
+  if (!isRecord(parsedBody)) {
+    throw new ApiRequestError(
+      400,
+      "INVALID_FIX",
+      "Request body must be JSON with a template string and fixes array."
+    );
+  }
+
+  if (typeof parsedBody.template !== "string" || parsedBody.template.trim().length === 0) {
+    throw new ApiRequestError(
+      400,
+      "INVALID_TEMPLATE",
+      "Request body must include a non-empty template string."
+    );
+  }
+
+  if (!Array.isArray(parsedBody.fixes)) {
+    throw new ApiRequestError(400, "INVALID_FIX", "Request body must include a fixes array.");
+  }
+
+  return {
+    template: parsedBody.template,
+    fixes: parsedBody.fixes.map(parseTemplateFix)
+  };
+}
+
+function parseTemplateFix(value: unknown): TemplateFix {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    typeof value.title !== "string" ||
+    typeof value.targetResourceId !== "string" ||
+    typeof value.targetResourceType !== "string" ||
+    (value.applicability !== "applicable" && value.applicability !== "manual-review") ||
+    !isConfidence(value.confidence) ||
+    typeof value.explanation !== "string" ||
+    !isTemplateFixSource(value.source) ||
+    !Array.isArray(value.patches)
+  ) {
+    throw invalidFixError();
+  }
+
+  return {
+    id: value.id,
+    title: value.title,
+    targetResourceId: value.targetResourceId,
+    targetResourceType: value.targetResourceType,
+    applicability: value.applicability,
+    confidence: value.confidence,
+    explanation: value.explanation,
+    source: value.source,
+    patches: value.patches.map(parseTemplatePatch)
+  };
+}
+
+function parseTemplatePatch(value: unknown): TemplatePatch {
+  if (
+    !isRecord(value) ||
+    typeof value.targetResourceId !== "string" ||
+    typeof value.targetResourceType !== "string" ||
+    !Array.isArray(value.path) ||
+    !value.path.every(isTemplatePathSegment) ||
+    value.operation !== "set" ||
+    !("value" in value) ||
+    typeof value.allowCreate !== "boolean"
+  ) {
+    throw invalidFixError();
+  }
+
+  return {
+    targetResourceId: value.targetResourceId,
+    targetResourceType: value.targetResourceType,
+    path: value.path,
+    operation: "set",
+    value: value.value as TemplatePatch["value"],
+    allowCreate: value.allowCreate,
+    ...("expectedValue" in value
+      ? { expectedValue: value.expectedValue as TemplatePatch["expectedValue"] }
+      : {})
+  };
+}
+
+function isTemplateFixSource(value: unknown): value is TemplateFix["source"] {
+  if (!isRecord(value) || typeof value.evidencePath !== "string") {
+    return false;
+  }
+
+  return value.kind === "finding"
+    ? typeof value.ruleId === "string"
+    : value.kind === "least-privilege" &&
+        typeof value.lambdaFunctionId === "string" &&
+        typeof value.roleId === "string";
+}
+
+function isConfidence(value: unknown): value is TemplateFix["confidence"] {
+  return value === "low" || value === "medium" || value === "high";
+}
+
+function isTemplatePathSegment(value: unknown): value is TemplatePathSegment {
+  return typeof value === "string" || (typeof value === "number" && Number.isInteger(value));
+}
+
+function invalidFixError(): ApiRequestError {
+  return new ApiRequestError(400, "INVALID_FIX", "Each fix must be a valid structured template fix.");
 }
 
 function tryParseJson(rawBody: string): unknown {

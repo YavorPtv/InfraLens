@@ -71,6 +71,58 @@ export interface Finding {
   severityAdjustment?: SeverityAdjustment;
 }
 
+export type TemplatePathSegment = string | number;
+
+export type TemplateFixConfidence = "low" | "medium" | "high";
+
+export interface TemplatePatch {
+  targetResourceId: ResourceId;
+  targetResourceType: string;
+  path: TemplatePathSegment[];
+  operation: "set";
+  value: CfnValue;
+  allowCreate: boolean;
+  expectedValue?: CfnValue;
+}
+
+export type TemplateFixSource =
+  | {
+      kind: "finding";
+      ruleId: RuleId;
+      evidencePath: EvidencePath;
+    }
+  | {
+      kind: "least-privilege";
+      lambdaFunctionId: ResourceId;
+      roleId: ResourceId;
+      evidencePath: EvidencePath;
+    };
+
+export interface TemplateFix {
+  id: string;
+  title: string;
+  targetResourceId: ResourceId;
+  targetResourceType: string;
+  applicability: "applicable" | "manual-review";
+  confidence: TemplateFixConfidence;
+  explanation: string;
+  source: TemplateFixSource;
+  patches: TemplatePatch[];
+}
+
+export interface ApplyFixResult {
+  fixId: string;
+  status: "applied" | "failed";
+  message: string;
+}
+
+export interface ApplySuggestionsResult {
+  modifiedTemplate: CfnTemplate;
+  appliedFixCount: number;
+  failedFixCount: number;
+  results: ApplyFixResult[];
+}
+
 export interface SeverityAdjustment {
   from: Severity;
   to: Severity;
@@ -145,6 +197,7 @@ export interface AnalysisReport extends AnalysisGraph, PublicExposure {
   summary: AnalysisSummary;
   findings: Finding[];
   leastPrivilegeSuggestions: PolicySuggestion[];
+  templateFixes?: TemplateFix[];
 }
 
 export interface ChangedResource {

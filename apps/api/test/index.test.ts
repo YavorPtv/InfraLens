@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect } from "chai";
-import type { AnalysisReport, DiffReport } from "@infralens/shared";
+import type { AnalysisReport, ApplySuggestionsResult, DiffReport } from "@infralens/shared";
 import type { ApiErrorResponse } from "../src";
 import { createApiApp } from "../src";
 
@@ -70,7 +70,8 @@ describe("local API", () => {
       "edges",
       "publicEntryPointIds",
       "publiclyReachableResourceIds",
-      "leastPrivilegeSuggestions"
+      "leastPrivilegeSuggestions",
+      "templateFixes"
     ]);
     expect(report.resources).to.deep.equal([
       {
@@ -98,6 +99,53 @@ Resources:
         properties: {}
       }
     ]);
+  });
+
+  it("applies selected structured fixes through POST /apply", async () => {
+    const template = JSON.stringify({
+      Resources: {
+        OrdersTable: {
+          Type: "AWS::DynamoDB::Table"
+        }
+      }
+    });
+    const analysisResponse = await postAnalyze(template);
+    const report = await readJson<AnalysisReport>(analysisResponse);
+    const fix = report.templateFixes?.find((candidate) => candidate.applicability === "applicable");
+
+    const response = await fetch(`${baseUrl}/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ template, fixes: fix === undefined ? [] : [fix] })
+    });
+
+    expect(response.status).to.equal(200);
+    const result = await readJson<ApplySuggestionsResult>(response);
+    expect(result.appliedFixCount).to.equal(1);
+    expect(result.modifiedTemplate.Resources.OrdersTable.Properties).to.deep.equal({
+      PointInTimeRecoverySpecification: {
+        PointInTimeRecoveryEnabled: true
+      }
+    });
+  });
+
+  it("returns a clear error for malformed fixes", async () => {
+    const response = await fetch(`${baseUrl}/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template: JSON.stringify({ Resources: {} }),
+        fixes: [{ id: "incomplete" }]
+      })
+    });
+
+    expect(response.status).to.equal(400);
+    expect(await readJson<ApiErrorResponse>(response)).to.deep.equal({
+      error: {
+        code: "INVALID_FIX",
+        message: "Each fix must be a valid structured template fix."
+      }
+    });
   });
 
   it("accepts optional source files with the template", async () => {

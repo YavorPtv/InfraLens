@@ -115,7 +115,8 @@ Resources:
       "edges",
       "publicEntryPointIds",
       "publiclyReachableResourceIds",
-      "leastPrivilegeSuggestions"
+      "leastPrivilegeSuggestions",
+      "templateFixes"
     ]);
   });
 

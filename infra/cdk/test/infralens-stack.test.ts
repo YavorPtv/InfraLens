@@ -44,6 +44,17 @@ describe("InfraLensStack", () => {
       ]
     });
   });
+
+  it("exposes POST /apply through the analysis Lambda", () => {
+    const template = synthesizeTemplate();
+    const applyResource = findApiResource(template, "apply");
+    const applyMethod = findApiMethod(template, applyResource.logicalId, "POST");
+
+    expect(applyMethod.Properties?.Integration).to.deep.include({
+      IntegrationHttpMethod: "POST",
+      Type: "AWS_PROXY"
+    });
+  });
 });
 
 function synthesizeTemplate(): Record<string, SynthesizedResource> {

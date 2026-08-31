@@ -16,6 +16,10 @@ import { detectPublicEntryPoints } from "./publicEntryPoints";
 import { findPubliclyReachableResources } from "./publicReachability";
 import { buildRuntimeArchitectureGraph } from "./runtimeGraph";
 import { inferIamActionsFromSourceCode } from "./sourceCodeAnalysis";
+import {
+  generateFindingTemplateFixes,
+  generateLeastPrivilegeTemplateFixes
+} from "./templateFixes";
 import { apiGatewayMethodNoAuthRule } from "./rules/apiGatewayMethodNoAuth";
 import { dynamodbMissingPitrRule } from "./rules/dynamodbMissingPitr";
 import { iamWildcardPermissionsRule } from "./rules/iamWildcardPermissions";
@@ -76,6 +80,10 @@ export function analyzeTemplate(
   });
   const findings = applyContextualSeverityAdjustments(runRules(rules, context), context);
   const summary = summarizeFindings(findings);
+  const templateFixes = [
+    ...generateFindingTemplateFixes(template, findings),
+    ...generateLeastPrivilegeTemplateFixes(template, leastPrivilegeSuggestions)
+  ];
 
   return {
     findings,
@@ -84,6 +92,7 @@ export function analyzeTemplate(
     publicEntryPointIds,
     publiclyReachableResourceIds: context.publiclyReachableResourceIds,
     leastPrivilegeSuggestions,
+    templateFixes,
     summary,
     score: calculateScore(summary.bySeverity)
   };

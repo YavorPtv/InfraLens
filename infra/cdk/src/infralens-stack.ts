@@ -121,6 +121,9 @@ export class InfraLensStack extends cdk.Stack {
     new cdk.CfnOutput(this, "AnalysisDiffApiUrl", {
       value: `${api.url}diff`
     });
+    new cdk.CfnOutput(this, "AnalysisApplyApiUrl", {
+      value: `${api.url}apply`
+    });
     new cdk.CfnOutput(this, "AnalysisApiBaseUrl", {
       value: api.url
     });
@@ -136,4 +139,7 @@ export function addAnalysisApiRoutes(
 
   const diffResource = api.root.addResource("diff");
   diffResource.addMethod("POST", new apigateway.LambdaIntegration(analysisFunction));
+
+  const applyResource = api.root.addResource("apply");
+  applyResource.addMethod("POST", new apigateway.LambdaIntegration(analysisFunction));
 }
