@@ -785,7 +785,11 @@ h2 {
   gap: 16px;
 }
 
-.apply-suggestions-panel,
+.apply-suggestions-panel {
+  display: grid;
+  gap: 8px;
+}
+
 .generated-template-review {
   display: grid;
   gap: 16px;
