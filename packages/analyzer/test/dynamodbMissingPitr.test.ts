@@ -16,8 +16,8 @@ describe("DYNAMODB_MISSING_PITR", () => {
       })
     );
 
-    expect(report.findings).to.have.lengthOf(1);
-    expect(report.findings[0]).to.deep.equal({
+    expect(pitrFindings(report.findings)).to.have.lengthOf(1);
+    expect(pitrFindings(report.findings)[0]).to.deep.equal({
       ruleId: "DYNAMODB_MISSING_PITR",
       title: "DynamoDB table is missing point-in-time recovery",
       severity: "high",
@@ -47,8 +47,8 @@ describe("DYNAMODB_MISSING_PITR", () => {
       })
     );
 
-    expect(report.findings).to.have.lengthOf(1);
-    expect(report.findings[0]).to.include({
+    expect(pitrFindings(report.findings)).to.have.lengthOf(1);
+    expect(pitrFindings(report.findings)[0]).to.include({
       ruleId: "DYNAMODB_MISSING_PITR",
       severity: "high",
       resourceId: "AppTable",
@@ -73,6 +73,10 @@ describe("DYNAMODB_MISSING_PITR", () => {
       })
     );
 
-    expect(report.findings).to.deep.equal([]);
+    expect(pitrFindings(report.findings)).to.deep.equal([]);
   });
 });
+
+function pitrFindings<T extends { ruleId: string }>(findings: T[]): T[] {
+  return findings.filter((finding) => finding.ruleId === "DYNAMODB_MISSING_PITR");
+}

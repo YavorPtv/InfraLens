@@ -28,8 +28,8 @@ describe("IAM_WILDCARD_PERMISSIONS", () => {
       })
     );
 
-    expect(report.findings).to.have.lengthOf(1);
-    expect(report.findings[0]).to.deep.equal({
+    expect(wildcardFindings(report.findings)).to.have.lengthOf(1);
+    expect(wildcardFindings(report.findings)[0]).to.deep.equal({
       ruleId: "IAM_WILDCARD_PERMISSIONS",
       title: "IAM policy allows wildcard actions on wildcard resources",
       severity: "high",
@@ -80,8 +80,8 @@ describe("IAM_WILDCARD_PERMISSIONS", () => {
       })
     );
 
-    expect(report.findings).to.have.lengthOf(1);
-    expect(report.findings[0]).to.include({
+    expect(wildcardFindings(report.findings)).to.have.lengthOf(1);
+    expect(wildcardFindings(report.findings)[0]).to.include({
       ruleId: "IAM_WILDCARD_PERMISSIONS",
       severity: "high",
       resourceId: "AppRole",
@@ -115,6 +115,9 @@ describe("IAM_WILDCARD_PERMISSIONS", () => {
           AppFunction: {
             Type: "AWS::Lambda::Function",
             Properties: {
+              TracingConfig: {
+                Mode: "Active"
+              },
               Role: {
                 "Fn::GetAtt": ["AppRole", "Arn"]
               }
@@ -146,6 +149,9 @@ describe("IAM_WILDCARD_PERMISSIONS", () => {
                 BlockPublicPolicy: true,
                 IgnorePublicAcls: true,
                 RestrictPublicBuckets: true
+              },
+              VersioningConfiguration: {
+                Status: "Enabled"
               }
             }
           }
@@ -153,14 +159,14 @@ describe("IAM_WILDCARD_PERMISSIONS", () => {
       })
     );
 
-    expect(report.findings).to.have.lengthOf(1);
-    expect(report.findings[0]).to.include({
+    expect(wildcardFindings(report.findings)).to.have.lengthOf(1);
+    expect(wildcardFindings(report.findings)[0]).to.include({
       ruleId: "IAM_WILDCARD_PERMISSIONS",
       severity: "critical",
       resourceId: "AppRole",
       evidencePath: "Resources.AppRole.Properties.Policies[0].PolicyDocument.Statement"
     });
-    expect(report.findings[0].severityAdjustment).to.deep.equal({
+    expect(wildcardFindings(report.findings)[0].severityAdjustment).to.deep.equal({
       from: "high",
       to: "critical",
       reason:
@@ -199,8 +205,8 @@ describe("IAM_WILDCARD_PERMISSIONS", () => {
       })
     );
 
-    expect(report.findings).to.have.lengthOf(1);
-    expect(report.findings[0]).to.include({
+    expect(wildcardFindings(report.findings)).to.have.lengthOf(1);
+    expect(wildcardFindings(report.findings)[0]).to.include({
       ruleId: "IAM_WILDCARD_PERMISSIONS",
       resourceId: "AppPolicy",
       evidencePath: "Resources.AppPolicy.Properties.PolicyDocument.Statement[0]"
@@ -244,6 +250,10 @@ describe("IAM_WILDCARD_PERMISSIONS", () => {
       })
     );
 
-    expect(report.findings).to.deep.equal([]);
+    expect(wildcardFindings(report.findings)).to.deep.equal([]);
   });
 });
+
+function wildcardFindings<T extends { ruleId: string }>(findings: T[]): T[] {
+  return findings.filter((finding) => finding.ruleId === "IAM_WILDCARD_PERMISSIONS");
+}

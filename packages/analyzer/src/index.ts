@@ -36,6 +36,18 @@ export { detectPublicEntryPoints } from "./publicEntryPoints";
 export { findPubliclyReachableResources } from "./publicReachability";
 export { buildRuntimeArchitectureGraph } from "./runtimeGraph";
 export {
+  awsServiceMetadata,
+  getActionMetadata,
+  getAwsSdkCommandMappings,
+  getServiceMetadata,
+  type AwsServiceMetadata,
+  type AwsSdkCommandMetadata,
+  type IamActionMetadata,
+  type IamResourceForm,
+  type IamResourceScope,
+  type ServiceResourceMetadata
+} from "./serviceMetadata";
+export {
   inferIamActionsFromSourceCode,
   type InferIamActionsFromSourceCodeOptions,
   type SourceCodeActionInference,

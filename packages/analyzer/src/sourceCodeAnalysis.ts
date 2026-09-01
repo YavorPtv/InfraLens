@@ -1,4 +1,5 @@
 import type { CfnResource, CfnTemplate } from "@infralens/shared";
+import { getAwsSdkCommandMappings } from "./serviceMetadata";
 
 export type SourceCodeActionInferenceConfidence = "low" | "medium" | "high";
 
@@ -10,6 +11,8 @@ export interface SourceCodeActionInference {
   importChain?: string[];
   matchedCommand: string;
   confidence: SourceCodeActionInferenceConfidence;
+  actionConfidence?: SourceCodeActionInferenceConfidence;
+  sdkPackage?: string;
   evidence: string;
 }
 
@@ -25,11 +28,6 @@ export interface InferIamActionsFromSourceCodeOptions {
   sourceFileExclusions?: string[];
 }
 
-interface AwsSdkCommandActionMapping {
-  commandName: string;
-  action: string;
-}
-
 interface ReachableSourceFile {
   filePath: string;
   importChain: string[];
@@ -37,52 +35,7 @@ interface ReachableSourceFile {
 
 const sourceExtensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
-const awsSdkCommandActionMappings: AwsSdkCommandActionMapping[] = [
-  {
-    commandName: "GetCommand",
-    action: "dynamodb:GetItem"
-  },
-  {
-    commandName: "PutCommand",
-    action: "dynamodb:PutItem"
-  },
-  {
-    commandName: "UpdateCommand",
-    action: "dynamodb:UpdateItem"
-  },
-  {
-    commandName: "DeleteCommand",
-    action: "dynamodb:DeleteItem"
-  },
-  {
-    commandName: "QueryCommand",
-    action: "dynamodb:Query"
-  },
-  {
-    commandName: "ScanCommand",
-    action: "dynamodb:Scan"
-  },
-  {
-    commandName: "SendMessageCommand",
-    action: "sqs:SendMessage"
-  },
-  {
-    commandName: "PublishCommand",
-    action: "sns:Publish"
-  },
-  {
-    commandName: "GetObjectCommand",
-    action: "s3:GetObject"
-  },
-  {
-    commandName: "PutObjectCommand",
-    action: "s3:PutObject"
-  },
-  {
-    commandName: "DeleteObjectCommand",
-    action: "s3:DeleteObject"
-  }
-];
+const awsSdkCommandActionMappings = getAwsSdkCommandMappings();
 
 export function inferIamActionsFromSourceCode(
   files: Record<string, string>,
@@ -132,23 +85,29 @@ function inferIamActionsFromSourceFile(
 ): SourceCodeActionInference[] {
   const isImportedSource = rootFilePath !== undefined && rootFilePath !== filePath;
 
-  return awsSdkCommandActionMappings.flatMap((commandMapping) =>
-    containsCommand(sourceCode, commandMapping.commandName)
-      ? [
-          {
-            action: commandMapping.action,
-            filePath,
-            ...(sourceFileMapping === undefined
-              ? {}
-              : { lambdaFunctionId: sourceFileMapping.lambdaFunctionId }),
-            ...(isImportedSource ? { rootFilePath, importChain } : {}),
-            matchedCommand: commandMapping.commandName,
-            confidence: sourceFileMapping?.confidence ?? "low",
-            evidence: sourceFileMapping?.evidence ?? `No Lambda source mapping found for ${filePath}.`
-          }
-        ]
-      : []
-  );
+  return awsSdkCommandActionMappings.flatMap((commandMapping) => {
+    if (!containsCommandUsage(sourceCode, commandMapping.commandName)) {
+      return [];
+    }
+
+    const hasExpectedPackage = containsPackageImport(sourceCode, commandMapping.packageName);
+    return [
+      {
+        action: commandMapping.action,
+        filePath,
+        ...(sourceFileMapping === undefined
+          ? {}
+          : { lambdaFunctionId: sourceFileMapping.lambdaFunctionId }),
+        ...(isImportedSource ? { rootFilePath, importChain } : {}),
+        matchedCommand: commandMapping.commandName,
+        confidence: sourceFileMapping?.confidence ?? "low",
+        ...(hasExpectedPackage
+          ? { actionConfidence: "high" as const, sdkPackage: commandMapping.packageName }
+          : {}),
+        evidence: sourceFileMapping?.evidence ?? `No Lambda source mapping found for ${filePath}.`
+      }
+    ];
+  });
 }
 
 function mapSourceFilesToLambdaFunctions(
@@ -604,8 +563,15 @@ function getConfidenceScore(confidence: SourceCodeActionInferenceConfidence): nu
   }[confidence];
 }
 
-function containsCommand(sourceCode: string, commandName: string): boolean {
-  return new RegExp(`\\b${escapeRegExp(commandName)}\\b`).test(sourceCode);
+function containsCommandUsage(sourceCode: string, commandName: string): boolean {
+  return new RegExp(`\\bnew\\s+${escapeRegExp(commandName)}\\s*\\(`).test(sourceCode);
+}
+
+function containsPackageImport(sourceCode: string, packageName: string): boolean {
+  const packagePattern = escapeRegExp(packageName);
+  return new RegExp(
+    `(?:\\bfrom\\s*|\\brequire\\s*\\(\\s*)["']${packagePattern}["']`
+  ).test(sourceCode);
 }
 
 function escapeRegExp(value: string): string {

@@ -1305,6 +1305,27 @@ h2 {
 
 .severity-list div {
   background: #f8fbff;
+  border-left-width: 4px;
+}
+
+.severity-list .severity-summary-critical {
+  border-left-color: #c5221f;
+  background: #fff8f7;
+}
+
+.severity-list .severity-summary-high {
+  border-left-color: #b05a00;
+  background: #fff8ef;
+}
+
+.severity-list .severity-summary-medium {
+  border-left-color: #b38600;
+  background: #fffbed;
+}
+
+.severity-list .severity-summary-low {
+  border-left-color: #667789;
+  background: #f5f7fa;
 }
 
 .severity-list dt,
@@ -1338,7 +1359,7 @@ h2 {
 }
 
 .severity-dot-low {
-  background: #16833c;
+  background: #667789;
 }
 
 .severity-list dd {
@@ -1373,7 +1394,7 @@ h2 {
 }
 
 .severity-critical {
-  background: #ffe2df;
+  background: #fff0ee;
   color: #9b1c1c;
 }
 
@@ -1388,8 +1409,8 @@ h2 {
 }
 
 .severity-low {
-  background: #dff7e8;
-  color: #116932;
+  background: #eef3f8;
+  color: #516071;
 }
 
 .severity-filter {
@@ -1454,6 +1475,21 @@ h2 {
   font-weight: 800;
 }
 
+.finding-group-critical .finding-group-header span {
+  background: #fff0ee;
+  color: #9b1c1c;
+}
+
+.finding-group-high .finding-group-header span {
+  background: #ffe8c7;
+  color: #7c3f00;
+}
+
+.finding-group-medium .finding-group-header span {
+  background: #fff4bf;
+  color: #6b5200;
+}
+
 .finding-card-list {
   display: grid;
   gap: 12px;
@@ -1466,9 +1502,26 @@ h2 {
   display: grid;
   gap: 12px;
   border: 1px solid #dbe2ef;
+  border-left-width: 4px;
   border-radius: 8px;
   background: #fbfdff;
   padding: 16px;
+}
+
+.finding-card-critical {
+  border-left-color: #c5221f;
+}
+
+.finding-card-high {
+  border-left-color: #b05a00;
+}
+
+.finding-card-medium {
+  border-left-color: #b38600;
+}
+
+.finding-card-low {
+  border-left-color: #667789;
 }
 
 .finding-card-header {

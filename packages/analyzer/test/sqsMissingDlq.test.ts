@@ -16,8 +16,8 @@ describe("SQS_MISSING_DLQ", () => {
       })
     );
 
-    expect(report.findings).to.have.lengthOf(1);
-    expect(report.findings[0]).to.deep.equal({
+    expect(dlqFindings(report.findings)).to.have.lengthOf(1);
+    expect(dlqFindings(report.findings)[0]).to.deep.equal({
       ruleId: "SQS_MISSING_DLQ",
       title: "SQS queue is missing a dead-letter queue",
       severity: "medium",
@@ -47,7 +47,7 @@ describe("SQS_MISSING_DLQ", () => {
       })
     );
 
-    expect(report.findings).to.deep.equal([]);
+    expect(dlqFindings(report.findings)).to.deep.equal([]);
   });
 
   it("does not require a queue used as a dead-letter queue to have its own RedrivePolicy", () => {
@@ -75,7 +75,7 @@ describe("SQS_MISSING_DLQ", () => {
       })
     );
 
-    expect(report.findings).to.deep.equal([]);
+    expect(dlqFindings(report.findings)).to.deep.equal([]);
   });
 
   it("ignores non-SQS resources", () => {
@@ -89,6 +89,10 @@ describe("SQS_MISSING_DLQ", () => {
       })
     );
 
-    expect(report.findings).to.deep.equal([]);
+    expect(dlqFindings(report.findings)).to.deep.equal([]);
   });
 });
+
+function dlqFindings<T extends { ruleId: string }>(findings: T[]): T[] {
+  return findings.filter((finding) => finding.ruleId === "SQS_MISSING_DLQ");
+}

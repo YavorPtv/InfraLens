@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import type { CfnTemplate, TemplateFix } from "@infralens/shared";
+import type { CfnTemplate, CfnValue, TemplateFix } from "@infralens/shared";
 import {
   analyzeTemplate,
   applyTemplateFixes,
@@ -173,7 +173,7 @@ describe("template fixes", () => {
         PolicyDocument: {
           Statement: {
             Effect: "Allow",
-            Action: "dynamodb:*",
+            Action: "dynamodb:GetItem",
             Resource: {
               "Fn::GetAtt": ["OrdersTable", "Arn"]
             }
@@ -185,9 +185,11 @@ describe("template fixes", () => {
 
   it("applies exact IAM Action narrowing when high-confidence source evidence exists", () => {
     const template = leastPrivilegeTemplate();
+    setLeastPrivilegeActions(template, "dynamodb:*");
     const report = analyzeTemplate(JSON.stringify(template), {
       sourceFiles: {
         "handler.ts": `
+          import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
           await client.send(new GetCommand({ TableName: tableName }));
           await client.send(new PutCommand({ TableName: tableName }));
         `
@@ -415,7 +417,7 @@ function leastPrivilegeTemplate(): CfnTemplate {
               PolicyDocument: {
                 Statement: {
                   Effect: "Allow",
-                  Action: "dynamodb:*",
+                  Action: "dynamodb:GetItem",
                   Resource: "*"
                 }
               }
@@ -433,4 +435,24 @@ function leastPrivilegeTemplate(): CfnTemplate {
       }
     }
   };
+}
+
+function setLeastPrivilegeActions(template: CfnTemplate, actions: CfnValue): void {
+  const policies = template.Resources.AppRole.Properties?.Policies;
+  if (!Array.isArray(policies) || typeof policies[0] !== "object" || policies[0] === null) {
+    throw new Error("Expected an inline policy fixture.");
+  }
+
+  const policy = policies[0] as Record<string, CfnValue>;
+  const document = policy.PolicyDocument;
+  if (typeof document !== "object" || document === null || Array.isArray(document)) {
+    throw new Error("Expected a policy document fixture.");
+  }
+
+  const statement = document.Statement;
+  if (typeof statement !== "object" || statement === null || Array.isArray(statement)) {
+    throw new Error("Expected a policy statement fixture.");
+  }
+
+  statement.Action = actions;
 }

@@ -1,5 +1,10 @@
 import { saveOrder } from "./sharedDb";
 
-export async function handler(): Promise<void> {
-  await saveOrder("audit-entry-456");
+interface AuditEvent {
+  auditEntryId: string;
+  tableName: string;
+}
+
+export async function handler(event: AuditEvent): Promise<void> {
+  await saveOrder(event.tableName, event.auditEntryId);
 }

@@ -1,5 +1,10 @@
 import { publishWork } from "./queueClient";
 
-export async function handler(): Promise<void> {
-  await publishWork("order-123");
+interface QueueEvent {
+  orderId: string;
+  queueUrl: string;
+}
+
+export async function handler(event: QueueEvent): Promise<void> {
+  await publishWork(event.queueUrl, event.orderId);
 }

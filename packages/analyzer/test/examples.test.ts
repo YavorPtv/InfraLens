@@ -29,8 +29,8 @@ describe("example CloudFormation fixtures", () => {
     const fixturePath = resolve("../../examples", "simple-bad-template.json");
     const report = analyzeTemplate(readFileSync(fixturePath, "utf8"));
 
-    expect(report.summary.totalFindings).to.equal(4);
-    expect(report.score).to.equal(40);
+    expect(report.summary.totalFindings).to.equal(6);
+    expect(report.score).to.equal(25);
   });
 
   it("analyzes the YAML example template", () => {
@@ -76,12 +76,14 @@ describe("example CloudFormation fixtures", () => {
     expect(diff.findings.introduced.map(toFindingLabel)).to.have.members([
       "IAM_WILDCARD_PERMISSIONS:ReportRole",
       "S3_PUBLIC_ACCESS_BLOCK_MISSING:UploadBucket",
+      "S3_VERSIONING_DISABLED:UploadBucket",
       "API_GATEWAY_METHOD_NO_AUTH:PublicOrdersMethod"
     ]);
     expect(diff.findings.resolved.map(toFindingLabel)).to.have.members([
       "DYNAMODB_MISSING_PITR:OrdersTable",
       "SQS_MISSING_DLQ:OrderQueue",
-      "LOG_GROUP_MISSING_RETENTION:OrderLogGroup"
+      "LOG_GROUP_MISSING_RETENTION:OrderLogGroup",
+      "SNS_TOPIC_ENCRYPTION_MISSING:LegacyTopic"
     ]);
   });
 });

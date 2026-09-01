@@ -21,19 +21,39 @@ import {
   generateLeastPrivilegeTemplateFixes
 } from "./templateFixes";
 import { apiGatewayMethodNoAuthRule } from "./rules/apiGatewayMethodNoAuth";
+import { apiGatewayAccessLoggingMissingRule } from "./rules/apiGatewayAccessLoggingMissing";
+import { apiGatewayTracingDisabledRule } from "./rules/apiGatewayTracingDisabled";
+import { dynamodbDeletionProtectionDisabledRule } from "./rules/dynamodbDeletionProtectionDisabled";
 import { dynamodbMissingPitrRule } from "./rules/dynamodbMissingPitr";
+import { iamPassRoleWildcardRule } from "./rules/iamPassRoleWildcard";
+import { iamPrivilegeEscalationActionsRule } from "./rules/iamPrivilegeEscalationActions";
 import { iamWildcardPermissionsRule } from "./rules/iamWildcardPermissions";
+import { lambdaAsyncFailureDestinationMissingRule } from "./rules/lambdaAsyncFailureDestinationMissing";
+import { lambdaReservedConcurrencyZeroRule } from "./rules/lambdaReservedConcurrencyZero";
+import { lambdaTracingDisabledRule } from "./rules/lambdaTracingDisabled";
 import { logGroupMissingRetentionRule } from "./rules/logGroupMissingRetention";
 import { s3PublicAccessBlockMissingRule } from "./rules/s3PublicAccessBlockMissing";
+import { s3VersioningDisabledRule } from "./rules/s3VersioningDisabled";
+import { snsTopicEncryptionMissingRule } from "./rules/snsTopicEncryptionMissing";
 import { sqsMissingDlqRule } from "./rules/sqsMissingDlq";
 
 const rules: Rule[] = [
   iamWildcardPermissionsRule,
+  iamPassRoleWildcardRule,
+  iamPrivilegeEscalationActionsRule,
   sqsMissingDlqRule,
   dynamodbMissingPitrRule,
+  dynamodbDeletionProtectionDisabledRule,
   logGroupMissingRetentionRule,
   s3PublicAccessBlockMissingRule,
-  apiGatewayMethodNoAuthRule
+  s3VersioningDisabledRule,
+  snsTopicEncryptionMissingRule,
+  apiGatewayMethodNoAuthRule,
+  apiGatewayAccessLoggingMissingRule,
+  apiGatewayTracingDisabledRule,
+  lambdaTracingDisabledRule,
+  lambdaReservedConcurrencyZeroRule,
+  lambdaAsyncFailureDestinationMissingRule
 ];
 
 const severityWeights: Record<Severity, number> = {

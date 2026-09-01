@@ -10,7 +10,8 @@ describe("analyze Lambda handler", () => {
       body: JSON.stringify({
         Resources: {
           Topic: {
-            Type: "AWS::SNS::Topic"
+            Type: "AWS::SNS::Topic",
+            Properties: { KmsMasterKeyId: "alias/aws/sns" }
           }
         }
       })
@@ -27,7 +28,7 @@ describe("analyze Lambda handler", () => {
       {
         id: "Topic",
         type: "AWS::SNS::Topic",
-        properties: {}
+        properties: { KmsMasterKeyId: "alias/aws/sns" }
       }
     ]);
   });
@@ -61,6 +62,7 @@ Resources:
         template: JSON.stringify(lambdaDynamoTemplate()),
         sourceFiles: {
           "src/order-handler.ts": `
+            import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
             await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));
             await client.send(new PutCommand({ TableName: process.env.TABLE_NAME }));
           `
@@ -94,6 +96,8 @@ Resources:
         lambdaFunctionId: "AppFunction",
         matchedCommand: "GetCommand",
         confidence: "high",
+        actionConfidence: "high",
+        sdkPackage: "@aws-sdk/lib-dynamodb",
         evidence: "sourceFileMappings.src/order-handler.ts"
       },
       {
@@ -102,6 +106,8 @@ Resources:
         lambdaFunctionId: "AppFunction",
         matchedCommand: "PutCommand",
         confidence: "high",
+        actionConfidence: "high",
+        sdkPackage: "@aws-sdk/lib-dynamodb",
         evidence: "sourceFileMappings.src/order-handler.ts"
       }
     ]);

@@ -115,7 +115,11 @@ export function createLeastPrivilegeTemplateFix(
     title
   );
 
-  if (!isRecord(statement) || suggestion.suggestedResources.length !== 1) {
+  if (
+    suggestion.manualOnly === true ||
+    !isRecord(statement) ||
+    suggestion.suggestedResources.length !== 1
+  ) {
     return manualFix;
   }
 

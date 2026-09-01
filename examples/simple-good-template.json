@@ -89,7 +89,8 @@
         ],
         "PointInTimeRecoverySpecification": {
           "PointInTimeRecoveryEnabled": true
-        }
+        },
+        "DeletionProtectionEnabled": true
       }
     },
     "GoodFunction": {
@@ -105,6 +106,9 @@
           ]
         },
         "Timeout": 10,
+        "TracingConfig": {
+          "Mode": "Active"
+        },
         "Code": {
           "ZipFile": "exports.handler = async () => ({ statusCode: 200 });"
         }

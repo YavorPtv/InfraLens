@@ -16,8 +16,8 @@ describe("LOG_GROUP_MISSING_RETENTION", () => {
       })
     );
 
-    expect(report.findings).to.have.lengthOf(1);
-    expect(report.findings[0]).to.deep.equal({
+    expect(retentionFindings(report.findings)).to.have.lengthOf(1);
+    expect(retentionFindings(report.findings)[0]).to.deep.equal({
       ruleId: "LOG_GROUP_MISSING_RETENTION",
       title: "CloudWatch log group is missing retention",
       severity: "medium",
@@ -44,7 +44,7 @@ describe("LOG_GROUP_MISSING_RETENTION", () => {
       })
     );
 
-    expect(report.findings).to.deep.equal([]);
+    expect(retentionFindings(report.findings)).to.deep.equal([]);
   });
 
   it("ignores non-log-group resources", () => {
@@ -58,6 +58,10 @@ describe("LOG_GROUP_MISSING_RETENTION", () => {
       })
     );
 
-    expect(report.findings).to.deep.equal([]);
+    expect(retentionFindings(report.findings)).to.deep.equal([]);
   });
 });
+
+function retentionFindings<T extends { ruleId: string }>(findings: T[]): T[] {
+  return findings.filter((finding) => finding.ruleId === "LOG_GROUP_MISSING_RETENTION");
+}

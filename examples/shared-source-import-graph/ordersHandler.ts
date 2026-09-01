@@ -1,5 +1,10 @@
 import { placeOrder } from "./orderService";
 
-export async function handler(): Promise<{ orderId: string }> {
-  return placeOrder("order-123");
+interface OrderEvent {
+  orderId: string;
+  tableName: string;
+}
+
+export async function handler(event: OrderEvent): Promise<{ orderId: string }> {
+  return placeOrder(event.tableName, event.orderId);
 }
