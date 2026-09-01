@@ -15,7 +15,7 @@ export function SeveritySummary({ summary }: SeveritySummaryProps) {
 
       <dl className="severity-list">
         {severityOrder.map((severity) => (
-          <div key={severity}>
+          <div className={`severity-summary-${severity}`} key={severity}>
             <dt>
               <span className={`severity-dot severity-dot-${severity}`} />
               {formatSeverity(severity)}

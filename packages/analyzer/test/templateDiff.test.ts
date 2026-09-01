@@ -68,10 +68,13 @@ describe("analyzeTemplateDiff", () => {
 
     expect(diff.oldReport.findings.map((finding) => finding.ruleId)).to.have.members([
       "DYNAMODB_MISSING_PITR",
-      "SQS_MISSING_DLQ"
+      "SQS_MISSING_DLQ",
+      "DYNAMODB_DELETION_PROTECTION_DISABLED",
+      "S3_VERSIONING_DISABLED"
     ]);
     expect(diff.newReport.findings.map((finding) => finding.ruleId)).to.have.members([
       "SQS_MISSING_DLQ",
+      "DYNAMODB_DELETION_PROTECTION_DISABLED",
       "IAM_WILDCARD_PERMISSIONS",
       "API_GATEWAY_METHOD_NO_AUTH"
     ]);
@@ -100,11 +103,13 @@ describe("analyzeTemplateDiff", () => {
       "IAM_WILDCARD_PERMISSIONS:WildcardRole",
       "API_GATEWAY_METHOD_NO_AUTH:PublicPostMethod"
     ]);
-    expect(diff.findings.resolved.map(toFindingLabel)).to.deep.equal([
-      "DYNAMODB_MISSING_PITR:OrdersTable"
+    expect(diff.findings.resolved.map(toFindingLabel)).to.have.members([
+      "DYNAMODB_MISSING_PITR:OrdersTable",
+      "S3_VERSIONING_DISABLED:RetiredBucket"
     ]);
-    expect(diff.findings.unchanged.map(toFindingLabel)).to.deep.equal([
-      "SQS_MISSING_DLQ:WorkQueue"
+    expect(diff.findings.unchanged.map(toFindingLabel)).to.have.members([
+      "SQS_MISSING_DLQ:WorkQueue",
+      "DYNAMODB_DELETION_PROTECTION_DISABLED:OrdersTable"
     ]);
   });
 });

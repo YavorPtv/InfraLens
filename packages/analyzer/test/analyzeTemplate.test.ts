@@ -14,6 +14,9 @@ describe("analyzeTemplate", () => {
             BlockPublicPolicy: true,
             IgnorePublicAcls: true,
             RestrictPublicBuckets: true
+          },
+          VersioningConfiguration: {
+            Status: "Enabled"
           }
         }
       }
@@ -34,6 +37,9 @@ describe("analyzeTemplate", () => {
             BlockPublicPolicy: true,
             IgnorePublicAcls: true,
             RestrictPublicBuckets: true
+          },
+          VersioningConfiguration: {
+            Status: "Enabled"
           }
         }
       }
@@ -299,10 +305,12 @@ Resources:
       {
         sourceFiles: {
           "handler.ts": `
+            import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
             await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));
             await client.send(new PutCommand({ TableName: process.env.TABLE_NAME }));
           `
-        }
+        },
+        sourceFileMappings: { "handler.ts": "AppFunction" }
       }
     );
 
@@ -324,16 +332,20 @@ Resources:
         filePath: "handler.ts",
         lambdaFunctionId: "AppFunction",
         matchedCommand: "GetCommand",
-        confidence: "medium",
-        evidence: "Resources.AppFunction.Properties.Handler"
+        confidence: "high",
+        actionConfidence: "high",
+        sdkPackage: "@aws-sdk/lib-dynamodb",
+        evidence: "sourceFileMappings.handler.ts"
       },
       {
         action: "dynamodb:PutItem",
         filePath: "handler.ts",
         lambdaFunctionId: "AppFunction",
         matchedCommand: "PutCommand",
-        confidence: "medium",
-        evidence: "Resources.AppFunction.Properties.Handler"
+        confidence: "high",
+        actionConfidence: "high",
+        sdkPackage: "@aws-sdk/lib-dynamodb",
+        evidence: "sourceFileMappings.handler.ts"
       }
     ]);
   });
@@ -441,9 +453,11 @@ Resources:
             import { publishWork } from "../shared/queue-client";
           `,
           "shared/orders-db.ts": `
+            import { GetCommand } from "@aws-sdk/lib-dynamodb";
             await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));
           `,
           "shared/queue-client.ts": `
+            import { SendMessageCommand } from "@aws-sdk/client-sqs";
             await client.send(new SendMessageCommand({ QueueUrl: process.env.QUEUE_URL }));
           `
         }
@@ -467,6 +481,8 @@ Resources:
         importChain: ["handlers/orders.ts", "shared/orders-db.ts"],
         matchedCommand: "GetCommand",
         confidence: "medium",
+        actionConfidence: "high",
+        sdkPackage: "@aws-sdk/lib-dynamodb",
         evidence: "Resources.OrdersFunction.Properties.Handler"
       }
     ]);
@@ -480,6 +496,8 @@ Resources:
         importChain: ["handlers/publisher.ts", "shared/queue-client.ts"],
         matchedCommand: "SendMessageCommand",
         confidence: "medium",
+        actionConfidence: "high",
+        sdkPackage: "@aws-sdk/client-sqs",
         evidence: "Resources.QueuePublisherFunction.Properties.Handler"
       }
     ]);

@@ -213,7 +213,9 @@ function SourceInferenceEvidence({ suggestion }: { suggestion: PolicySuggestion 
     );
   }
 
-  const hasUncertainMapping = sourceActions.some((action) => action.confidence !== "high");
+  const hasUncertainMapping = sourceActions.some(
+    (action) => action.confidence !== "high" || action.actionConfidence !== "high"
+  );
 
   return (
     <section
@@ -236,7 +238,7 @@ function SourceInferenceEvidence({ suggestion }: { suggestion: PolicySuggestion 
 
       {hasUncertainMapping ? (
         <p className="source-review-warning">
-          Review source-file mapping before applying action narrowing.
+          Review SDK command and source-file mapping evidence before applying action narrowing.
         </p>
       ) : null}
 
@@ -267,7 +269,10 @@ function SourceInferenceEvidence({ suggestion }: { suggestion: PolicySuggestion 
               )}
               <EvidenceItem label="Detected SDK command" value={action.matchedCommand} />
               <EvidenceItem label="Inferred IAM action" value={action.action} />
-              <EvidenceItem label="SDK command confidence" value="High" />
+              <EvidenceItem
+                label="SDK command confidence"
+                value={formatConfidence(action.actionConfidence ?? "low")}
+              />
               <EvidenceItem
                 label="Mapping confidence"
                 value={formatConfidence(getMappingConfidence(action))}

@@ -1,17 +1,14 @@
-class PutCommand {
-  constructor(readonly input: Record<string, unknown>) {}
-}
+// @ts-nocheck
+// This file is uploaded as analyzer input; its AWS SDK packages are intentionally not installed.
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 
-const dynamodbClient = {
-  async send(command: PutCommand): Promise<Record<string, unknown>> {
-    return { saved: true, input: command.input };
-  }
-};
+const dynamodbClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
-export async function saveOrder(orderId: string): Promise<Record<string, unknown>> {
-  return dynamodbClient.send(
+export async function saveOrder(tableName: string, orderId: string): Promise<void> {
+  await dynamodbClient.send(
     new PutCommand({
-      TableName: "Orders",
+      TableName: tableName,
       Item: { orderId }
     })
   );

@@ -33,11 +33,13 @@ Resolved findings:
 - `DYNAMODB_MISSING_PITR` on `OrdersTable`
 - `SQS_MISSING_DLQ` on `OrderQueue`
 - `LOG_GROUP_MISSING_RETENTION` on `OrderLogGroup`
+- `SNS_TOPIC_ENCRYPTION_MISSING` on the removed `LegacyTopic`
 
 Introduced findings:
 
 - `IAM_WILDCARD_PERMISSIONS` on `ReportRole`
 - `S3_PUBLIC_ACCESS_BLOCK_MISSING` on `UploadBucket`
+- `S3_VERSIONING_DISABLED` on `UploadBucket`
 - `API_GATEWAY_METHOD_NO_AUTH` on `PublicOrdersMethod`
 
 ## How To Try It

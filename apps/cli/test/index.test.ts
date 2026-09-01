@@ -22,7 +22,8 @@ describe("CLI main", () => {
     const templatePath = writeTemplateFixture({
       Resources: {
         Topic: {
-          Type: "AWS::SNS::Topic"
+          Type: "AWS::SNS::Topic",
+          Properties: { KmsMasterKeyId: "alias/aws/sns" }
         }
       }
     });

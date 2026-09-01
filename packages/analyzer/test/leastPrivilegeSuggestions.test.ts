@@ -16,7 +16,7 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
           PolicyDocument: {
             Statement: {
               Effect: "Allow",
-              Action: "dynamodb:*",
+              Action: "dynamodb:GetItem",
               Resource: "*"
             }
           }
@@ -34,9 +34,9 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
         policyName: "DynamoAccess",
         policySourceType: "inline-role-policy",
         service: "dynamodb",
-        currentActions: ["dynamodb:*"],
-        suggestedActions: ["dynamodb:*"],
-        actions: ["dynamodb:*"],
+        currentActions: ["dynamodb:GetItem"],
+        suggestedActions: ["dynamodb:GetItem"],
+        actions: ["dynamodb:GetItem"],
         currentResource: "*",
         confidence: "medium",
         suggestedResources: [
@@ -99,6 +99,7 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
     };
     const sourceActionInferences = inferIamActionsFromSourceCode({
       "src/order-handler.ts": `
+        import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
         await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));
         await client.send(new PutCommand({ TableName: process.env.TABLE_NAME }));
       `
@@ -162,6 +163,8 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
               lambdaFunctionId: "AppFunction",
               matchedCommand: "GetCommand",
               confidence: "high",
+              actionConfidence: "high",
+              sdkPackage: "@aws-sdk/lib-dynamodb",
               evidence: "sourceFileMappings.src/order-handler.ts"
             },
             {
@@ -170,6 +173,8 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
               lambdaFunctionId: "AppFunction",
               matchedCommand: "PutCommand",
               confidence: "high",
+              actionConfidence: "high",
+              sdkPackage: "@aws-sdk/lib-dynamodb",
               evidence: "sourceFileMappings.src/order-handler.ts"
             }
           ]
@@ -207,18 +212,10 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
     expect(suggestion.currentActions).to.deep.equal(["dynamodb:*"]);
     expect(suggestion.suggestedActions).to.deep.equal(["dynamodb:*"]);
     expect(suggestion.actions).to.deep.equal(["dynamodb:*"]);
-    expect(suggestion.confidence).to.equal("medium");
-    expect(suggestion.suggestedResources).to.deep.equal([
-      {
-        resourceId: "OrdersTable",
-        resourceType: "AWS::DynamoDB::Table",
-        referenceEvidencePath:
-          "Resources.AppFunction.Properties.Environment.Variables.TABLE_NAME.Ref",
-        suggestedResource: {
-          "Fn::GetAtt": ["OrdersTable", "Arn"]
-        }
-      }
-    ]);
+    expect(suggestion.confidence).to.equal("low");
+    expect(suggestion.suggestedResources).to.deep.equal([]);
+    expect(suggestion.manualOnly).to.equal(true);
+    expect(suggestion.manualReviewReason).to.include("resource-compatibility metadata");
     expect(suggestion.evidence.sourceActions).to.equal(undefined);
   });
 

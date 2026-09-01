@@ -44,7 +44,7 @@ export function FindingsReport({ findings }: FindingsReportProps) {
             }
 
             return (
-              <section className="finding-group" key={severity}>
+              <section className={`finding-group finding-group-${severity}`} key={severity}>
                 <div className="finding-group-header">
                   <h3>{formatSeverity(severity)}</h3>
                   <span>{severityFindings.length}</span>
@@ -92,7 +92,7 @@ function SeverityFilterControl({
 
 function FindingCard({ finding }: { finding: Finding }) {
   return (
-    <li className="finding-card">
+    <li className={`finding-card finding-card-${finding.severity}`}>
       <div className="finding-card-header">
         <span className={`severity-pill severity-${finding.severity}`}>
           {formatSeverity(finding.severity)}

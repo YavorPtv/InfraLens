@@ -1,6 +1,9 @@
 import { saveOrder } from "./sharedDb";
 
-export async function placeOrder(orderId: string): Promise<{ orderId: string }> {
-  await saveOrder(orderId);
+export async function placeOrder(
+  tableName: string,
+  orderId: string
+): Promise<{ orderId: string }> {
+  await saveOrder(tableName, orderId);
   return { orderId };
 }

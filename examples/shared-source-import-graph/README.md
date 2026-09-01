@@ -1,18 +1,19 @@
 # Shared Source Import Graph UI Example
 
 This fixture demonstrates how AWS SDK actions in shared imported files contribute to the correct
-Lambda least-privilege suggestions. The source files use local mock classes and variables, so no
-AWS SDK package or Node.js globals are required.
+Lambda least-privilege suggestions. The source files use realistic AWS SDK v3 imports so InfraLens
+can verify command-package evidence. InfraLens reads these files as source input; the SDK packages
+do not need to be installed unless the examples are executed independently.
 
 ## Test in the web UI
 
 1. Open the Analyze page.
 2. Upload `template.json` as the CloudFormation template.
 3. Choose **Upload Source Files** and select all seven `.ts` files in this folder at once.
-4. Keep these handler files on **Auto-detect**:
-   - `ordersHandler.ts`
-   - `auditHandler.ts`
-   - `queueHandler.ts`
+4. Select explicit Lambda mappings for the handler files:
+   - `ordersHandler.ts` -> `OrdersFunction`
+   - `auditHandler.ts` -> `AuditFunction`
+   - `queueHandler.ts` -> `QueueFunction`
 5. Select **Shared / not a Lambda handler** for:
    - `orderService.ts`
    - `sharedDb.ts`
@@ -27,6 +28,7 @@ path. Their relative imports therefore resolve exactly as uploaded.
 ## Expected results
 
 - `OrdersFunction` narrows `dynamodb:*` to `dynamodb:PutItem`.
+- Its policy suggestion, SDK command, and Lambda mapping evidence are high confidence.
 - Its evidence chain is `ordersHandler.ts -> orderService.ts -> sharedDb.ts`.
 - `AuditFunction` also narrows `dynamodb:*` to `dynamodb:PutItem` because it directly imports the
   same shared database file.

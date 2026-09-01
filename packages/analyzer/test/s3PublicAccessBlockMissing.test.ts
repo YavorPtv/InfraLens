@@ -16,8 +16,8 @@ describe("S3_PUBLIC_ACCESS_BLOCK_MISSING", () => {
       })
     );
 
-    expect(report.findings).to.have.lengthOf(1);
-    expect(report.findings[0]).to.deep.equal({
+    expect(publicAccessFindings(report.findings)).to.have.lengthOf(1);
+    expect(publicAccessFindings(report.findings)[0]).to.deep.equal({
       ruleId: "S3_PUBLIC_ACCESS_BLOCK_MISSING",
       title: "S3 bucket is missing full public access block",
       severity: "high",
@@ -49,8 +49,8 @@ describe("S3_PUBLIC_ACCESS_BLOCK_MISSING", () => {
       })
     );
 
-    expect(report.findings).to.have.lengthOf(1);
-    expect(report.findings[0]).to.include({
+    expect(publicAccessFindings(report.findings)).to.have.lengthOf(1);
+    expect(publicAccessFindings(report.findings)[0]).to.include({
       ruleId: "S3_PUBLIC_ACCESS_BLOCK_MISSING",
       severity: "high",
       resourceId: "AppBucket",
@@ -77,7 +77,7 @@ describe("S3_PUBLIC_ACCESS_BLOCK_MISSING", () => {
       })
     );
 
-    expect(report.findings).to.deep.equal([]);
+    expect(publicAccessFindings(report.findings)).to.deep.equal([]);
   });
 
   it("ignores non-S3 resources", () => {
@@ -91,6 +91,10 @@ describe("S3_PUBLIC_ACCESS_BLOCK_MISSING", () => {
       })
     );
 
-    expect(report.findings).to.deep.equal([]);
+    expect(publicAccessFindings(report.findings)).to.deep.equal([]);
   });
 });
+
+function publicAccessFindings<T extends { ruleId: string }>(findings: T[]): T[] {
+  return findings.filter((finding) => finding.ruleId === "S3_PUBLIC_ACCESS_BLOCK_MISSING");
+}

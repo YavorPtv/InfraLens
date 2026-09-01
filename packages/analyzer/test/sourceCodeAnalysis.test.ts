@@ -20,6 +20,8 @@ describe("inferIamActionsFromSourceCode", () => {
         filePath: "src/handler.ts",
         matchedCommand: "GetCommand",
         confidence: "low",
+        actionConfidence: "high",
+        sdkPackage: "@aws-sdk/lib-dynamodb",
         evidence: "No Lambda source mapping found for src/handler.ts."
       },
       {
@@ -27,6 +29,8 @@ describe("inferIamActionsFromSourceCode", () => {
         filePath: "src/handler.ts",
         matchedCommand: "PutCommand",
         confidence: "low",
+        actionConfidence: "high",
+        sdkPackage: "@aws-sdk/lib-dynamodb",
         evidence: "No Lambda source mapping found for src/handler.ts."
       },
       {
@@ -34,6 +38,8 @@ describe("inferIamActionsFromSourceCode", () => {
         filePath: "src/handler.ts",
         matchedCommand: "SendMessageCommand",
         confidence: "low",
+        actionConfidence: "high",
+        sdkPackage: "@aws-sdk/client-sqs",
         evidence: "No Lambda source mapping found for src/handler.ts."
       }
     ]);
@@ -393,11 +399,11 @@ describe("inferIamActionsFromSourceCode", () => {
       "dynamodb:DeleteItem",
       "dynamodb:Query",
       "dynamodb:Scan",
-      "sqs:SendMessage",
-      "sns:Publish",
       "s3:GetObject",
       "s3:PutObject",
-      "s3:DeleteObject"
+      "s3:DeleteObject",
+      "sqs:SendMessage",
+      "sns:Publish"
     ]);
   });
 
@@ -411,6 +417,61 @@ describe("inferIamActionsFromSourceCode", () => {
     });
 
     expect(inferences).to.deep.equal([]);
+  });
+
+  it("maps expanded AWS SDK commands through package-aware metadata", () => {
+    const inferences = inferIamActionsFromSourceCode({
+      "src/services.ts": `
+        import { ListObjectsV2Command } from "@aws-sdk/client-s3";
+        import { ReceiveMessageCommand, DeleteMessageCommand } from "@aws-sdk/client-sqs";
+        import { InvokeCommand } from "@aws-sdk/client-lambda";
+        import { PutEventsCommand } from "@aws-sdk/client-eventbridge";
+        import { GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
+        import { GetParameterCommand, GetParametersCommand, PutParameterCommand } from "@aws-sdk/client-ssm";
+        import { EncryptCommand, DecryptCommand, GenerateDataKeyCommand } from "@aws-sdk/client-kms";
+        new ListObjectsV2Command({});
+        new ReceiveMessageCommand({});
+        new DeleteMessageCommand({});
+        new InvokeCommand({});
+        new PutEventsCommand({});
+        new GetSecretValueCommand({});
+        new GetParameterCommand({});
+        new GetParametersCommand({});
+        new PutParameterCommand({});
+        new EncryptCommand({});
+        new DecryptCommand({});
+        new GenerateDataKeyCommand({});
+      `
+    });
+
+    expect(inferences.map((inference) => inference.action)).to.deep.equal([
+      "s3:ListBucket",
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "lambda:InvokeFunction",
+      "events:PutEvents",
+      "secretsmanager:GetSecretValue",
+      "ssm:GetParameter",
+      "ssm:GetParameters",
+      "ssm:PutParameter",
+      "kms:Encrypt",
+      "kms:Decrypt",
+      "kms:GenerateDataKey"
+    ]);
+    expect(inferences.every((inference) => inference.actionConfidence === "high")).to.equal(true);
+  });
+
+  it("does not treat an unexpected AWS SDK package as exact command evidence", () => {
+    const [inference] = inferIamActionsFromSourceCode({
+      "src/custom.ts": `
+        import { InvokeCommand } from "@aws-sdk/client-something-else";
+        new InvokeCommand({});
+      `
+    });
+
+    expect(inference.action).to.equal("lambda:InvokeFunction");
+    expect(inference.actionConfidence).to.equal(undefined);
+    expect(inference.sdkPackage).to.equal(undefined);
   });
 
   it("returns one inference per command per file", () => {

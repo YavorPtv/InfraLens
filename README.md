@@ -190,7 +190,7 @@ For a quick demo, upload:
 - `examples/order-service-risky-template.json` as the template
 - `examples/order-handler-source.ts` as the Lambda source file
 
-The source file contains DynamoDB `GetCommand` and `PutCommand` usages, so the least-privilege suggestion can narrow `dynamodb:*` to `dynamodb:GetItem` and `dynamodb:PutItem`.
+The source file contains mocked DynamoDB `GetCommand` and `PutCommand` usages, so InfraLens displays the inferred actions and related table for review. Because the self-contained demo has no real `@aws-sdk/lib-dynamodb` import, it does not automatically apply action narrowing. Uploaded application source with the matching SDK import provides exact package evidence.
 
 After analysis, the Apply Suggestions section lists deterministic fixes separately from suggestions
 that require manual review. Select the fixes to apply, then review, copy, or download the generated
@@ -241,6 +241,18 @@ Graph and exposure analysis currently includes:
 - `SQS_MISSING_DLQ`: detects SQS queues without a dead-letter queue
 - `DYNAMODB_MISSING_PITR`: detects DynamoDB tables without point-in-time recovery
 - `LOG_GROUP_MISSING_RETENTION`: detects CloudWatch log groups without retention
+- `LAMBDA_DEAD_LETTER_CONFIG_MISSING`: detects `AWS::Lambda::EventInvokeConfig` resources without an on-failure destination; it does not flag every Lambda
+- `LAMBDA_RESERVED_CONCURRENCY_RISK`: detects the deterministic case where reserved concurrency is zero and all invocations are throttled
+- `S3_VERSIONING_DISABLED`: detects buckets without enabled versioning as a recovery/resilience risk
+- `SNS_TOPIC_ENCRYPTION_MISSING`: detects topics without explicit KMS encryption
+- `API_GATEWAY_ACCESS_LOGGING_MISSING`: detects REST API stages without a complete access log destination and format
+- `API_GATEWAY_TRACING_DISABLED`: detects REST API stages without active X-Ray tracing
+- `LAMBDA_TRACING_DISABLED`: detects Lambda functions without active X-Ray tracing
+- `DYNAMODB_DELETION_PROTECTION_DISABLED`: detects tables without deletion protection
+- `IAM_PASSROLE_WILDCARD`: detects `iam:PassRole` grants on `Resource: "*"`
+- `IAM_PRIVILEGE_ESCALATION_ACTIONS`: detects a small explicit set of permission-changing IAM actions on wildcard resources
+
+Generic S3 encryption, SQS encryption, and DynamoDB encryption-missing rules are intentionally not included. S3 encrypts all new objects with SSE-S3 by default, SQS enables SSE-SQS when `SqsManagedSseEnabled` is omitted, and DynamoDB uses an AWS owned key when KMS settings are omitted. Flagging those omissions as unencrypted would be misleading. Lambda failure handling is checked only when an `AWS::Lambda::EventInvokeConfig` proves asynchronous invocation configuration; InfraLens does not guess invocation behavior from a function alone.
 
 Contextual severity currently adjusts `IAM_WILDCARD_PERMISSIONS` to critical when the affected role is publicly reachable or used by a publicly reachable Lambda.
 
@@ -248,11 +260,23 @@ Contextual severity currently adjusts `IAM_WILDCARD_PERMISSIONS` to critical whe
 
 InfraLens can generate suggestions for narrowing IAM policy statements that allow supported service actions on `Resource: "*"`.
 
-Currently supported target services:
+Currently supported target services and source-inferred actions:
 
-- DynamoDB tables
-- SQS queues
-- SNS topics
+| Service | CloudFormation resource | Supported inferred actions |
+| --- | --- | --- |
+| DynamoDB | `AWS::DynamoDB::Table` | `GetItem`, `PutItem`, `UpdateItem`, `DeleteItem`, `Query`, `Scan` |
+| S3 | `AWS::S3::Bucket` | `GetObject`, `PutObject`, `DeleteObject`, `ListBucket` |
+| SQS | `AWS::SQS::Queue` | `SendMessage`, `ReceiveMessage`, `DeleteMessage` |
+| SNS | `AWS::SNS::Topic` | `Publish` |
+| Lambda | `AWS::Lambda::Function` | `InvokeFunction` |
+| EventBridge | `AWS::Events::EventBus` | `PutEvents` |
+| Secrets Manager | `AWS::SecretsManager::Secret` | `GetSecretValue` |
+| SSM Parameter Store | `AWS::SSM::Parameter` | `GetParameter`, `GetParameters`, `PutParameter` |
+| KMS | `AWS::KMS::Key` | `Encrypt`, `Decrypt`, `GenerateDataKey` (manual review only) |
+
+Least-privilege suggestions are conservative and do not attempt to infer permissions when InfraLens lacks sufficient evidence.
+
+Action/resource compatibility is checked before a resource is suggested. S3 object actions use an object ARN ending in `/*`, while `ListBucket` uses the bucket ARN. DynamoDB `Query` and `Scan` include table and index ARN forms. Actions known to require `Resource: "*"`, unknown actions, ambiguous resources, and multi-service statements remain manual-only. KMS suggestions remain manual-only because identity policies must be reviewed with key policies and encryption context.
 
 The analyzer infers resources from Lambda references in the template. If optional Lambda source files are provided, it can also infer exact IAM actions from supported AWS SDK v3 command names. Source files can be mapped explicitly or matched to Lambda handlers, and actions from resolved local imports can contribute to every Lambda that reaches the shared file.
 
@@ -269,8 +293,20 @@ Current source-code action inference is intentionally simple matching. Supported
 - `GetObjectCommand` -> `s3:GetObject`
 - `PutObjectCommand` -> `s3:PutObject`
 - `DeleteObjectCommand` -> `s3:DeleteObject`
+- `ListObjectsV2Command` -> `s3:ListBucket`
+- `ReceiveMessageCommand` -> `sqs:ReceiveMessage`
+- `DeleteMessageCommand` -> `sqs:DeleteMessage`
+- `InvokeCommand` from `@aws-sdk/client-lambda` -> `lambda:InvokeFunction`
+- `PutEventsCommand` -> `events:PutEvents`
+- `GetSecretValueCommand` -> `secretsmanager:GetSecretValue`
+- `GetParameterCommand` -> `ssm:GetParameter`
+- `GetParametersCommand` -> `ssm:GetParameters`
+- `PutParameterCommand` -> `ssm:PutParameter`
+- `EncryptCommand` -> `kms:Encrypt`
+- `DecryptCommand` -> `kms:Decrypt`
+- `GenerateDataKeyCommand` -> `kms:GenerateDataKey`
 
-Source-code inference does not parse a full AST or analyze `node_modules`. Relative imports between uploaded JavaScript and TypeScript files are resolved conservatively; unresolved or ambiguous imports are ignored.
+Source-code inference does not parse a full AST or analyze `node_modules`. Relative imports between uploaded JavaScript and TypeScript files are resolved conservatively; unresolved or ambiguous imports are ignored. Exact SDK command evidence requires the expected `@aws-sdk` package import; command-name-only matches remain low-confidence evidence and cannot drive automatic action narrowing.
 
 ## Apply Suggestions
 
@@ -279,12 +315,18 @@ remediation text. The current deterministic fix set includes:
 
 - Enabling all S3 public access block settings
 - Enabling DynamoDB point-in-time recovery
+- Enabling DynamoDB deletion protection
+- Enabling S3 versioning
+- Enabling active tracing for Lambda functions and API Gateway stages
 - Narrowing an IAM statement from `Resource: "*"` when exactly one referenced resource is known
 - Narrowing IAM actions when high-confidence source evidence provides exact actions
 
 CloudWatch Logs retention remains manual-review because InfraLens does not currently have a single
-concrete retention value that is safe for every workload. Mixed-service IAM statements, ambiguous
-resource candidates, stale paths, and low-confidence replacements are also left unchanged.
+concrete retention value that is safe for every workload. KMS key selection, API Gateway access-log
+destinations, Lambda failure destinations, and reserved-concurrency values also require workload-
+specific choices. Mixed-service IAM statements, ambiguous resource candidates, stale paths, and
+low-confidence replacements are left unchanged. In Apply Suggestions, a service-specific least-
+privilege fix replaces the generic IAM wildcard remediation for the same policy statement.
 
 Applying fixes creates a new CloudFormation JSON template. Logical IDs, unrelated properties, and
 intrinsic functions such as `Ref`, `Fn::GetAtt`, and `Fn::Sub` are preserved. InfraLens does not
@@ -296,6 +338,6 @@ write to the uploaded file or deploy the generated template.
 - The analyzer is template-only and does not call AWS APIs.
 - Lambda source-code analysis is limited to simple AWS SDK v3 command-name matching.
 - The web app does not include authentication yet.
-- Least-privilege suggestions are conservative and only cover a small set of services.
+- Least-privilege suggestions cover only the documented services and actions; unsupported AWS services remain manual review work.
 - Uploaded source files are analyzed in request memory only; there is no source-code storage workflow.
 - Graph layout is optimized for readability, but infrastructure diagrams cannot be made perfect for every possible template.

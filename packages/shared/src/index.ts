@@ -155,8 +155,21 @@ export interface PolicySuggestionSourceActionEvidence {
   importChain?: string[];
   matchedCommand: string;
   confidence: "low" | "medium" | "high";
+  actionConfidence?: "low" | "medium" | "high";
+  sdkPackage?: string;
   evidence: EvidencePath;
 }
+
+export type PolicySuggestionService =
+  | "dynamodb"
+  | "s3"
+  | "sqs"
+  | "sns"
+  | "lambda"
+  | "events"
+  | "secretsmanager"
+  | "ssm"
+  | "kms";
 
 export interface PolicySuggestion {
   lambdaFunctionId: ResourceId;
@@ -164,7 +177,7 @@ export interface PolicySuggestion {
   policyName?: string;
   policySourceType: "inline-role-policy" | "policy-resource";
   policyResourceId?: ResourceId;
-  service: "dynamodb" | "sqs" | "sns";
+  service: PolicySuggestionService;
   currentActions: string[];
   suggestedActions: string[];
   actions: string[];
@@ -172,6 +185,8 @@ export interface PolicySuggestion {
   confidence: PolicySuggestionConfidence;
   suggestedResources: PolicySuggestionResourceCandidate[];
   explanation: string;
+  manualOnly?: boolean;
+  manualReviewReason?: string;
   evidence: PolicySuggestionEvidence;
 }
 

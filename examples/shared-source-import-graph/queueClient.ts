@@ -1,17 +1,13 @@
-class SendMessageCommand {
-  constructor(readonly input: Record<string, unknown>) {}
-}
+// @ts-nocheck
+// This file is uploaded as analyzer input; its AWS SDK packages are intentionally not installed.
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 
-const sqsClient = {
-  async send(command: SendMessageCommand): Promise<Record<string, unknown>> {
-    return { sent: true, input: command.input };
-  }
-};
+const sqsClient = new SQSClient({});
 
-export async function publishWork(orderId: string): Promise<Record<string, unknown>> {
-  return sqsClient.send(
+export async function publishWork(queueUrl: string, orderId: string): Promise<void> {
+  await sqsClient.send(
     new SendMessageCommand({
-      QueueUrl: "https://example.invalid/work-queue",
+      QueueUrl: queueUrl,
       MessageBody: orderId
     })
   );
