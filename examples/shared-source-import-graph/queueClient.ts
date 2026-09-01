@@ -1,3 +1,5 @@
+// @ts-nocheck
+// This file is uploaded as analyzer input; its AWS SDK packages are intentionally not installed.
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 
 const sqsClient = new SQSClient({});

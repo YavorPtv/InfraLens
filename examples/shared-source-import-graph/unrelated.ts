@@ -1,3 +1,5 @@
+// @ts-nocheck
+// This file is uploaded as analyzer input; its AWS SDK packages are intentionally not installed.
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DeleteCommand, DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
