@@ -47,7 +47,7 @@ describe("template fixes", () => {
 
     const result = applyTemplateFixes(template, fixes);
 
-    expect(result.appliedFixCount).to.equal(2);
+    expect(result.appliedFixCount).to.equal(4);
     expect(result.modifiedTemplate.Resources.UploadBucket.Properties).to.deep.include({
       BucketName: { Ref: "UploadBucketName" },
       PublicAccessBlockConfiguration: {
@@ -55,12 +55,53 @@ describe("template fixes", () => {
         BlockPublicPolicy: true,
         IgnorePublicAcls: true,
         RestrictPublicBuckets: true
-      }
+      },
+      VersioningConfiguration: { Status: "Enabled" }
     });
     expect(result.modifiedTemplate.Resources.OrdersTable.Properties).to.deep.include({
+      DeletionProtectionEnabled: true,
       PointInTimeRecoverySpecification: {
         PointInTimeRecoveryEnabled: true
       }
+    });
+  });
+
+  it("applies deterministic fixes for expanded reliability and tracing rules", () => {
+    const template = templateWithResources({
+      OrdersTable: { Type: "AWS::DynamoDB::Table" },
+      ArchiveBucket: { Type: "AWS::S3::Bucket" },
+      WorkerFunction: { Type: "AWS::Lambda::Function" },
+      ApiStage: { Type: "AWS::ApiGateway::Stage" }
+    });
+    const fixes = analyzeTemplate(JSON.stringify(template)).templateFixes ?? [];
+    const selectedFixes = [
+      applicableFix(fixes, "DYNAMODB_DELETION_PROTECTION_DISABLED"),
+      applicableFix(fixes, "S3_VERSIONING_DISABLED"),
+      applicableFix(fixes, "LAMBDA_TRACING_DISABLED"),
+      applicableFix(fixes, "API_GATEWAY_TRACING_DISABLED")
+    ];
+
+    expect(selectedFixes.map((fix) => fix.confidence)).to.deep.equal([
+      "high",
+      "medium",
+      "medium",
+      "medium"
+    ]);
+
+    const result = applyTemplateFixes(template, selectedFixes);
+
+    expect(result.appliedFixCount).to.equal(4);
+    expect(result.modifiedTemplate.Resources.OrdersTable.Properties).to.deep.include({
+      DeletionProtectionEnabled: true
+    });
+    expect(result.modifiedTemplate.Resources.ArchiveBucket.Properties).to.deep.include({
+      VersioningConfiguration: { Status: "Enabled" }
+    });
+    expect(result.modifiedTemplate.Resources.WorkerFunction.Properties).to.deep.include({
+      TracingConfig: { Mode: "Active" }
+    });
+    expect(result.modifiedTemplate.Resources.ApiStage.Properties).to.deep.include({
+      TracingEnabled: true
     });
   });
 
@@ -229,6 +270,61 @@ describe("template fixes", () => {
     });
   });
 
+  it("replaces a generic IAM wildcard fix with its least-privilege fix", () => {
+    const template = leastPrivilegeTemplate();
+    setLeastPrivilegeActions(template, "dynamodb:*");
+    const report = analyzeTemplate(JSON.stringify(template), {
+      sourceFiles: {
+        "handler.ts": `
+          import { PutCommand } from "@aws-sdk/lib-dynamodb";
+          await client.send(new PutCommand({ TableName: tableName }));
+        `
+      },
+      sourceFileMappings: { "handler.ts": "AppFunction" }
+    });
+    const wildcardFindingFix = (report.templateFixes ?? []).find(
+      (fix) =>
+        fix.source.kind === "finding" &&
+        fix.source.ruleId === "IAM_WILDCARD_PERMISSIONS"
+    );
+    const leastPrivilegeFix = (report.templateFixes ?? []).find(
+      (fix) => fix.source.kind === "least-privilege"
+    );
+
+    expect(report.findings.some((finding) => finding.ruleId === "IAM_WILDCARD_PERMISSIONS")).to.equal(
+      true
+    );
+    expect(wildcardFindingFix).to.equal(undefined);
+    expect(leastPrivilegeFix).to.include({
+      applicability: "applicable",
+      confidence: "high"
+    });
+  });
+
+  it("keeps a generic IAM wildcard fix when no service-specific fix exists", () => {
+    const template = templateWithResources({
+      AdminRole: {
+        Type: "AWS::IAM::Role",
+        Properties: {
+          Policies: [
+            {
+              PolicyName: "AdminAccess",
+              PolicyDocument: {
+                Statement: { Effect: "Allow", Action: "iam:*", Resource: "*" }
+              }
+            }
+          ]
+        }
+      }
+    });
+    const fix = findingFix(
+      analyzeTemplate(JSON.stringify(template)).templateFixes,
+      "IAM_WILDCARD_PERMISSIONS"
+    );
+
+    expect(fix).to.include({ applicability: "manual-review", confidence: "low" });
+  });
+
   it("keeps mixed-service IAM statements manual-only", () => {
     const template = leastPrivilegeTemplate();
     const policies = template.Resources.AppRole.Properties?.Policies;
@@ -262,6 +358,42 @@ describe("template fixes", () => {
       confidence: "medium"
     });
     expect(fix?.patches).to.deep.equal([]);
+  });
+
+  it("classifies expanded rules without safe concrete values as manual review", () => {
+    const template = templateWithResources({
+      AsyncConfig: {
+        Type: "AWS::Lambda::EventInvokeConfig"
+      },
+      DisabledFunction: {
+        Type: "AWS::Lambda::Function",
+        Properties: {
+          ReservedConcurrentExecutions: 0,
+          TracingConfig: { Mode: "Active" }
+        }
+      },
+      ApiStage: {
+        Type: "AWS::ApiGateway::Stage",
+        Properties: { TracingEnabled: true }
+      },
+      Notifications: { Type: "AWS::SNS::Topic" }
+    });
+    const fixes = analyzeTemplate(JSON.stringify(template)).templateFixes;
+    const manualRuleIds = [
+      "LAMBDA_DEAD_LETTER_CONFIG_MISSING",
+      "LAMBDA_RESERVED_CONCURRENCY_RISK",
+      "API_GATEWAY_ACCESS_LOGGING_MISSING",
+      "SNS_TOPIC_ENCRYPTION_MISSING"
+    ];
+
+    for (const ruleId of manualRuleIds) {
+      const fix = findingFix(fixes, ruleId);
+      expect(fix, ruleId).to.include({
+        applicability: "manual-review",
+        confidence: "medium"
+      });
+      expect(fix.patches, ruleId).to.deep.equal([]);
+    }
   });
 
   it("rejects a stale least-privilege replacement instead of changing the wrong value", () => {
@@ -352,6 +484,18 @@ function applicableFix(
 
   if (fix === undefined) {
     throw new Error(`Expected applicable fix for ${ruleId}.`);
+  }
+
+  return fix;
+}
+
+function findingFix(fixes: TemplateFix[] | undefined, ruleId: string): TemplateFix {
+  const fix = (fixes ?? []).find(
+    (candidate) => candidate.source.kind === "finding" && candidate.source.ruleId === ruleId
+  );
+
+  if (fix === undefined) {
+    throw new Error(`Expected finding fix for ${ruleId}.`);
   }
 
   return fix;

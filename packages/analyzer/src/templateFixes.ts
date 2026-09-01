@@ -12,6 +12,16 @@ import type {
 } from "@infralens/shared";
 
 const blockedPathSegments = new Set(["__proto__", "constructor", "prototype"]);
+const manualFindingFixConfidenceByRule: Record<string, TemplateFix["confidence"]> = {
+  API_GATEWAY_ACCESS_LOGGING_MISSING: "medium",
+  IAM_PASSROLE_WILDCARD: "low",
+  IAM_PRIVILEGE_ESCALATION_ACTIONS: "low",
+  IAM_WILDCARD_PERMISSIONS: "low",
+  LAMBDA_DEAD_LETTER_CONFIG_MISSING: "medium",
+  LAMBDA_RESERVED_CONCURRENCY_RISK: "medium",
+  LOG_GROUP_MISSING_RETENTION: "medium",
+  SNS_TOPIC_ENCRYPTION_MISSING: "medium"
+};
 
 export function applyTemplateFixes(
   originalTemplate: CfnTemplate,
@@ -63,6 +73,27 @@ export function generateFindingTemplateFixes(
   findings: Finding[]
 ): TemplateFix[] {
   return findings.map((finding) => createFindingFix(template, finding));
+}
+
+export function generateTemplateFixes(
+  template: CfnTemplate,
+  findings: Finding[],
+  suggestions: PolicySuggestion[]
+): TemplateFix[] {
+  const leastPrivilegeFixes = generateLeastPrivilegeTemplateFixes(template, suggestions);
+  const supersededIamStatementPaths = new Set(
+    leastPrivilegeFixes.flatMap((fix) =>
+      fix.source.kind === "least-privilege" ? [fix.source.evidencePath] : []
+    )
+  );
+  const findingFixes = generateFindingTemplateFixes(template, findings).filter(
+    (fix) =>
+      fix.source.kind !== "finding" ||
+      fix.source.ruleId !== "IAM_WILDCARD_PERMISSIONS" ||
+      !supersededIamStatementPaths.has(fix.source.evidencePath)
+  );
+
+  return [...findingFixes, ...leastPrivilegeFixes];
 }
 
 export function generateLeastPrivilegeTemplateFixes(
@@ -245,12 +276,73 @@ function createFindingFix(template: CfnTemplate, finding: Finding): TemplateFix 
     };
   }
 
+  if (finding.ruleId === "DYNAMODB_DELETION_PROTECTION_DISABLED") {
+    return createPropertyFix(baseFix, {
+      confidence: "high",
+      path: ["Properties", "DeletionProtectionEnabled"],
+      value: true
+    });
+  }
+
+  if (finding.ruleId === "S3_VERSIONING_DISABLED") {
+    return createPropertyFix(baseFix, {
+      confidence: "medium",
+      path: ["Properties", "VersioningConfiguration", "Status"],
+      value: "Enabled"
+    });
+  }
+
+  if (finding.ruleId === "API_GATEWAY_TRACING_DISABLED") {
+    return createPropertyFix(baseFix, {
+      confidence: "medium",
+      path: ["Properties", "TracingEnabled"],
+      value: true
+    });
+  }
+
+  if (finding.ruleId === "LAMBDA_TRACING_DISABLED") {
+    return createPropertyFix(baseFix, {
+      confidence: "medium",
+      path: ["Properties", "TracingConfig", "Mode"],
+      value: "Active"
+    });
+  }
+
   return {
     ...baseFix,
     applicability: "manual-review",
-    confidence: finding.ruleId === "LOG_GROUP_MISSING_RETENTION" ? "medium" : "low",
+    confidence: getManualFindingFixConfidence(finding.ruleId),
     patches: []
   };
+}
+
+function createPropertyFix(
+  baseFix: Omit<TemplateFix, "applicability" | "confidence" | "patches">,
+  input: {
+    confidence: TemplateFix["confidence"];
+    path: TemplatePathSegment[];
+    value: CfnValue;
+  }
+): TemplateFix {
+  return {
+    ...baseFix,
+    applicability: "applicable",
+    confidence: input.confidence,
+    patches: [
+      {
+        targetResourceId: baseFix.targetResourceId,
+        targetResourceType: baseFix.targetResourceType,
+        path: input.path,
+        operation: "set",
+        value: input.value,
+        allowCreate: true
+      }
+    ]
+  };
+}
+
+function getManualFindingFixConfidence(ruleId: string): TemplateFix["confidence"] {
+  return manualFindingFixConfidenceByRule[ruleId] ?? "low";
 }
 
 function createManualLeastPrivilegeFix(

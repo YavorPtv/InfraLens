@@ -315,12 +315,18 @@ remediation text. The current deterministic fix set includes:
 
 - Enabling all S3 public access block settings
 - Enabling DynamoDB point-in-time recovery
+- Enabling DynamoDB deletion protection
+- Enabling S3 versioning
+- Enabling active tracing for Lambda functions and API Gateway stages
 - Narrowing an IAM statement from `Resource: "*"` when exactly one referenced resource is known
 - Narrowing IAM actions when high-confidence source evidence provides exact actions
 
 CloudWatch Logs retention remains manual-review because InfraLens does not currently have a single
-concrete retention value that is safe for every workload. Mixed-service IAM statements, ambiguous
-resource candidates, stale paths, and low-confidence replacements are also left unchanged.
+concrete retention value that is safe for every workload. KMS key selection, API Gateway access-log
+destinations, Lambda failure destinations, and reserved-concurrency values also require workload-
+specific choices. Mixed-service IAM statements, ambiguous resource candidates, stale paths, and
+low-confidence replacements are left unchanged. In Apply Suggestions, a service-specific least-
+privilege fix replaces the generic IAM wildcard remediation for the same policy statement.
 
 Applying fixes creates a new CloudFormation JSON template. Logical IDs, unrelated properties, and
 intrinsic functions such as `Ref`, `Fn::GetAtt`, and `Fn::Sub` are preserved. InfraLens does not

@@ -16,10 +16,7 @@ import { detectPublicEntryPoints } from "./publicEntryPoints";
 import { findPubliclyReachableResources } from "./publicReachability";
 import { buildRuntimeArchitectureGraph } from "./runtimeGraph";
 import { inferIamActionsFromSourceCode } from "./sourceCodeAnalysis";
-import {
-  generateFindingTemplateFixes,
-  generateLeastPrivilegeTemplateFixes
-} from "./templateFixes";
+import { generateTemplateFixes } from "./templateFixes";
 import { apiGatewayMethodNoAuthRule } from "./rules/apiGatewayMethodNoAuth";
 import { apiGatewayAccessLoggingMissingRule } from "./rules/apiGatewayAccessLoggingMissing";
 import { apiGatewayTracingDisabledRule } from "./rules/apiGatewayTracingDisabled";
@@ -100,10 +97,7 @@ export function analyzeTemplate(
   });
   const findings = applyContextualSeverityAdjustments(runRules(rules, context), context);
   const summary = summarizeFindings(findings);
-  const templateFixes = [
-    ...generateFindingTemplateFixes(template, findings),
-    ...generateLeastPrivilegeTemplateFixes(template, leastPrivilegeSuggestions)
-  ];
+  const templateFixes = generateTemplateFixes(template, findings, leastPrivilegeSuggestions);
 
   return {
     findings,
