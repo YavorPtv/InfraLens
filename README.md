@@ -334,10 +334,17 @@ write to the uploaded file or deploy the generated template.
 
 ## Current Limitations
 
-- CloudFormation JSON and YAML templates are supported. CDK source parsing is not implemented yet; analyze synthesized CloudFormation output instead.
-- The analyzer is template-only and does not call AWS APIs.
-- Lambda source-code analysis is limited to simple AWS SDK v3 command-name matching.
-- The web app does not include authentication yet.
-- Least-privilege suggestions cover only the documented services and actions; unsupported AWS services remain manual review work.
-- Uploaded source files are analyzed in request memory only; there is no source-code storage workflow.
-- Graph layout is optimized for readability, but infrastructure diagrams cannot be made perfect for every possible template.
+- Rule and least-privilege coverage is limited to the resources, services, and AWS SDK commands
+  documented above. InfraLens is not yet a comprehensive AWS security assessment.
+- Source inference uses lightweight command and import matching. The web uploader also loses source
+  directory paths, so nested imports or duplicate file names may require explicit mapping or API
+  submission.
+- High-confidence IAM suggestions are based only on the submitted template and uploaded files. They
+  cannot guarantee that every runtime permission or production source file was included.
+- Template parsing is not full CloudFormation schema validation. Analyze and generated templates
+  should still be validated before deployment.
+- Compare currently compares templates only; it does not compare separate old and new source trees.
+- The hosted app has no authentication, saved reports, application-level usage limits, or rate
+  controls. The CDK API should not be exposed as a public production service in its current form.
+
+See [Production Roadmap](docs/ROADMAP.md) for the recommended next development priorities.
