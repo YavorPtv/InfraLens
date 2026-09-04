@@ -1,4 +1,5 @@
 import type { DiffReport } from "@infralens/shared";
+import { authenticatedFetch } from "../auth/authClient";
 
 interface CompareTemplatesRequest {
   oldTemplateInput: string;
@@ -20,7 +21,7 @@ export async function compareTemplates({
   oldTemplateInput,
   newTemplateInput
 }: CompareTemplatesRequest): Promise<DiffReport> {
-  const response = await fetch(getDiffUrl(apiBaseUrl), {
+  const response = await authenticatedFetch(getDiffUrl(apiBaseUrl), {
     method: "POST",
     headers: {
       "Content-Type": "application/json; charset=utf-8"

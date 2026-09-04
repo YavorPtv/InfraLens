@@ -33,7 +33,7 @@ export function LeastPrivilegeSuggestions({ suggestions }: LeastPrivilegeSuggest
       <div className="section-heading">
         <h2>Least-Privilege Suggestions</h2>
         <p className="muted-note">
-          Template-only IAM resource narrowing suggestions based on Lambda resource references.
+          IAM narrowing opportunities supported by template and optional source-code evidence.
         </p>
       </div>
 
@@ -45,6 +45,12 @@ export function LeastPrivilegeSuggestions({ suggestions }: LeastPrivilegeSuggest
             const suggestionKey = getSuggestionKey(suggestion);
             const originalStatement = createOriginalPolicyStatement(suggestion);
             const suggestedStatement = createSuggestedPolicyStatement(suggestion);
+            const currentActions = getCurrentActions(suggestion);
+            const suggestedActions = getSuggestedActions(suggestion);
+            const actionsChanged = !haveSameActions(currentActions, suggestedActions);
+            const hasAutomaticReplacement =
+              suggestion.manualOnly !== true &&
+              (actionsChanged || suggestion.suggestedResources.length > 0);
 
             return (
               <article className="policy-suggestion-card" key={suggestionKey}>
@@ -61,15 +67,17 @@ export function LeastPrivilegeSuggestions({ suggestions }: LeastPrivilegeSuggest
                         : ""}
                     </p>
                   </div>
-                  <button
-                    className="secondary-button copy-policy-button"
-                    onClick={() => {
-                      void handleCopySuggestedPolicy(suggestion, suggestionKey);
-                    }}
-                    type="button"
-                  >
-                    {copiedSuggestionKey === suggestionKey ? "Copied" : "Copy JSON"}
-                  </button>
+                  {hasAutomaticReplacement ? (
+                    <button
+                      className="secondary-button copy-policy-button"
+                      onClick={() => {
+                        void handleCopySuggestedPolicy(suggestion, suggestionKey);
+                      }}
+                      type="button"
+                    >
+                      {copiedSuggestionKey === suggestionKey ? "Copied" : "Copy JSON"}
+                    </button>
+                  ) : null}
                 </div>
 
                 <p>{suggestion.explanation}</p>
@@ -91,26 +99,43 @@ export function LeastPrivilegeSuggestions({ suggestions }: LeastPrivilegeSuggest
                   </div>
                   <div>
                     <dt>Current Actions</dt>
-                    <dd>{getCurrentActions(suggestion).join(", ")}</dd>
+                    <dd>{currentActions.join(", ")}</dd>
                   </div>
                   <div>
-                    <dt>Suggested Actions</dt>
-                    <dd>{getSuggestedActions(suggestion).join(", ")}</dd>
+                    <dt>{actionsChanged ? "Candidate Actions" : "Action Narrowing"}</dt>
+                    <dd>
+                      {actionsChanged
+                        ? suggestedActions.join(", ")
+                        : "No safe action narrowing inferred; current actions remain unchanged."}
+                    </dd>
                   </div>
                 </dl>
 
-                <div className="policy-diff-grid" aria-label="Original and suggested policy statements">
-                  <PolicyJsonBlock
-                    code={formatJson(originalStatement)}
-                    label="Original statement"
-                    tone="original"
-                  />
-                  <PolicyJsonBlock
-                    code={formatJson(suggestedStatement)}
-                    label="Suggested replacement"
-                    tone="suggested"
-                  />
-                </div>
+                {hasAutomaticReplacement ? (
+                  <div
+                    className="policy-diff-grid"
+                    aria-label="Original and suggested policy statements"
+                  >
+                    <PolicyJsonBlock
+                      code={formatJson(originalStatement)}
+                      label="Original statement"
+                      tone="original"
+                    />
+                    <PolicyJsonBlock
+                      code={formatJson(suggestedStatement)}
+                      label="Suggested replacement"
+                      tone="suggested"
+                    />
+                  </div>
+                ) : (
+                  <div className="policy-review-block">
+                    <h4>No automatic replacement</h4>
+                    <p>
+                      {suggestion.manualReviewReason ??
+                        "InfraLens does not have enough evidence to produce a safer policy statement."}
+                    </p>
+                  </div>
+                )}
 
                 <div className="policy-evidence-grid">
                   <EvidenceBlock
@@ -339,6 +364,13 @@ function getRuntimeActions(
   const value = (suggestion as Partial<PolicySuggestion>)[property];
 
   return Array.isArray(value) ? value : undefined;
+}
+
+function haveSameActions(left: string[], right: string[]): boolean {
+  const normalize = (actions: string[]) =>
+    [...new Set(actions.map((action) => action.toLowerCase()))].sort();
+
+  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 }
 
 function formatSuggestedResource(suggestion: PolicySuggestion): CfnValue | CfnValue[] {

@@ -344,7 +344,17 @@ write to the uploaded file or deploy the generated template.
 - Template parsing is not full CloudFormation schema validation. Analyze and generated templates
   should still be validated before deployment.
 - Compare currently compares templates only; it does not compare separate old and new source trees.
-- The hosted app has no authentication, saved reports, application-level usage limits, or rate
-  controls. The CDK API should not be exposed as a public production service in its current form.
+- Reports are not persisted; refreshing or leaving the current browser session loses analysis
+  history.
+
+## Hosted Deployment Security
+
+InfraLens initially uses invited access rather than anonymous public API access. The production CDK
+configuration uses Cognito hosted sign-in and API Gateway authorization for all analysis routes,
+restricts CORS to the frontend origin, validates request sizes, throttles requests, caps Lambda
+concurrency when configured, and configures structured logs and operational alarms.
+
+See [Protected Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) for required configuration,
+first-user invitation, current limits, monitoring, cost alerts, and the pre-deployment checklist.
 
 See [Production Roadmap](docs/ROADMAP.md) for the recommended next development priorities.

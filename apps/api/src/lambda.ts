@@ -9,6 +9,13 @@ import {
   type ApplyTemplateFixesHandler,
   type ApiErrorResponse
 } from "./analyzeRequest";
+import { getAllowedOrigins, getCorsResponseHeaders } from "./corsConfig";
+import {
+  executeLoggedOperation,
+  type ApiLogWriter,
+  type ApiOperation
+} from "./operationLogging";
+import { getApiRequestLimits, type ApiRequestLimits } from "./requestLimits";
 
 export interface ApiGatewayAnalyzeRequest {
   body?: string | null;
@@ -17,11 +24,13 @@ export interface ApiGatewayAnalyzeRequest {
   rawPath?: string;
   isBase64Encoded?: boolean;
   requestContext?: {
+    requestId?: string;
     http?: {
       method?: string;
       path?: string;
     };
   };
+  headers?: Record<string, string | undefined>;
 }
 
 export interface ApiGatewayAnalyzeResponse {
@@ -34,16 +43,14 @@ export interface CreateAnalyzeLambdaHandlerOptions {
   analyze?: AnalyzeTemplateHandler;
   diff?: AnalyzeTemplateDiffHandler;
   apply?: ApplyTemplateFixesHandler;
+  allowedOrigins?: string[];
+  requestLimits?: ApiRequestLimits;
+  writeLog?: ApiLogWriter;
 }
 
 export type AnalyzeLambdaHandler = (
   event: ApiGatewayAnalyzeRequest
 ) => Promise<ApiGatewayAnalyzeResponse>;
-
-const jsonHeaders = {
-  "access-control-allow-origin": "*",
-  "content-type": "application/json"
-};
 
 export function createAnalyzeLambdaHandler(
   options: CreateAnalyzeLambdaHandlerOptions = {}
@@ -51,10 +58,17 @@ export function createAnalyzeLambdaHandler(
   const analyze = options.analyze;
   const diff = options.diff;
   const apply = options.apply;
+  const allowedOrigins = options.allowedOrigins ?? getAllowedOrigins();
+  const requestLimits = options.requestLimits ?? getApiRequestLimits();
 
   return async function analyzeLambdaHandler(event) {
+    const responseHeaders = {
+      "content-type": "application/json",
+      ...getCorsResponseHeaders(getRequestOrigin(event), allowedOrigins)
+    };
+
     if (getHttpMethod(event) !== "POST") {
-      return jsonResponse(405, {
+      return jsonResponse(405, responseHeaders, {
         error: {
           code: "NOT_FOUND",
           message: "Use POST /analyze, POST /diff, or POST /apply."
@@ -62,29 +76,43 @@ export function createAnalyzeLambdaHandler(
       });
     }
 
-    try {
-      const rawBody = decodeRequestBody(event);
-      if (isDiffPath(event)) {
-        return jsonResponse(200, diffCloudFormationBody(rawBody, diff));
-      }
-
-      if (isApplyPath(event)) {
-        return jsonResponse(200, applyCloudFormationBody(rawBody, apply));
-      }
-
-      if (isAnalyzePath(event)) {
-        return jsonResponse(200, analyzeCloudFormationBody(rawBody, analyze));
-      }
-
-      return jsonResponse(404, {
+    const operation = getOperation(event);
+    if (operation === undefined) {
+      return jsonResponse(404, responseHeaders, {
         error: {
           code: "NOT_FOUND",
           message: "Use POST /analyze, POST /diff, or POST /apply."
         }
       });
+    }
+
+    const requestId = event.requestContext?.requestId ?? "unavailable";
+
+    try {
+      const rawBody = decodeRequestBody(event);
+      const result = executeLoggedOperation({
+        operation,
+        requestId,
+        rawBody,
+        execute: () => executeOperation(operation, rawBody),
+        ...(options.writeLog === undefined ? {} : { writeLog: options.writeLog })
+      });
+      return jsonResponse(200, responseHeaders, result);
     } catch (error) {
       const apiError = toApiRequestError(error);
-      return jsonResponse(apiError.statusCode, toApiErrorResponse(apiError));
+      return jsonResponse(apiError.statusCode, responseHeaders, toApiErrorResponse(apiError));
+    }
+
+    function executeOperation(operation: ApiOperation, rawBody: string | undefined) {
+      if (operation === "/diff") {
+        return diffCloudFormationBody(rawBody, diff, requestLimits);
+      }
+
+      if (operation === "/apply") {
+        return applyCloudFormationBody(rawBody, apply, requestLimits);
+      }
+
+      return analyzeCloudFormationBody(rawBody, analyze, requestLimits);
     }
   };
 }
@@ -113,6 +141,26 @@ function isApplyPath(event: ApiGatewayAnalyzeRequest): boolean {
   return getPath(event)?.endsWith("/apply") === true;
 }
 
+function getOperation(event: ApiGatewayAnalyzeRequest): ApiOperation | undefined {
+  if (isDiffPath(event)) {
+    return "/diff";
+  }
+
+  if (isApplyPath(event)) {
+    return "/apply";
+  }
+
+  return isAnalyzePath(event) ? "/analyze" : undefined;
+}
+
+function getRequestOrigin(event: ApiGatewayAnalyzeRequest): string | undefined {
+  const originHeader = Object.entries(event.headers ?? {}).find(
+    ([name]) => name.toLowerCase() === "origin"
+  );
+
+  return originHeader?.[1];
+}
+
 function decodeRequestBody(event: ApiGatewayAnalyzeRequest): string | undefined {
   if (event.body === null || event.body === undefined) {
     return undefined;
@@ -125,10 +173,14 @@ function decodeRequestBody(event: ApiGatewayAnalyzeRequest): string | undefined 
   return event.body;
 }
 
-function jsonResponse(statusCode: number, payload: unknown): ApiGatewayAnalyzeResponse {
+function jsonResponse(
+  statusCode: number,
+  headers: Record<string, string>,
+  payload: unknown
+): ApiGatewayAnalyzeResponse {
   return {
     statusCode,
-    headers: jsonHeaders,
+    headers,
     body: JSON.stringify(payload)
   };
 }
