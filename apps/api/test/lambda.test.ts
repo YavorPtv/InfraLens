@@ -1,12 +1,13 @@
 import { expect } from "chai";
 import type { AnalysisReport, ApplySuggestionsResult, DiffReport } from "@infralens/shared";
 import { createAnalyzeLambdaHandler, type ApiGatewayAnalyzeResponse } from "../src/lambda";
-import type { ApiErrorResponse } from "../src";
+import { defaultApiRequestLimits, type ApiErrorResponse } from "../src";
 
 describe("analyze Lambda handler", () => {
   it("returns an AnalysisReport for a valid POST body", async () => {
     const response = await createAnalyzeLambdaHandler()({
       httpMethod: "POST",
+      headers: { Origin: "http://localhost:5173" },
       body: JSON.stringify({
         Resources: {
           Topic: {
@@ -18,7 +19,7 @@ describe("analyze Lambda handler", () => {
     });
 
     expect(response.statusCode).to.equal(200);
-    expect(response.headers["access-control-allow-origin"]).to.equal("*");
+    expect(response.headers["access-control-allow-origin"]).to.equal("http://localhost:5173");
 
     const report = readJson<AnalysisReport>(response);
     expect(report).to.include({
@@ -262,6 +263,34 @@ Resources:
         message: "Request body is required."
       }
     });
+  });
+
+  it("returns a structured 413 before analyzing an oversized Lambda request", async () => {
+    const response = await createAnalyzeLambdaHandler({
+      requestLimits: { ...defaultApiRequestLimits, maxTemplateBytes: 5 },
+      writeLog() {}
+    })({
+      httpMethod: "POST",
+      path: "/analyze",
+      body: JSON.stringify({ Resources: {} })
+    });
+
+    expect(response.statusCode).to.equal(413);
+    expect(readJson<ApiErrorResponse>(response).error).to.include({
+      code: "PAYLOAD_TOO_LARGE",
+      message: "CloudFormation template size exceeds the configured limit of 5."
+    });
+  });
+
+  it("does not return a CORS origin header for an untrusted origin", async () => {
+    const response = await createAnalyzeLambdaHandler({ writeLog() {} })({
+      httpMethod: "POST",
+      headers: { Origin: "https://untrusted.example.com" },
+      body: JSON.stringify({ Resources: {} })
+    });
+
+    expect(response.statusCode).to.equal(200);
+    expect(response.headers).not.to.have.property("access-control-allow-origin");
   });
 
   it("returns a 400 error for invalid input", async () => {

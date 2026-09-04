@@ -86,6 +86,42 @@ button:disabled {
   color: #174ea6;
 }
 
+.nav-button {
+  border: 0;
+  background: transparent;
+}
+
+.auth-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-panel {
+  display: grid;
+  width: min(100%, 420px);
+  gap: 16px;
+  border: 1px solid #dbe2ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 28px;
+}
+
+.auth-panel h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.auth-panel p,
+.auth-panel .error-message {
+  margin: 0;
+}
+
+.auth-panel .primary-button {
+  justify-self: start;
+}
+
 .main-content {
   width: min(1120px, calc(100% - 40px));
   margin: 0 auto;
@@ -975,6 +1011,16 @@ h2 {
 .policy-suggestion-card p {
   margin-bottom: 0;
   color: #3f4d5f;
+}
+
+.policy-review-block {
+  border-left: 3px solid #d97706;
+  background: #fff7ed;
+  padding: 12px 14px;
+}
+
+.policy-review-block h4 {
+  margin: 0 0 6px;
 }
 
 .policy-suggestion-header {

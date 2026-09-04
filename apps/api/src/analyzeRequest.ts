@@ -15,6 +15,10 @@ import type {
   TemplatePatch,
   TemplatePathSegment
 } from "@infralens/shared";
+import {
+  defaultApiRequestLimits,
+  type ApiRequestLimits
+} from "./requestLimits";
 
 export type AnalyzeTemplateHandler = (
   rawTemplate: string,
@@ -36,6 +40,7 @@ export type ApiErrorCode =
   | "MISSING_BODY"
   | "INVALID_TEMPLATE"
   | "INVALID_FIX"
+  | "PAYLOAD_TOO_LARGE"
   | "ANALYSIS_ERROR"
   | "NOT_FOUND";
 
@@ -77,13 +82,12 @@ export class ApiRequestError extends Error {
 
 export function analyzeCloudFormationBody(
   rawBody: string | undefined,
-  analyze: AnalyzeTemplateHandler = analyzeTemplate
+  analyze: AnalyzeTemplateHandler = analyzeTemplate,
+  limits: ApiRequestLimits = defaultApiRequestLimits
 ): AnalysisReport {
-  if (rawBody === undefined || rawBody.trim().length === 0) {
-    throw new ApiRequestError(400, "MISSING_BODY", "Request body is required.");
-  }
+  requireRequestBody(rawBody, limits);
 
-  const request = parseAnalyzeApiRequest(rawBody);
+  const request = parseAnalyzeApiRequest(rawBody, limits);
 
   try {
     return analyze(
@@ -123,13 +127,12 @@ export function analyzeCloudFormationBody(
 
 export function diffCloudFormationBody(
   rawBody: string | undefined,
-  diff: AnalyzeTemplateDiffHandler = analyzeTemplateDiff
+  diff: AnalyzeTemplateDiffHandler = analyzeTemplateDiff,
+  limits: ApiRequestLimits = defaultApiRequestLimits
 ): DiffReport {
-  if (rawBody === undefined || rawBody.trim().length === 0) {
-    throw new ApiRequestError(400, "MISSING_BODY", "Request body is required.");
-  }
+  requireRequestBody(rawBody, limits);
 
-  const request = parseDiffApiRequest(rawBody);
+  const request = parseDiffApiRequest(rawBody, limits);
 
   try {
     return diff(request.oldTemplate, request.newTemplate);
@@ -154,13 +157,12 @@ export function diffCloudFormationBody(
 
 export function applyCloudFormationBody(
   rawBody: string | undefined,
-  apply: ApplyTemplateFixesHandler = applyTemplateFixes
+  apply: ApplyTemplateFixesHandler = applyTemplateFixes,
+  limits: ApiRequestLimits = defaultApiRequestLimits
 ): ApplySuggestionsResult {
-  if (rawBody === undefined || rawBody.trim().length === 0) {
-    throw new ApiRequestError(400, "MISSING_BODY", "Request body is required.");
-  }
+  requireRequestBody(rawBody, limits);
 
-  const request = parseApplyApiRequest(rawBody);
+  const request = parseApplyApiRequest(rawBody, limits);
 
   try {
     return apply(parseTemplateInput(request.template), request.fixes);
@@ -183,10 +185,14 @@ export function applyCloudFormationBody(
   }
 }
 
-function parseAnalyzeApiRequest(rawBody: string): AnalyzeApiRequest {
+function parseAnalyzeApiRequest(
+  rawBody: string,
+  limits: ApiRequestLimits
+): AnalyzeApiRequest {
   const parsedBody = tryParseJson(rawBody);
 
   if (!isRecord(parsedBody) || !("template" in parsedBody) || "Resources" in parsedBody) {
+    assertByteLimit(rawBody, limits.maxTemplateBytes, "CloudFormation template");
     return {
       template: rawBody
     };
@@ -200,9 +206,11 @@ function parseAnalyzeApiRequest(rawBody: string): AnalyzeApiRequest {
     );
   }
 
-  const sourceFiles = parseSourceFiles(parsedBody.sourceFiles);
-  const sourceFileMappings = parseSourceFileMappings(parsedBody.sourceFileMappings);
-  const sourceFileExclusions = parseSourceFileExclusions(parsedBody.sourceFileExclusions);
+  assertByteLimit(parsedBody.template, limits.maxTemplateBytes, "CloudFormation template");
+
+  const sourceFiles = parseSourceFiles(parsedBody.sourceFiles, limits);
+  const sourceFileMappings = parseSourceFileMappings(parsedBody.sourceFileMappings, limits);
+  const sourceFileExclusions = parseSourceFileExclusions(parsedBody.sourceFileExclusions, limits);
 
   return {
     template: parsedBody.template,
@@ -212,7 +220,7 @@ function parseAnalyzeApiRequest(rawBody: string): AnalyzeApiRequest {
   };
 }
 
-function parseDiffApiRequest(rawBody: string): DiffApiRequest {
+function parseDiffApiRequest(rawBody: string, limits: ApiRequestLimits): DiffApiRequest {
   const parsedBody = tryParseJson(rawBody);
 
   if (!isRecord(parsedBody)) {
@@ -239,13 +247,21 @@ function parseDiffApiRequest(rawBody: string): DiffApiRequest {
     );
   }
 
+  assertByteLimit(parsedBody.oldTemplate, limits.maxTemplateBytes, "Old CloudFormation template");
+  assertByteLimit(parsedBody.newTemplate, limits.maxTemplateBytes, "New CloudFormation template");
+  assertNumericLimit(
+    byteLength(parsedBody.oldTemplate) + byteLength(parsedBody.newTemplate),
+    limits.maxDiffTemplateBytes,
+    "Combined diff template size"
+  );
+
   return {
     oldTemplate: parsedBody.oldTemplate,
     newTemplate: parsedBody.newTemplate
   };
 }
 
-function parseApplyApiRequest(rawBody: string): ApplyApiRequest {
+function parseApplyApiRequest(rawBody: string, limits: ApiRequestLimits): ApplyApiRequest {
   const parsedBody = tryParseJson(rawBody);
 
   if (!isRecord(parsedBody)) {
@@ -267,6 +283,9 @@ function parseApplyApiRequest(rawBody: string): ApplyApiRequest {
   if (!Array.isArray(parsedBody.fixes)) {
     throw new ApiRequestError(400, "INVALID_FIX", "Request body must include a fixes array.");
   }
+
+  assertByteLimit(parsedBody.template, limits.maxTemplateBytes, "CloudFormation template");
+  assertNumericLimit(parsedBody.fixes.length, limits.maxFixes, "Selected fix count");
 
   return {
     template: parsedBody.template,
@@ -362,7 +381,10 @@ function tryParseJson(rawBody: string): unknown {
   }
 }
 
-function parseSourceFiles(value: unknown): Record<string, string> | undefined {
+function parseSourceFiles(
+  value: unknown,
+  limits: ApiRequestLimits
+): Record<string, string> | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -375,9 +397,13 @@ function parseSourceFiles(value: unknown): Record<string, string> | undefined {
     );
   }
 
-  const sourceFiles: Record<string, string> = {};
+  const entries = Object.entries(value);
+  assertNumericLimit(entries.length, limits.maxSourceFiles, "Source file count");
 
-  for (const [filePath, sourceCode] of Object.entries(value)) {
+  const sourceFiles: Record<string, string> = {};
+  let combinedSourceBytes = 0;
+
+  for (const [filePath, sourceCode] of entries) {
     if (typeof sourceCode !== "string") {
       throw new ApiRequestError(
         400,
@@ -386,13 +412,25 @@ function parseSourceFiles(value: unknown): Record<string, string> | undefined {
       );
     }
 
+    assertByteLimit(sourceCode, limits.maxSourceFileBytes, `Source file ${filePath}`);
+    combinedSourceBytes += byteLength(sourceCode);
+
     sourceFiles[filePath] = sourceCode;
   }
+
+  assertNumericLimit(
+    combinedSourceBytes,
+    limits.maxCombinedSourceBytes,
+    "Combined source-code size"
+  );
 
   return sourceFiles;
 }
 
-function parseSourceFileMappings(value: unknown): Record<string, string> | undefined {
+function parseSourceFileMappings(
+  value: unknown,
+  limits: ApiRequestLimits
+): Record<string, string> | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -405,9 +443,12 @@ function parseSourceFileMappings(value: unknown): Record<string, string> | undef
     );
   }
 
+  const entries = Object.entries(value);
+  assertNumericLimit(entries.length, limits.maxSourceMappings, "Source mapping count");
+
   const sourceFileMappings: Record<string, string> = {};
 
-  for (const [filePath, lambdaFunctionId] of Object.entries(value)) {
+  for (const [filePath, lambdaFunctionId] of entries) {
     if (typeof lambdaFunctionId !== "string" || lambdaFunctionId.trim().length === 0) {
       throw new ApiRequestError(
         400,
@@ -422,7 +463,10 @@ function parseSourceFileMappings(value: unknown): Record<string, string> | undef
   return sourceFileMappings;
 }
 
-function parseSourceFileExclusions(value: unknown): string[] | undefined {
+function parseSourceFileExclusions(
+  value: unknown,
+  limits: ApiRequestLimits
+): string[] | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -434,6 +478,8 @@ function parseSourceFileExclusions(value: unknown): string[] | undefined {
       "sourceFileExclusions must be an array of source file paths."
     );
   }
+
+  assertNumericLimit(value.length, limits.maxSourceExclusions, "Source exclusion count");
 
   const sourceFileExclusions: string[] = [];
 
@@ -477,6 +523,38 @@ export function toApiErrorResponse(error: ApiRequestError): ApiErrorResponse {
 
 export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function requireRequestBody(
+  rawBody: string | undefined,
+  limits: ApiRequestLimits
+): asserts rawBody is string {
+  if (rawBody === undefined || rawBody.trim().length === 0) {
+    throw new ApiRequestError(400, "MISSING_BODY", "Request body is required.");
+  }
+
+  assertByteLimit(rawBody, limits.maxRequestBytes, "Request body");
+}
+
+function assertByteLimit(value: string, maximum: number, label: string): void {
+  assertNumericLimit(byteLength(value), maximum, `${label} size`);
+}
+
+function assertNumericLimit(actual: number, maximum: number, label: string): void {
+  if (actual <= maximum) {
+    return;
+  }
+
+  throw new ApiRequestError(
+    413,
+    "PAYLOAD_TOO_LARGE",
+    `${label} exceeds the configured limit of ${maximum}.`,
+    `Received ${actual}.`
+  );
+}
+
+function byteLength(value: string): number {
+  return Buffer.byteLength(value, "utf8");
 }
 
 function isInvalidTemplateError(error: unknown): boolean {

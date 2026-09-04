@@ -1,75 +1,41 @@
 # InfraLens CDK
 
-Initial AWS CDK skeleton for hosting InfraLens.
+AWS CDK stack for the InfraLens frontend and analysis API.
 
 ## Resources
 
-- S3 bucket for frontend build artifacts
-- CloudFront distribution in front of the frontend bucket
-- Lambda function bundled from the API handler
-- API Gateway REST API with `POST /analyze`
-- API Gateway REST API with `POST /diff`
-- API Gateway REST API with `GET /health`
+- Private S3 frontend bucket and CloudFront distribution with SPA fallback
+- Node.js Lambda for `/analyze`, `/diff`, and `/apply`
+- REST API Gateway with an unauthenticated `/health` endpoint
+- Production Cognito User Pool, hosted sign-in domain, app client, and API authorizer
+- Explicit API and Lambda log groups, throttling, reserved concurrency, and CloudWatch alarms
+- Optional SNS email notifications and AWS monthly budget
 
-CloudFront is configured with an SPA fallback so routes such as `/analyze` and `/report` return `index.html` on browser refresh.
+Development is the default CDK mode and supports the local Vite origin. A public deployment must use
+the production mode, which protects every analysis route with Cognito and disables self-sign-up.
 
-## Expected Deployment Flow
+See [Protected Production Deployment](../../docs/PRODUCTION_DEPLOYMENT.md) for configuration,
+deployment outputs, inviting the first user, frontend auth settings, request limits, monitoring, and
+the production checklist.
+
+## Verify
 
 From the repository root:
 
 ```sh
 npm install
 npm run build --workspace @infralens/cdk
+npm run test --workspace @infralens/cdk
 npm run synth --workspace @infralens/cdk
 ```
 
-When the stack is ready to deploy:
+Production synthesis requires a unique Cognito domain prefix. Do not include the reserved terms
+`aws`, `amazon`, or `cognito` in it:
 
 ```sh
-npm run build --workspace @infralens/cdk
-npm exec --workspace @infralens/cdk -- cdk deploy
+npm run synth --workspace @infralens/cdk -- \
+  -c environment=production \
+  -c cognitoDomainPrefix=infralens-your-project
 ```
 
-After deployment, get these stack outputs:
-
-- `FrontendBucketName`
-- `FrontendDistributionDomainName`
-- `FrontendDistributionId`
-- `AnalysisApiBaseUrl`
-- `AnalysisDiffApiUrl`
-
-Build the React app with the deployed API Gateway base URL:
-
-```sh
-VITE_INFRALENS_API_BASE_URL=https://example.execute-api.eu-central-1.amazonaws.com/prod npm run build --workspace @infralens/web
-```
-
-On Windows PowerShell:
-
-```powershell
-$env:VITE_INFRALENS_API_BASE_URL = "https://example.execute-api.eu-central-1.amazonaws.com/prod"
-npm.cmd run build --workspace @infralens/web
-Remove-Item Env:VITE_INFRALENS_API_BASE_URL
-```
-
-Upload the static files to the frontend bucket:
-
-```sh
-aws s3 sync apps/web/dist s3://YOUR_FRONTEND_BUCKET_NAME --delete
-```
-
-Then invalidate CloudFront so the distribution serves the newest build:
-
-```sh
-aws cloudfront create-invalidation --distribution-id YOUR_DISTRIBUTION_ID --paths "/*"
-```
-
-CloudFront will serve the uploaded files from `FrontendDistributionDomainName`.
-
-## Notes
-
-- No authentication is configured yet.
-- No DynamoDB table is created yet.
-- No secrets are hardcoded in the stack.
-- The frontend bucket is private and read through CloudFront.
-- The API currently allows CORS from all origins for local/demo integration; tighten this once a production frontend domain is known.
+Synthesis does not deploy resources.

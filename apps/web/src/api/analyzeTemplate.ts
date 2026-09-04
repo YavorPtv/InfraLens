@@ -1,4 +1,5 @@
 import type { AnalysisReport } from "@infralens/shared";
+import { authenticatedFetch } from "../auth/authClient";
 
 export interface AnalyzeTemplateRequest {
   templateInput: string;
@@ -31,7 +32,7 @@ export async function analyzeTemplate({
     sourceFileExclusions !== undefined && sourceFileExclusions.length > 0;
   const hasRequestEnvelope =
     hasSourceFiles || hasSourceFileMappings || hasSourceFileExclusions;
-  const response = await fetch(getAnalyzeUrl(apiBaseUrl), {
+  const response = await authenticatedFetch(getAnalyzeUrl(apiBaseUrl), {
     method: "POST",
     headers: {
       "Content-Type": hasRequestEnvelope

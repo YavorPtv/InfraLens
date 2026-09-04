@@ -1,4 +1,5 @@
 import type { ApplySuggestionsResult, TemplateFix } from "@infralens/shared";
+import { authenticatedFetch } from "../auth/authClient";
 
 interface ApplySuggestionsRequest {
   templateInput: string;
@@ -19,7 +20,7 @@ export async function applySuggestions({
   templateInput,
   fixes
 }: ApplySuggestionsRequest): Promise<ApplySuggestionsResult> {
-  const response = await fetch(getApplyUrl(apiBaseUrl), {
+  const response = await authenticatedFetch(getApplyUrl(apiBaseUrl), {
     method: "POST",
     headers: {
       "Content-Type": "application/json; charset=utf-8"
