@@ -71,7 +71,6 @@ describe("InfraLensStack", () => {
   });
 
   it("configures production authentication and operational safeguards", function () {
-    this.timeout(10_000);
     const app = new cdk.App();
     const stack = new InfraLensStack(app, "ProductionStack", {
       alertEmail: "alerts@example.com",
@@ -157,7 +156,6 @@ describe("InfraLensStack", () => {
   });
 
   it("leaves reserved concurrency unset when the account quota is unknown", function () {
-    this.timeout(10_000);
     const app = new cdk.App();
     const stack = new InfraLensStack(app, "DefaultConcurrencyStack");
     const functions = Template.fromStack(stack).findResources("AWS::Lambda::Function");

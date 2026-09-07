@@ -13,6 +13,8 @@
     "diff": "npm run build --workspace @infralens/shared && npm run build --workspace @infralens/analyzer && npm run build --workspace @infralens/cli && node apps/cli/dist/index.js --diff",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:integration": "npm run build --workspace @infralens/shared && npm run build --workspace @infralens/analyzer && npm run test:integration --workspace @infralens/api",
+    "test:smoke": "npm run test:smoke --workspace @infralens/api",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {

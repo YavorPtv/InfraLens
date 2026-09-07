@@ -1,0 +1,31 @@
+name: Smoke tests (existing deployment required)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Validate existing API deployment over HTTP
+    if: ${{ vars.INFRALENS_SMOKE_API_BASE_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      INFRALENS_SMOKE_API_BASE_URL: ${{ vars.INFRALENS_SMOKE_API_BASE_URL }}
+      # Optional short-lived Cognito access token; never required for unauthenticated checks.
+      INFRALENS_SMOKE_ACCESS_TOKEN: ${{ secrets.INFRALENS_SMOKE_ACCESS_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Smoke test existing deployment (no infrastructure deployment)
+        run: npm run test:smoke
