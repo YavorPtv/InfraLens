@@ -45,6 +45,16 @@ Run all workspace tests:
 npm run test
 ```
 
+Run the complete local workflow integration suite (builds shared/analyzer dependencies first):
+
+```sh
+npm run test:integration
+```
+
+Integration tests also run under `npm test`. Deployed HTTP smoke tests are separate and opt-in.
+See [Workflow testing](docs/TESTING.md) for coverage, fixture locations, remaining manual checks,
+and smoke configuration. Smoke tests validate an existing deployment; CI does not deploy InfraLens.
+
 Run typecheck across all workspaces:
 
 ```sh
