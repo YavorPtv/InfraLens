@@ -3,21 +3,29 @@
 This document tracks recommended development order, not a fixed release commitment. Update it as
 features land and priorities change.
 
+Last refreshed: September 8, 2026, after the workflow integration tests were merged in PR #49.
+
 ## Completed Foundation: Protect The Hosted API
 
 The first production release uses invited Cognito access, restricted CORS, request and concurrency
 limits, REST API throttling, structured logs, alarms, and optional budget notifications. See the
 [protected deployment guide](PRODUCTION_DEPLOYMENT.md).
 
-## Priority 1: Test Complete User Workflows
+## Completed Foundation: Workflow Integration Tests
 
-- Cover Analyze -> Review -> Apply -> Compare as one integration workflow.
-- Test source upload, explicit Lambda mapping, shared imports, report downloads, and API failures.
-- Add deployed-route smoke tests without deploying from CI.
+- Added 25 integration tests using real Express, Lambda adapter, analyzer, fix, diff, and export code.
+- Covered Analyze -> Review -> Apply -> Compare -> Export, including selected fixes, original-template
+  preservation, unrelated properties, resolved findings, and remaining findings.
+- Covered source upload, explicit and automatic Lambda mapping, mapping confidence, shared and
+  transitive imports, cycles, duplicate paths, and isolation between Lambda roles.
+- Covered request validation and structured errors through both API adapters.
+- Added opt-in deployed HTTP smoke tests and a manual GitHub Actions workflow. Smoke tests validate
+  an existing deployment; CI does not deploy InfraLens.
 
-This should happen before large feature expansion so the current product behavior remains stable.
+Run `npm run test:integration` for the local workflow suite; it also runs under `npm test`.
+See [Workflow testing](TESTING.md) for fixtures, commands, smoke configuration, and coverage limits.
 
-## Priority 2: Preserve Source Project Structure
+## Priority 1: Preserve Source Project Structure
 
 - Preserve relative directory paths in the web upload flow.
 - Handle duplicate file names safely.
@@ -26,24 +34,39 @@ This should happen before large feature expansion so the current product behavio
 
 This removes a practical correctness gap in source-to-Lambda and shared-import inference.
 
-## Priority 3: Validate Generated Templates
+## Priority 2: Validate Generated Templates
 
 - Add stronger CloudFormation validation for analyzed and modified templates.
 - Clearly separate parse success, analyzer success, and deployment validity.
 - Validate generated templates before presenting them as ready to download.
 
-## Priority 4: Deepen Analyzer Coverage Carefully
+## Priority 3: Deepen Analyzer Coverage Carefully
 
 - Prioritize new rules from real example templates and user needs rather than rule count alone.
 - Expand least-privilege metadata only when action/resource behavior can be represented safely.
 - Improve awareness of IAM conditions, managed policies, and permissions boundaries.
 - Reduce source-matching false positives before attempting broad language or package analysis.
 
-## Priority 5: Add Product Persistence When Needed
+## Priority 4: Add Product Persistence When Needed
 
 - Add saved reports and projects only when users need history or collaboration.
 - Design data retention and source-code handling before storing uploaded content.
 - Add team and ownership concepts after the single-user workflow is stable.
+
+## Ongoing Verification And Remaining Gaps
+
+- Extend the existing unit and integration suites as product behavior changes. Keep normal CI
+  running tests, typecheck, and builds without requiring a deployed environment.
+- Configure `INFRALENS_SMOKE_API_BASE_URL` for an existing deployment and run the manual smoke
+  workflow after hosted changes. A valid `INFRALENS_SMOKE_ACCESS_TOKEN` optionally enables a minimal
+  authenticated analyze check; adding the suite alone does not verify a deployment.
+- Browser upload controls, navigation, selection rendering, clipboard, and actual download clicks
+  still need manual checks. Export content is covered by the automated workflow tests.
+- Cognito sign-in, PKCE, token refresh, and browser sessions remain outside the new integration suite.
+  The smoke suite checks public health and unauthenticated route rejection, with authenticated
+  analysis optional; authenticated hosted apply/diff workflows remain a coverage gap.
+- Compare still accepts templates only, without separate old/new source trees. Full CloudFormation
+  deployment validation and runtime IAM completeness are not established by passing local tests.
 
 ## Not Near-Term Priorities
 
