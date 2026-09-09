@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   ApplySuggestionsResult,
@@ -25,10 +25,7 @@ export function ApplySuggestionsPanel({
   const navigate = useNavigate();
   const applicableFixes = fixes.filter((fix) => fix.applicability === "applicable");
   const manualFixes = fixes.filter((fix) => fix.applicability === "manual-review");
-  const selectedFixes = useMemo(
-    () => fixes.filter((fix) => fix.applicability === "applicable" && selectedFixIds.has(fix.id)),
-    [fixes, selectedFixIds]
-  );
+  const selectedFixes = applicableFixes.filter((fix) => selectedFixIds.has(fix.id));
   const allApplicableSelected = applicableFixes.length > 0 &&
     applicableFixes.every((fix) => selectedFixIds.has(fix.id));
   const generatedTemplate =
