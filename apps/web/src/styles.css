@@ -840,6 +840,14 @@ h2 {
   gap: 16px;
 }
 
+.fix-selection-controls {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .apply-count,
 .fix-kind-pill {
   display: inline-flex;
