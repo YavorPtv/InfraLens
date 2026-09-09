@@ -191,9 +191,20 @@ Open the Vite URL printed by the dev server, usually `http://localhost:5173`.
 On the Analyze page, paste or upload a CloudFormation JSON/YAML template. You can also upload optional Lambda source files with these extensions:
 
 - `.ts`
+- `.tsx`
 - `.js`
+- `.jsx`
 - `.mjs`
 - `.cjs`
+
+Use **Upload Source Folder** to preserve the directory hierarchy, including the selected folder's
+name. Source files and Lambda mappings use normalized relative paths, so duplicate basenames in
+different directories stay distinct. Re-uploading the same path replaces its content, keeps its
+mapping, and marks it **Replaced**. Removing a file removes its associated mapping. Ordinary file
+upload remains available, but the browser may expose only a basename for those files.
+
+See [Source project uploads](docs/SOURCE_UPLOADS.md) for folder filtering, API compatibility, safe
+path normalization, and nested/shared import behavior.
 
 For a quick demo, upload:
 
@@ -346,9 +357,10 @@ write to the uploaded file or deploy the generated template.
 
 - Rule and least-privilege coverage is limited to the resources, services, and AWS SDK commands
   documented above. InfraLens is not yet a comprehensive AWS security assessment.
-- Source inference uses lightweight command and import matching. The web uploader also loses source
-  directory paths, so nested imports or duplicate file names may require explicit mapping or API
-  submission.
+- Source inference uses lightweight command and import matching. Folder uploads preserve relative
+  paths; ordinary file selection may expose only basenames. Missing files, ambiguous paths, package
+  imports and TypeScript path aliases can still prevent shared-source attribution. Explicit Lambda
+  mapping does not restore missing directory information.
 - High-confidence IAM suggestions are based only on the submitted template and uploaded files. They
   cannot guarantee that every runtime permission or production source file was included.
 - Template parsing is not full CloudFormation schema validation. Analyze and generated templates

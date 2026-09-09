@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   ApplySuggestionsResult,
@@ -25,19 +25,20 @@ export function ApplySuggestionsPanel({
   const navigate = useNavigate();
   const applicableFixes = fixes.filter((fix) => fix.applicability === "applicable");
   const manualFixes = fixes.filter((fix) => fix.applicability === "manual-review");
-  const selectedFixes = useMemo(
-    () => fixes.filter((fix) => selectedFixIds.has(fix.id)),
-    [fixes, selectedFixIds]
-  );
+  const selectedFixes = applicableFixes.filter((fix) => selectedFixIds.has(fix.id));
+  const allApplicableSelected = applicableFixes.length > 0 &&
+    applicableFixes.every((fix) => selectedFixIds.has(fix.id));
   const generatedTemplate =
     result === null ? null : `${JSON.stringify(result.modifiedTemplate, null, 2)}\n`;
 
   async function handleApply(): Promise<void> {
-    if (originalTemplateInput === null || selectedFixes.length === 0) {
+    if (isApplying || originalTemplateInput === null || selectedFixes.length === 0) {
       return;
     }
 
     setIsApplying(true);
+    setResult(null);
+    setIsCopied(false);
     setError(null);
 
     try {
@@ -73,6 +74,15 @@ export function ApplySuggestionsPanel({
     setError(null);
   }
 
+  function toggleAllFixes(): void {
+    setSelectedFixIds(
+      allApplicableSelected ? new Set() : new Set(applicableFixes.map((fix) => fix.id))
+    );
+    setResult(null);
+    setError(null);
+    setIsCopied(false);
+  }
+
   async function copyGeneratedTemplate(): Promise<void> {
     if (generatedTemplate === null) {
       return;
@@ -93,7 +103,19 @@ export function ApplySuggestionsPanel({
             unchanged.
           </p>
         </div>
-        <span className="apply-count">{applicableFixes.length} applicable</span>
+        <div className="fix-selection-controls">
+          <span className="apply-count">{applicableFixes.length} applicable</span>
+          {applicableFixes.length > 0 ? (
+            <button
+              className="text-button"
+              disabled={isApplying}
+              onClick={toggleAllFixes}
+              type="button"
+            >
+              {allApplicableSelected ? "Deselect all" : "Select all"}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {fixes.length === 0 ? (
@@ -103,6 +125,7 @@ export function ApplySuggestionsPanel({
           {applicableFixes.map((fix) => (
             <TemplateFixRow
               checked={selectedFixIds.has(fix.id)}
+              disabled={isApplying}
               fix={fix}
               key={fix.id}
               onToggle={() => toggleFix(fix.id)}
@@ -223,10 +246,12 @@ export function ApplySuggestionsPanel({
 
 function TemplateFixRow({
   checked,
+  disabled = false,
   fix,
   onToggle
 }: {
   checked: boolean;
+  disabled?: boolean;
   fix: TemplateFix;
   onToggle?: () => void;
 }) {
@@ -236,7 +261,7 @@ function TemplateFixRow({
     <label className={`template-fix-row ${isApplicable ? "" : "template-fix-manual"}`}>
       <input
         checked={checked}
-        disabled={!isApplicable}
+        disabled={disabled || !isApplicable}
         onChange={onToggle}
         type="checkbox"
       />

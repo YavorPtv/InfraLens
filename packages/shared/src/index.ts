@@ -1,3 +1,12 @@
+export {
+  normalizeSourceFilePath,
+  normalizeSourceAnalysisInput,
+  SourcePathError,
+  type SourceFile,
+  type SourceAnalysisInput,
+  type AnalyzeApiRequest
+} from "./sourceFiles";
+
 export type CfnPrimitive = string | number | boolean | null;
 
 export type CfnValue = CfnPrimitive | CfnValue[] | { [key: string]: CfnValue };

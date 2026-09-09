@@ -97,6 +97,11 @@ Source-to-Lambda mapping supports:
 - `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, and index-file resolution
 - Transitive/shared imports, cycle protection, ambiguity rejection, and deduplication
 
+Folder uploads now preserve `webkitRelativePath`, including the selected directory name. Files,
+mappings and exclusions share project-relative path normalization in `packages/shared/src/sourceFiles.ts`.
+The existing API map format is retained. Exact-path uploads visibly replace content and keep mappings;
+removing a file removes its mapping. See `docs/SOURCE_UPLOADS.md` and `examples/nested-source-project`.
+
 Shared files contribute actions only to Lambda handlers that can reach them through the uploaded
 import graph. They do not receive IAM roles of their own. Different Lambda source trees must not mix
 actions.
@@ -297,8 +302,8 @@ The Vite build currently emits a non-failing warning that the main bundle is sli
 Keep this summary consistent with the root README:
 
 - Rule/service/SDK-command coverage is useful but not comprehensive AWS security coverage.
-- Source inference is lightweight and the browser uploader loses source directory paths, so nested
-  paths or duplicate names can require explicit mapping/API input.
+- Source inference is lightweight. Folder uploads preserve relative paths; ordinary file selection
+  may expose only basenames. Missing/ambiguous imports and unsupported aliases remain limitations.
 - High-confidence IAM output is only as complete as the submitted template and source files.
 - Parsing is not full CloudFormation schema/deployment validation.
 - Compare does not accept separate old/new source trees.
@@ -308,11 +313,12 @@ Keep this summary consistent with the root README:
 
 Follow `docs/ROADMAP.md`, currently ordered as:
 
-1. Test the complete Analyze -> Review -> Apply -> Compare workflow.
-2. Preserve source project directory structure in the web upload flow.
-3. Add stronger validation for analyzed and generated CloudFormation templates.
-4. Expand analyzer and least-privilege coverage from real use cases.
-5. Add persistence only when history/collaboration requirements are clear.
+1. Add stronger validation for analyzed and generated CloudFormation templates.
+2. Expand analyzer and least-privilege coverage from real use cases.
+3. Add persistence only when history/collaboration requirements are clear.
+
+Workflow integration coverage and source-project path preservation are implemented. Keep extending
+their Mocha/Chai coverage as behavior changes; browser controls still require manual verification.
 
 Not near-term: PDF export, live AWS account scanning/AWS SDK integration, broad multi-IaC parsing,
 or attempting a perfect graph layout for every template.

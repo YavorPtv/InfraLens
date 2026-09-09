@@ -27,6 +27,13 @@ build before `npm test`, as normal CI already does. No test suite is reorganized
 | `workflow.integration.test.ts` | Analyze with source -> review actual structured fixes -> select IAM narrowing and DynamoDB PITR -> apply via HTTP -> analyze generated JSON -> compare via HTTP -> export. Checks object immutability at the real apply boundary, exact intended edits, retained intrinsics and unrelated properties, unselected applicable fixes, manual findings, changed resources, resolved/unchanged findings, and absence of introduced findings. JSON and Markdown exports preserve findings, evidence and suggestions without dumping uploaded source bodies. |
 | `sourceWorkflow.integration.test.ts` | Source upload, explicit mappings to two separate roles, scoped resource ARNs, exact package/command actions, handler and filename mapping confidence, unresolved source, and unknown/non-Lambda logical IDs. Transitive and shared imports contribute once to each reachable Lambda; unrelated source and a separate queue tree do not leak actions. Cycles and duplicate import paths terminate and deduplicate evidence. Excluded shared files still contribute through handler imports. |
 | `apiContract.integration.test.ts` | Real Express/Lambda parity for analysis, base64 API Gateway input, apply and diff. Both adapters reject missing bodies, malformed templates/diffs/fixes, excessive templates/request bodies/source count/source bytes and invalid mapping shapes. One injected analyzer exception verifies the actual route/logging/error conversion boundary returns `500 ANALYSIS_ERROR`. |
+| `sourceProject.integration.test.ts` | Real web upload transformation and serialization -> Express/Lambda -> analyzer -> exports. Duplicate basenames, selected folder prefixes, normalized raw API paths, nested/circular imports, shared actions, isolated roles, preserved confidence and full-path evidence. |
+| `sourcePathContract.integration.test.ts` | Both adapters reject unsafe paths and normalized collisions and retain source/request count and byte limits for nested paths. |
+
+`sourceUpload.test.ts` exercises the actual frontend helper's replacements, mapping preservation,
+removal, re-addition, folder filtering and read failures without a browser. These tests live in the
+existing API Mocha suite; its test tsconfig includes the imported frontend helpers. Shared path unit
+tests and analyzer path-resolution unit tests cover normalization and conservative automatic mapping.
 
 Reusable fixture loading lives in `apps/api/test/workflowFixtures.ts`, resolved relative to the
 helper rather than the shell's current directory. The tests reuse these small existing fixtures:
@@ -39,6 +46,9 @@ helper rather than the shell's current directory. The tests reuse these small ex
   queue helper and unrelated delete action. Its `sharedDb.ts` and `queueClient.ts` supply real SDK
   package evidence for explicit upload tests; the other example's mock commands lack that evidence.
   Cycle variants add short import edges to fresh in-memory copies, leaving fixtures untouched.
+- `examples/nested-source-project/`: Orders, Audit and Payments handlers with repeated basenames,
+  separate service files, a transitive shared DynamoDB helper, a deliberate cycle and unrelated code.
+  See [Source project uploads](SOURCE_UPLOADS.md) for the upload and API identity rules.
 
 These fixtures are analyzer inputs, never executed or deployed. Tests assert meaningful report
 fields and specific edits instead of storing whole report snapshots. Existing rule unit tests

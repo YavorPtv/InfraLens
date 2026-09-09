@@ -7,6 +7,7 @@ import type {
   Severity,
   SeverityCounts
 } from "@infralens/shared";
+import type { SourceAnalysisInput } from "@infralens/shared";
 import { createAnalysisContext } from "./analysisContext";
 import { applyContextualSeverityAdjustments } from "./contextualSeverity";
 import { parseTemplateInput, templateToResourceNodes } from "./parseTemplate";
@@ -60,11 +61,7 @@ const severityWeights: Record<Severity, number> = {
   critical: 30
 };
 
-export interface AnalyzeTemplateOptions {
-  sourceFiles?: Record<string, string>;
-  sourceFileMappings?: Record<string, string>;
-  sourceFileExclusions?: string[];
-}
+export interface AnalyzeTemplateOptions extends SourceAnalysisInput {}
 
 export function analyzeTemplate(
   rawTemplate: string,
