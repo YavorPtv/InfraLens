@@ -3,7 +3,7 @@
 This document tracks recommended development order, not a fixed release commitment. Update it as
 features land and priorities change.
 
-Last refreshed: September 8, 2026, after the workflow integration tests were merged in PR #49.
+Last refreshed: September 9, 2026, with source-project path preservation implemented.
 
 ## Completed Foundation: Protect The Hosted API
 
@@ -25,29 +25,30 @@ limits, REST API throttling, structured logs, alarms, and optional budget notifi
 Run `npm run test:integration` for the local workflow suite; it also runs under `npm test`.
 See [Workflow testing](TESTING.md) for fixtures, commands, smoke configuration, and coverage limits.
 
-## Priority 1: Preserve Source Project Structure
+## Completed Foundation: Preserve Source Project Structure
 
-- Preserve relative directory paths in the web upload flow.
-- Handle duplicate file names safely.
-- Make re-uploaded and replaced files obvious in the UI.
-- Verify nested and transitive imports through the complete web/API workflow.
+- Folder upload preserves relative directory paths through web helpers, API validation and analyzer.
+- Duplicate basenames stay distinct; exact-path re-uploads visibly replace content and keep mappings.
+- Shared path normalization rejects unsafe paths and API collisions while preserving request limits.
+- Non-browser integration tests cover nested/transitive imports, shared helpers and full-path exports.
 
-This removes a practical correctness gap in source-to-Lambda and shared-import inference.
+Ordinary file selection can still expose only basenames. See [Source project uploads](SOURCE_UPLOADS.md)
+for supported behavior and remaining browser limitations.
 
-## Priority 2: Validate Generated Templates
+## Priority 1: Validate Generated Templates
 
 - Add stronger CloudFormation validation for analyzed and modified templates.
 - Clearly separate parse success, analyzer success, and deployment validity.
 - Validate generated templates before presenting them as ready to download.
 
-## Priority 3: Deepen Analyzer Coverage Carefully
+## Priority 2: Deepen Analyzer Coverage Carefully
 
 - Prioritize new rules from real example templates and user needs rather than rule count alone.
 - Expand least-privilege metadata only when action/resource behavior can be represented safely.
 - Improve awareness of IAM conditions, managed policies, and permissions boundaries.
 - Reduce source-matching false positives before attempting broad language or package analysis.
 
-## Priority 4: Add Product Persistence When Needed
+## Priority 3: Add Product Persistence When Needed
 
 - Add saved reports and projects only when users need history or collaboration.
 - Design data retention and source-code handling before storing uploaded content.

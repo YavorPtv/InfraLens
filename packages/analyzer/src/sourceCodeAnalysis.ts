@@ -1,4 +1,5 @@
 import type { CfnResource, CfnTemplate } from "@infralens/shared";
+import { normalizeSourceAnalysisInput, normalizeSourceFilePath } from "@infralens/shared";
 import { getAwsSdkCommandMappings } from "./serviceMetadata";
 
 export type SourceCodeActionInferenceConfidence = "low" | "medium" | "high";
@@ -41,6 +42,13 @@ export function inferIamActionsFromSourceCode(
   files: Record<string, string>,
   options: InferIamActionsFromSourceCodeOptions = {}
 ): SourceCodeActionInference[] {
+  const normalizedInput = normalizeSourceAnalysisInput({
+    sourceFiles: files,
+    sourceFileMappings: options.sourceFileMappings,
+    sourceFileExclusions: options.sourceFileExclusions
+  });
+  files = normalizedInput.sourceFiles!;
+  options = { ...options, ...normalizedInput };
   const sourceFileMappings = mapSourceFilesToLambdaFunctions(files, options);
   const sourceFileExclusions = new Set(options.sourceFileExclusions ?? []);
   const importGraph = buildSourceFileImportGraph(files);
@@ -135,7 +143,8 @@ function mapSourceFilesToLambdaFunctions(
     const automaticMapping = getAutomaticMapping(
       filePath,
       lambdaFunctions,
-      availableRootFileCount === 1
+      availableRootFileCount === 1,
+      Object.keys(files).filter((path) => !sourceFileExclusions.has(path))
     );
     if (automaticMapping !== undefined) {
       mappings.set(filePath, automaticMapping);
@@ -181,10 +190,11 @@ function getExplicitMapping(
 function getAutomaticMapping(
   filePath: string,
   lambdaFunctions: Array<{ resourceId: string; resource: CfnResource }>,
-  allowSingleLambdaFallback: boolean
+  allowSingleLambdaFallback: boolean,
+  sourcePaths: string[]
 ): SourceFileLambdaMapping | undefined {
   const candidates = lambdaFunctions.flatMap((lambdaFunction) =>
-    getMappingCandidatesForLambda(filePath, lambdaFunction.resourceId, lambdaFunction.resource)
+    getMappingCandidatesForLambda(filePath, lambdaFunction.resourceId, lambdaFunction.resource, sourcePaths)
   );
 
   if (candidates.length === 0 && lambdaFunctions.length === 1 && allowSingleLambdaFallback) {
@@ -209,25 +219,27 @@ function getAutomaticMapping(
 function getMappingCandidatesForLambda(
   filePath: string,
   lambdaFunctionId: string,
-  resource: CfnResource
+  resource: CfnResource,
+  sourcePaths: string[]
 ): SourceFileLambdaMapping[] {
   return [
-    ...getMetadataMappingCandidates(filePath, lambdaFunctionId, resource),
-    ...getHandlerMappingCandidates(filePath, lambdaFunctionId, resource),
-    ...getCodeMappingCandidates(filePath, lambdaFunctionId, resource),
-    ...getFileNameMappingCandidates(filePath, lambdaFunctionId, resource)
+    ...getMetadataMappingCandidates(filePath, lambdaFunctionId, resource, sourcePaths),
+    ...getHandlerMappingCandidates(filePath, lambdaFunctionId, resource, sourcePaths),
+    ...getCodeMappingCandidates(filePath, lambdaFunctionId, resource, sourcePaths),
+    ...getFileNameMappingCandidates(filePath, lambdaFunctionId, resource, sourcePaths)
   ];
 }
 
 function getMetadataMappingCandidates(
   filePath: string,
   lambdaFunctionId: string,
-  resource: CfnResource
+  resource: CfnResource,
+  sourcePaths: string[]
 ): SourceFileLambdaMapping[] {
   const candidates = getMetadataSourceFiles(resource.Metadata);
 
   return candidates
-    .filter((candidate) => isSameSourceFile(filePath, candidate.filePath))
+    .filter((candidate) => sourcePathMatches(filePath, candidate.filePath, sourcePaths, false))
     .map((candidate) => ({
       lambdaFunctionId,
       confidence: "high",
@@ -265,7 +277,8 @@ function getMetadataSourceFiles(
 function getHandlerMappingCandidates(
   filePath: string,
   lambdaFunctionId: string,
-  resource: CfnResource
+  resource: CfnResource,
+  sourcePaths: string[]
 ): SourceFileLambdaMapping[] {
   const handler = resource.Properties?.Handler;
 
@@ -274,7 +287,7 @@ function getHandlerMappingCandidates(
   }
 
   const handlerModule = getHandlerModuleName(handler);
-  if (!sourcePathMatches(filePath, handlerModule)) {
+  if (!sourcePathMatches(filePath, handlerModule, sourcePaths)) {
     return [];
   }
 
@@ -290,19 +303,20 @@ function getHandlerMappingCandidates(
 function getCodeMappingCandidates(
   filePath: string,
   lambdaFunctionId: string,
-  resource: CfnResource
+  resource: CfnResource,
+  sourcePaths: string[]
 ): SourceFileLambdaMapping[] {
   const code = resource.Properties?.Code;
   if (!isRecord(code)) {
     return [];
   }
 
-  const sourcePaths = ["S3Key", "File", "Path"].flatMap((key) =>
+  const codePaths = ["S3Key", "File", "Path"].flatMap((key) =>
     typeof code[key] === "string" ? [{ filePath: code[key], evidenceKey: key }] : []
   );
 
-  return sourcePaths
-    .filter((candidate) => sourcePathMatches(filePath, candidate.filePath))
+  return codePaths
+    .filter((candidate) => sourcePathMatches(filePath, candidate.filePath, sourcePaths))
     .map((candidate) => ({
       lambdaFunctionId,
       confidence: "low",
@@ -313,9 +327,13 @@ function getCodeMappingCandidates(
 function getFileNameMappingCandidates(
   filePath: string,
   lambdaFunctionId: string,
-  resource: CfnResource
+  resource: CfnResource,
+  sourcePaths: string[]
 ): SourceFileLambdaMapping[] {
   const fileStem = normalizeIdentifier(getFileStem(filePath));
+  if (sourcePaths.filter((path) => normalizeIdentifier(getFileStem(path)) === fileStem).length !== 1) {
+    return [];
+  }
   const logicalIdAliases = getLambdaNameAliases(lambdaFunctionId);
   const functionName = resource.Properties?.FunctionName;
   const functionNameAliases =
@@ -340,15 +358,30 @@ function getHandlerModuleName(handler: string): string {
   return lastDotIndex === -1 ? handler : handler.slice(0, lastDotIndex);
 }
 
-function sourcePathMatches(filePath: string, candidatePath: string): boolean {
-  return (
-    normalizeSourcePath(filePath) === normalizeSourcePath(candidatePath) ||
-    normalizeIdentifier(getFileStem(filePath)) === normalizeIdentifier(getFileStem(candidatePath))
+function sourcePathMatches(
+  filePath: string,
+  candidatePath: string,
+  sourcePaths: string[],
+  allowBasenameFallback = true
+): boolean {
+  let candidate: string;
+  try {
+    candidate = stripSourceExtension(normalizeSourceFilePath(candidatePath));
+  } catch {
+    return false;
+  }
+  const exact = sourcePaths.filter((path) => stripSourceExtension(path) === candidate);
+  // Folder selection includes the selected directory name. Accept a unique path suffix.
+  const matches = exact.length > 0 ? exact : sourcePaths.filter((path) =>
+    stripSourceExtension(path).endsWith(`/${candidate}`)
   );
-}
-
-function isSameSourceFile(leftPath: string, rightPath: string): boolean {
-  return normalizeSourcePath(leftPath) === normalizeSourcePath(rightPath);
+  if (matches.length > 0) return matches.length === 1 && matches[0] === filePath;
+  // Basename-only uploads can still match a template handler, but never guess between directories.
+  if (!allowBasenameFallback || (filePath.includes("/") && candidate.includes("/"))) return false;
+  const basenameMatches = sourcePaths.filter((path) =>
+    normalizeIdentifier(getFileStem(path)) === normalizeIdentifier(getFileStem(candidate))
+  );
+  return basenameMatches.length === 1 && basenameMatches[0] === filePath;
 }
 
 function getLambdaNameAliases(name: string): string[] {
@@ -363,10 +396,6 @@ function getLambdaNameAliases(name: string): string[] {
   }
 
   return [...aliases].filter((alias) => alias.length > 0);
-}
-
-function normalizeSourcePath(filePath: string): string {
-  return stripSourceExtension(filePath).replace(/\\/g, "/").toLowerCase();
 }
 
 function getFileStem(filePath: string): string {
@@ -384,7 +413,7 @@ function buildSourceFileImportGraph(files: Record<string, string>): Map<string, 
   const filePathsByNormalizedPath = new Map<string, string[]>();
 
   for (const filePath of Object.keys(files)) {
-    const normalizedPath = normalizeLocalPath(filePath);
+    const normalizedPath = normalizeSourceFilePath(filePath);
     const matchingPaths = filePathsByNormalizedPath.get(normalizedPath) ?? [];
     matchingPaths.push(filePath);
     filePathsByNormalizedPath.set(normalizedPath, matchingPaths);
@@ -435,7 +464,16 @@ function resolveLocalImport(
   filePathsByNormalizedPath: Map<string, string[]>
 ): string | undefined {
   const importingDirectory = getSourceDirectory(importingFilePath);
-  const importPath = normalizeLocalPath(`${importingDirectory}/${importSpecifier}`);
+  let importPath: string;
+  try {
+    // Import specifiers may name directories; uploaded source identities must name files.
+    const relativeImport = importSpecifier.replace(/\/+$/, "");
+    importPath = normalizeSourceFilePath(
+      importingDirectory === "" ? relativeImport : `${importingDirectory}/${relativeImport}`
+    );
+  } catch {
+    return undefined;
+  }
   const candidatePaths = hasSourceExtension(importPath)
     ? [importPath]
     : [
@@ -519,33 +557,10 @@ function hasSourceExtension(filePath: string): boolean {
 }
 
 function getSourceDirectory(filePath: string): string {
-  const normalizedPath = normalizeLocalPath(filePath);
+  const normalizedPath = normalizeSourceFilePath(filePath);
   const lastSlashIndex = normalizedPath.lastIndexOf("/");
 
   return lastSlashIndex === -1 ? "" : normalizedPath.slice(0, lastSlashIndex);
-}
-
-function normalizeLocalPath(filePath: string): string {
-  const segments: string[] = [];
-
-  for (const segment of filePath.replace(/\\/g, "/").split("/")) {
-    if (segment.length === 0 || segment === ".") {
-      continue;
-    }
-
-    if (segment === "..") {
-      if (segments.length === 0) {
-        return `../${segments.join("/")}`;
-      }
-
-      segments.pop();
-      continue;
-    }
-
-    segments.push(segment);
-  }
-
-  return segments.join("/");
 }
 
 function normalizeIdentifier(value: string): string {

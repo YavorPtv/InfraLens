@@ -1,12 +1,7 @@
 import type { AnalysisReport } from "@infralens/shared";
 import { authenticatedFetch } from "../auth/authClient";
-
-export interface AnalyzeTemplateRequest {
-  templateInput: string;
-  sourceFiles?: Record<string, string>;
-  sourceFileMappings?: Record<string, string>;
-  sourceFileExclusions?: string[];
-}
+import { serializeAnalyzeRequest, type AnalyzeTemplateRequest } from "./analyzeRequest";
+export type { AnalyzeTemplateRequest } from "./analyzeRequest";
 
 interface ApiErrorResponse {
   error?: {
@@ -19,34 +14,14 @@ interface ApiErrorResponse {
 const defaultApiBaseUrl = "http://localhost:3000";
 const apiBaseUrl = import.meta.env.VITE_INFRALENS_API_BASE_URL ?? defaultApiBaseUrl;
 
-export async function analyzeTemplate({
-  templateInput,
-  sourceFiles,
-  sourceFileMappings,
-  sourceFileExclusions
-}: AnalyzeTemplateRequest): Promise<AnalysisReport> {
-  const hasSourceFiles = sourceFiles !== undefined && Object.keys(sourceFiles).length > 0;
-  const hasSourceFileMappings =
-    sourceFileMappings !== undefined && Object.keys(sourceFileMappings).length > 0;
-  const hasSourceFileExclusions =
-    sourceFileExclusions !== undefined && sourceFileExclusions.length > 0;
-  const hasRequestEnvelope =
-    hasSourceFiles || hasSourceFileMappings || hasSourceFileExclusions;
+export async function analyzeTemplate(request: AnalyzeTemplateRequest): Promise<AnalysisReport> {
+  const serialized = serializeAnalyzeRequest(request);
   const response = await authenticatedFetch(getAnalyzeUrl(apiBaseUrl), {
     method: "POST",
     headers: {
-      "Content-Type": hasRequestEnvelope
-        ? "application/json; charset=utf-8"
-        : "text/plain; charset=utf-8"
+      "Content-Type": serialized.contentType
     },
-    body: hasRequestEnvelope
-      ? JSON.stringify({
-          template: templateInput,
-          ...(sourceFiles === undefined ? {} : { sourceFiles }),
-          ...(sourceFileMappings === undefined ? {} : { sourceFileMappings }),
-          ...(sourceFileExclusions === undefined ? {} : { sourceFileExclusions })
-        })
-      : templateInput
+    body: serialized.body
   });
 
   if (!response.ok) {

@@ -2,32 +2,24 @@ import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { analyzeTemplate } from "../api/analyzeTemplate";
 import { useAnalysisReport } from "../reportState";
+import {
+  acceptedSourceExtensions, autoDetectMappingValue, sharedSourceMappingValue, manualMappingValue,
+  getMappingSelection, mergeSourceFiles, readSourceUploads, removeSourceFile,
+  toSourceFileMap, toSourceFileMappings, toSourceFileExclusions, type SourceFileInput
+} from "../sourceFiles";
 
 const acceptedTemplateExtensions = [".json", ".yaml", ".yml"];
-const acceptedSourceExtensions = [".ts", ".js", ".mjs", ".cjs"];
-const autoDetectMappingValue = "__auto_detect__";
-const sharedSourceMappingValue = "__shared_source__";
-const manualMappingValue = "__manual_lambda_id__";
-
-interface SourceFileInput {
-  path: string;
-  content: string;
-  mappingSelection: string;
-  manualLambdaFunctionId?: string;
-}
-
-interface UploadedSourceFileInput {
-  path: string;
-  content: string;
-}
 
 export function AnalyzePage() {
   const [templateInput, setTemplateInput] = useState("");
   const [sourceFiles, setSourceFiles] = useState<SourceFileInput[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isReadingSources, setIsReadingSources] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sourceFileInputRef = useRef<HTMLInputElement | null>(null);
+  const sourceFolderInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
   const { setOriginalTemplateInput, setReport } = useAnalysisReport();
   const lambdaLogicalIds = useMemo(
@@ -52,30 +44,29 @@ export function AnalyzePage() {
     setError(null);
   }
 
-  async function handleSourceFileChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+  async function handleSourceFileChange(event: ChangeEvent<HTMLInputElement>, folderUpload = false): Promise<void> {
     const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
 
     if (files.length === 0) {
       return;
     }
 
-    const invalidFile = files.find((file) => !isAcceptedSourceFile(file.name));
-    if (invalidFile !== undefined) {
-      setError("Choose only .ts, .js, .mjs, or .cjs Lambda source files.");
-      event.target.value = "";
-      return;
+    setIsReadingSources(true);
+    setUploadNotice(null);
+    try {
+      const uploaded = await readSourceUploads(files, folderUpload);
+      setSourceFiles((currentFiles) => mergeSourceFiles(currentFiles, uploaded.files));
+      setUploadNotice(
+        `${uploaded.files.length} source files read. ${uploaded.ignoredCount} unsupported or dependency files skipped. ` +
+        "Existing paths are marked Replaced; their mappings are kept."
+      );
+      setError(null);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Source files could not be read.");
+    } finally {
+      setIsReadingSources(false);
     }
-
-    const uploadedFiles = await Promise.all(
-      files.map(async (file) => ({
-        path: file.name,
-        content: await file.text()
-      }))
-    );
-
-    setSourceFiles((currentFiles) => mergeSourceFiles(currentFiles, uploadedFiles));
-    setError(null);
-    event.target.value = "";
   }
 
   async function handleAnalyze(): Promise<void> {
@@ -157,11 +148,16 @@ export function AnalyzePage() {
           <p className="muted-note">
             Optional. Source-code analysis is used only for IAM action inference.
           </p>
+          <p className="muted-note">
+            Upload a project folder to keep relative paths, including the selected folder name.
+            Individual files may provide only a filename. Uploading the same path replaces its content
+            and keeps its Lambda mapping. Folder uploads skip unsupported files, node_modules, and .git.
+          </p>
         </div>
 
         <div className="source-upload-actions">
           <input
-            accept=".ts,.js,.mjs,.cjs,text/javascript,application/javascript"
+            accept={acceptedSourceExtensions.join(",")}
             className="file-input"
             id="source-files"
             multiple
@@ -173,21 +169,43 @@ export function AnalyzePage() {
           />
           <button
             className="secondary-button"
+            disabled={isReadingSources || isLoading}
             onClick={() => sourceFileInputRef.current?.click()}
             type="button"
           >
             Upload Source Files
           </button>
+          <input
+            className="file-input"
+            id="source-folder"
+            multiple
+            {...{ webkitdirectory: "" }}
+            onChange={(event) => { void handleSourceFileChange(event, true); }}
+            ref={sourceFolderInputRef}
+            type="file"
+          />
+          <button
+            className="secondary-button"
+            disabled={isReadingSources || isLoading}
+            onClick={() => sourceFolderInputRef.current?.click()}
+            type="button"
+          >
+            Upload Source Folder
+          </button>
           {sourceFiles.length > 0 ? (
             <button
               className="secondary-button"
-              onClick={() => setSourceFiles([])}
+              disabled={isReadingSources || isLoading}
+              onClick={() => { setSourceFiles([]); setUploadNotice(null); }}
               type="button"
             >
               Clear Files
             </button>
           ) : null}
         </div>
+
+        {uploadNotice !== null ? <p className="muted-note" role="status">{uploadNotice}</p> : null}
+        {isReadingSources ? <p className="muted-note" role="status">Reading source files...</p> : null}
 
         {sourceFiles.length > 0 && lambdaLogicalIds.length === 0 ? (
           <p className="lambda-empty-state">
@@ -203,6 +221,7 @@ export function AnalyzePage() {
               <li key={file.path}>
                 <div className="source-file-details">
                   <span className="source-file-name">{file.path}</span>
+                  <span className="muted-note">{file.uploadStatus === "replaced" ? "Replaced (mapping kept)" : "Added"}</span>
                   <div className="source-file-mapping-controls">
                     <select
                       aria-label={`Lambda mapping for ${file.path}`}
@@ -257,9 +276,11 @@ export function AnalyzePage() {
                 </div>
                 <button
                   className="text-button"
+                  aria-label={`Remove ${file.path}`}
+                  disabled={isReadingSources || isLoading}
                   onClick={() => {
                     setSourceFiles((currentFiles) =>
-                      currentFiles.filter((currentFile) => currentFile.path !== file.path)
+                      removeSourceFile(currentFiles, file.path)
                     );
                   }}
                   type="button"
@@ -277,7 +298,7 @@ export function AnalyzePage() {
       <div className="analyze-actions">
         <button
           className="primary-button"
-          disabled={isLoading}
+          disabled={isLoading || isReadingSources}
           onClick={() => {
             void handleAnalyze();
           }}
@@ -302,86 +323,6 @@ function isAcceptedTemplateFile(fileName: string): boolean {
   return acceptedTemplateExtensions.some((extension) =>
     normalizedFileName.endsWith(extension)
   );
-}
-
-function isAcceptedSourceFile(fileName: string): boolean {
-  const normalizedFileName = fileName.toLowerCase();
-
-  return acceptedSourceExtensions.some((extension) =>
-    normalizedFileName.endsWith(extension)
-  );
-}
-
-function mergeSourceFiles(
-  currentFiles: SourceFileInput[],
-  uploadedFiles: UploadedSourceFileInput[]
-): SourceFileInput[] {
-  const filesByPath = new Map(currentFiles.map((file) => [file.path, file]));
-
-  for (const file of uploadedFiles) {
-    const currentFile = filesByPath.get(file.path);
-    filesByPath.set(file.path, {
-      ...file,
-      mappingSelection: currentFile?.mappingSelection ?? autoDetectMappingValue,
-      manualLambdaFunctionId: currentFile?.manualLambdaFunctionId
-    });
-  }
-
-  return [...filesByPath.values()];
-}
-
-function toSourceFileMap(sourceFiles: SourceFileInput[]): Record<string, string> | undefined {
-  if (sourceFiles.length === 0) {
-    return undefined;
-  }
-
-  return Object.fromEntries(sourceFiles.map((file) => [file.path, file.content]));
-}
-
-function toSourceFileMappings(
-  sourceFiles: SourceFileInput[],
-  lambdaLogicalIds: string[]
-): Record<string, string> | undefined {
-  const mappings = sourceFiles.flatMap((file) => {
-    const mappingSelection = getMappingSelection(file, lambdaLogicalIds);
-    const lambdaFunctionId =
-      mappingSelection === manualMappingValue
-        ? file.manualLambdaFunctionId?.trim()
-        : mappingSelection;
-
-    return lambdaFunctionId === autoDetectMappingValue ||
-      lambdaFunctionId === sharedSourceMappingValue ||
-      lambdaFunctionId === undefined ||
-      lambdaFunctionId.length === 0
-      ? []
-      : [[file.path, lambdaFunctionId] as const];
-  });
-
-  return mappings.length === 0 ? undefined : Object.fromEntries(mappings);
-}
-
-function toSourceFileExclusions(
-  sourceFiles: SourceFileInput[],
-  lambdaLogicalIds: string[]
-): string[] | undefined {
-  const exclusions = sourceFiles
-    .filter((file) => getMappingSelection(file, lambdaLogicalIds) === sharedSourceMappingValue)
-    .map((file) => file.path);
-
-  return exclusions.length === 0 ? undefined : exclusions;
-}
-
-function getMappingSelection(file: SourceFileInput, lambdaLogicalIds: string[]): string {
-  if (
-    file.mappingSelection === autoDetectMappingValue ||
-    file.mappingSelection === sharedSourceMappingValue ||
-    file.mappingSelection === manualMappingValue ||
-    lambdaLogicalIds.includes(file.mappingSelection)
-  ) {
-    return file.mappingSelection;
-  }
-
-  return autoDetectMappingValue;
 }
 
 function extractLambdaLogicalIds(templateInput: string): string[] {

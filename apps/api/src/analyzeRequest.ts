@@ -7,6 +7,7 @@ import {
   type AnalyzeTemplateOptions
 } from "@infralens/analyzer";
 import type {
+  AnalyzeApiRequest,
   AnalysisReport,
   ApplySuggestionsResult,
   CfnTemplate,
@@ -15,6 +16,8 @@ import type {
   TemplatePatch,
   TemplatePathSegment
 } from "@infralens/shared";
+import { normalizeSourceAnalysisInput, normalizeSourceFilePath, SourcePathError } from "@infralens/shared";
+export type { AnalyzeApiRequest } from "@infralens/shared";
 import {
   defaultApiRequestLimits,
   type ApiRequestLimits
@@ -50,13 +53,6 @@ export interface ApiErrorResponse {
     message: string;
     detail?: string;
   };
-}
-
-export interface AnalyzeApiRequest {
-  template: string;
-  sourceFiles?: Record<string, string>;
-  sourceFileMappings?: Record<string, string>;
-  sourceFileExclusions?: string[];
 }
 
 export interface DiffApiRequest {
@@ -208,16 +204,20 @@ function parseAnalyzeApiRequest(
 
   assertByteLimit(parsedBody.template, limits.maxTemplateBytes, "CloudFormation template");
 
-  const sourceFiles = parseSourceFiles(parsedBody.sourceFiles, limits);
-  const sourceFileMappings = parseSourceFileMappings(parsedBody.sourceFileMappings, limits);
-  const sourceFileExclusions = parseSourceFileExclusions(parsedBody.sourceFileExclusions, limits);
-
-  return {
-    template: parsedBody.template,
-    ...(sourceFiles === undefined ? {} : { sourceFiles }),
-    ...(sourceFileMappings === undefined ? {} : { sourceFileMappings }),
-    ...(sourceFileExclusions === undefined ? {} : { sourceFileExclusions })
-  };
+  try {
+    const sourceFiles = parseSourceFiles(parsedBody.sourceFiles, limits);
+    const sourceFileMappings = parseSourceFileMappings(parsedBody.sourceFileMappings, limits);
+    const sourceFileExclusions = parseSourceFileExclusions(parsedBody.sourceFileExclusions, limits);
+    return {
+      template: parsedBody.template,
+      ...normalizeSourceAnalysisInput({ sourceFiles, sourceFileMappings, sourceFileExclusions })
+    };
+  } catch (error) {
+    if (error instanceof SourcePathError) {
+      throw new ApiRequestError(400, "INVALID_TEMPLATE", error.message);
+    }
+    throw error;
+  }
 }
 
 function parseDiffApiRequest(rawBody: string, limits: ApiRequestLimits): DiffApiRequest {
@@ -400,7 +400,7 @@ function parseSourceFiles(
   const entries = Object.entries(value);
   assertNumericLimit(entries.length, limits.maxSourceFiles, "Source file count");
 
-  const sourceFiles: Record<string, string> = {};
+  const sourceFiles: Record<string, string> = Object.create(null);
   let combinedSourceBytes = 0;
 
   for (const [filePath, sourceCode] of entries) {
@@ -412,7 +412,8 @@ function parseSourceFiles(
       );
     }
 
-    assertByteLimit(sourceCode, limits.maxSourceFileBytes, `Source file ${filePath}`);
+    const normalizedPath = normalizeSourceFilePath(filePath);
+    assertByteLimit(sourceCode, limits.maxSourceFileBytes, `Source file ${normalizedPath}`);
     combinedSourceBytes += byteLength(sourceCode);
 
     sourceFiles[filePath] = sourceCode;
@@ -446,7 +447,7 @@ function parseSourceFileMappings(
   const entries = Object.entries(value);
   assertNumericLimit(entries.length, limits.maxSourceMappings, "Source mapping count");
 
-  const sourceFileMappings: Record<string, string> = {};
+  const sourceFileMappings: Record<string, string> = Object.create(null);
 
   for (const [filePath, lambdaFunctionId] of entries) {
     if (typeof lambdaFunctionId !== "string" || lambdaFunctionId.trim().length === 0) {

@@ -22,8 +22,9 @@ do not need to be installed unless the examples are executed independently.
    Lambda.
 7. Click **Analyze** and inspect the least-privilege suggestions.
 
-The files are flat because the current UI keeps each selected file's name rather than its directory
-path. Their relative imports therefore resolve exactly as uploaded.
+This flat fixture works with ordinary file selection. **Upload Source Folder** also preserves nested
+paths, including the selected folder name. See [the nested project fixture](../nested-source-project/README.md)
+for duplicate basenames and transitive imports across directories.
 
 ## Expected results
 
