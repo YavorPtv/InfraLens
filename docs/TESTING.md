@@ -26,8 +26,9 @@ build before `npm test`, as normal CI already does. No test suite is reorganized
 | --- | --- |
 | `workflow.integration.test.ts` | Analyze with source -> review actual structured fixes -> select IAM narrowing and DynamoDB PITR -> apply via HTTP -> analyze generated JSON -> compare via HTTP -> export. Checks object immutability at the real apply boundary, exact intended edits, retained intrinsics and unrelated properties, unselected applicable fixes, manual findings, changed resources, resolved/unchanged findings, and absence of introduced findings. JSON and Markdown exports preserve findings, evidence and suggestions without dumping uploaded source bodies. |
 | `sourceWorkflow.integration.test.ts` | Source upload, explicit mappings to two separate roles, scoped resource ARNs, exact package/command actions, handler and filename mapping confidence, unresolved source, and unknown/non-Lambda logical IDs. Transitive and shared imports contribute once to each reachable Lambda; unrelated source and a separate queue tree do not leak actions. Cycles and duplicate import paths terminate and deduplicate evidence. Excluded shared files still contribute through handler imports. |
-| `apiContract.integration.test.ts` | Real Express/Lambda parity for analysis, base64 API Gateway input, apply and diff. Both adapters reject missing bodies, malformed templates/diffs/fixes, excessive templates/request bodies/source count/source bytes and invalid mapping shapes. One injected analyzer exception verifies the actual route/logging/error conversion boundary returns `500 ANALYSIS_ERROR`. |
+| `apiContract.integration.test.ts` | Real Express/Lambda parity for analysis, base64 API Gateway input, apply and diff. Both adapters reject missing bodies, malformed templates/diffs/fixes, excessive templates/request bodies/source count/source bytes and invalid mapping shapes. One injected analyzer exception verifies the actual route/logging/error conversion boundary returns `500 ANALYZER_INTERNAL_ERROR`. |
 | `sourceProject.integration.test.ts` | Real web upload transformation and serialization -> Express/Lambda -> analyzer -> exports. Duplicate basenames, selected folder prefixes, normalized raw API paths, nested/circular imports, shared actions, isolated roles, preserved confidence and full-path evidence. |
+| `templateValidation.integration.test.ts` | Express/Lambda parity for parse/structure failures, internal analyzer failures, AWS valid/invalid/unavailable mappings, validated apply/compare and deliberately corrupted generated output. No live AWS calls. |
 | `sourcePathContract.integration.test.ts` | Both adapters reject unsafe paths and normalized collisions and retain source/request count and byte limits for nested paths. |
 
 `sourceUpload.test.ts` exercises the actual frontend helper's replacements, mapping preservation,
@@ -54,6 +55,15 @@ These fixtures are analyzer inputs, never executed or deployed. Tests assert mea
 fields and specific edits instead of storing whole report snapshots. Existing rule unit tests
 continue to cover the current 16 rules; integration fixtures are representative workflows, not a
 second exhaustive rule matrix.
+
+## Template validation tests
+
+`packages/analyzer/test/templateValidation.test.ts` covers syntax/structure stages, intrinsics,
+immutability, generated regressions and the shared download gate. `apps/api/test/cloudFormationValidation.test.ts`
+checks the SDK command boundary, rejection/unavailability mapping, timeout and the UTF-8 body limit.
+Tests use injected validators; normal Express/Lambda factory calls stay offline regardless of shell
+configuration. CDK assertions check only ValidateTemplate is added and log permissions remain scoped.
+See [Template validation](TEMPLATE_VALIDATION.md) for the stage contract and limits.
 
 ## Deployed HTTP smoke tests
 
@@ -107,6 +117,8 @@ credential is introduced.
   download clicks remain manual. Exporters are tested without a browser. Reports intentionally
   contain template properties (including inline `Code.ZipFile`, if supplied); the privacy assertion
   concerns separately uploaded source bodies, not redaction of the CloudFormation template.
-- Generated templates are not deployed or fully CloudFormation-schema validated by these tests.
-  The hosted authenticated apply/diff flow, operational alarms and infrastructure provisioning remain
-  outside smoke coverage. Production CDK files are unchanged.
+- Generated templates pass local structure regression checks; AWS responses are simulated only at
+  the validator boundary. Tests neither deploy templates nor prove complete CloudFormation schema
+  validity or live AWS acceptance. CDK assertions check validation IAM/configuration, not deployed
+  behavior. Hosted authenticated apply/diff, operational alarms and provisioning remain outside smoke
+  coverage. Validation-state rendering and disabled download clicks still require manual UI checks.

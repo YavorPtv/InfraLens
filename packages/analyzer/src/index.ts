@@ -64,3 +64,5 @@ export {
   generateFindingTemplateFixes,
   generateLeastPrivilegeTemplateFixes
 } from "./templateFixes";
+
+export { validateTemplate, validateTemplateStructure, TemplateValidationError } from "./parseTemplate";

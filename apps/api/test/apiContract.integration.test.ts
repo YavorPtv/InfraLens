@@ -79,7 +79,8 @@ describe("unexpected analyzer failure contract integration", () => {
     const lambda = await handler({ httpMethod: "POST", path: "/analyze", body: tinyTemplate });
     expect(lambda.statusCode).to.equal(500);
     expect(JSON.parse(lambda.body)).to.deep.equal(http);
-    expect(http.error).to.deep.equal({ code: "ANALYSIS_ERROR",
-      message: "Template analysis failed unexpectedly.", detail: "Synthetic analyzer failure" });
+    expect(http.error).to.deep.equal({ code: "ANALYZER_INTERNAL_ERROR",
+      message: "Template analysis failed unexpectedly.", analysisStatus: "failed",
+      validation: { parse: "valid", structure: "valid", cloudFormation: "not-run", issues: [] } });
   });
 });

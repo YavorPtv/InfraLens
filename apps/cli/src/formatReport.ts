@@ -1,3 +1,4 @@
+import { formatValidationSummary } from "@infralens/shared";
 import type {
   AnalysisReport,
   ArchitectureEdge,
@@ -10,6 +11,7 @@ const severityOrder: Severity[] = ["critical", "high", "medium", "low"];
 export function formatAnalysisReport(report: AnalysisReport): string {
   const lines = [
     "InfraLens Analysis Summary",
+    ...formatValidationSummary(report.validation, report.analysisStatus),
     `Score: ${report.score}/100`,
     `Findings: ${report.summary.totalFindings}`,
     "Severity counts:",

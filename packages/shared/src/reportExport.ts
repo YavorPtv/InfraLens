@@ -1,3 +1,4 @@
+import { formatValidationSummary } from "./validation";
 import type {
   AnalysisReport,
   CfnValue,
@@ -18,6 +19,10 @@ export function exportAnalysisReportToJson(report: AnalysisReport): string {
 export function exportAnalysisReportToMarkdown(report: AnalysisReport): string {
   return [
     "# InfraLens Analysis Report",
+    "",
+    "## Template validation",
+    "",
+    ...formatValidationSummary(report.validation, report.analysisStatus).map(line => `- ${line}`),
     "",
     "## Score",
     "",
@@ -47,6 +52,12 @@ export function exportAnalysisReportToMarkdown(report: AnalysisReport): string {
 export function exportDiffReportToMarkdown(report: DiffReport): string {
   return [
     "# InfraLens Diff Report",
+    "",
+    "## Original template validation",
+    ...formatValidationSummary(report.oldReport.validation, report.oldReport.analysisStatus),
+    "",
+    "## New template validation",
+    ...formatValidationSummary(report.newReport.validation, report.newReport.analysisStatus),
     "",
     "## Score Change",
     "",

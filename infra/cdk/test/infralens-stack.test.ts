@@ -111,7 +111,18 @@ describe("InfraLensStack", () => {
       template.findResources("AWS::IAM::Policy")
     ).find((resource) => JSON.stringify(resource).includes("logs:PutLogEvents"));
     expect(lambdaLoggingPolicy).not.to.equal(undefined);
-    expect(JSON.stringify(lambdaLoggingPolicy)).not.to.contain('"Resource":"*"');
+    const statements = lambdaLoggingPolicy!.Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Resource: unknown }>;
+    const logStatement = statements.find(statement => JSON.stringify(statement.Action).includes("logs:PutLogEvents"));
+    expect(JSON.stringify(logStatement)).not.to.contain('"Resource":"*"');
+    const awsStatements = statements.filter(statement => JSON.stringify(statement.Action).includes("cloudformation:"));
+    expect(awsStatements).to.have.length(1);
+    expect(awsStatements[0]).to.deep.include({ Action: "cloudformation:ValidateTemplate", Resource: "*" });
+    expect(statements.flatMap(statement => statement.Action)).to.have.members([
+      "logs:CreateLogStream", "logs:PutLogEvents", "cloudformation:ValidateTemplate"
+    ]);
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: { Variables: Match.objectLike({ INFRALENS_CLOUDFORMATION_VALIDATION: "true" }) }
+    });
     expect(JSON.stringify(lambdaLoggingPolicy)).not.to.contain('"Action":"*"');
     template.hasResourceProperties("AWS::ApiGateway::Stage", {
       AccessLogSetting: Match.objectLike({

@@ -1,3 +1,5 @@
+import { canDownloadGeneratedTemplate } from "@infralens/shared";
+import { TemplateValidationPanel } from "./TemplateValidationPanel";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
@@ -30,6 +32,8 @@ export function ApplySuggestionsPanel({
     applicableFixes.every((fix) => selectedFixIds.has(fix.id));
   const generatedTemplate =
     result === null ? null : `${JSON.stringify(result.modifiedTemplate, null, 2)}\n`;
+
+  const canDownload = result !== null && canDownloadGeneratedTemplate(result.validation);
 
   async function handleApply(): Promise<void> {
     if (isApplying || originalTemplateInput === null || selectedFixes.length === 0) {
@@ -160,7 +164,7 @@ export function ApplySuggestionsPanel({
           onClick={() => void handleApply()}
           type="button"
         >
-          {isApplying ? "Applying..." : `Apply selected suggestions (${selectedFixes.length})`}
+          {isApplying ? "Applying and validating..." : `Apply selected suggestions (${selectedFixes.length})`}
         </button>
       </div>
 
@@ -172,6 +176,18 @@ export function ApplySuggestionsPanel({
 
       {result !== null && generatedTemplate !== null ? (
         <section className="generated-template-review">
+          <TemplateValidationPanel validation={result.originalValidation} />
+          <TemplateValidationPanel title="Generated template validation" validation={result.validation} />
+          <p
+            className={!canDownload ? "error-message" : result.generatedTemplateStatus === "ready" ? undefined : "validation-warning"}
+            role="status"
+          >
+            {!canDownload
+              ? "Validation failed — download blocked. Inspect the generated JSON below."
+              : result.generatedTemplateStatus === "ready"
+                ? "Validation passed — ready for review and download."
+                : "Local validation passed — review required; AWS validation was not performed."}
+          </p>
           <div className="generated-template-summary" role="status">
             <strong>{result.appliedFixCount} fixes applied</strong>
             <span>{result.failedFixCount} could not be applied</span>
@@ -192,7 +208,7 @@ export function ApplySuggestionsPanel({
 
           <div className="generated-template-toolbar">
             <div>
-              <h3>Improved Template</h3>
+              <h3>Generated Template</h3>
               <p className="muted-note">Generated as CloudFormation JSON for review.</p>
             </div>
             <div className="report-export-actions">
@@ -205,8 +221,9 @@ export function ApplySuggestionsPanel({
               </button>
               <button
                 className="secondary-button"
+                disabled={!canDownload}
                 onClick={() =>
-                  downloadTextFile({
+                  canDownload && downloadTextFile({
                     contents: generatedTemplate,
                     fileName: "infralens-improved-template.json",
                     mimeType: "application/json"
@@ -214,11 +231,11 @@ export function ApplySuggestionsPanel({
                 }
                 type="button"
               >
-                Download JSON
+                Download improved template
               </button>
               <button
                 className="secondary-button"
-                disabled={originalTemplateInput === null}
+                disabled={originalTemplateInput === null || !canDownload}
                 onClick={() =>
                   navigate("/compare", {
                     state: {

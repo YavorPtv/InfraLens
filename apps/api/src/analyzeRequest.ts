@@ -1,8 +1,12 @@
+import { validateWithCloudFormation, type CloudFormationTemplateValidator } from "./cloudFormationValidation";
+import { getGeneratedTemplateStatus, type TemplateValidationResult, type AnalysisStatus } from "@infralens/shared";
 import {
   analyzeTemplate,
   analyzeTemplateDiff,
   applyTemplateFixes,
   parseTemplateInput,
+  validateTemplate,
+  TemplateValidationError,
   type AnalyzeTemplateDiffOptions,
   type AnalyzeTemplateOptions
 } from "@infralens/analyzer";
@@ -45,6 +49,7 @@ export type ApiErrorCode =
   | "INVALID_FIX"
   | "PAYLOAD_TOO_LARGE"
   | "ANALYSIS_ERROR"
+  | "ANALYZER_INTERNAL_ERROR"
   | "NOT_FOUND";
 
 export interface ApiErrorResponse {
@@ -52,6 +57,8 @@ export interface ApiErrorResponse {
     code: ApiErrorCode;
     message: string;
     detail?: string;
+    validation?: TemplateValidationResult;
+    analysisStatus?: AnalysisStatus;
   };
 }
 
@@ -70,7 +77,9 @@ export class ApiRequestError extends Error {
     readonly statusCode: number,
     readonly code: ApiErrorCode,
     message: string,
-    readonly detail?: string
+    readonly detail?: string,
+    readonly validation?: TemplateValidationResult,
+    readonly analysisStatus?: AnalysisStatus
   ) {
     super(message);
   }
@@ -84,9 +93,11 @@ export function analyzeCloudFormationBody(
   requireRequestBody(rawBody, limits);
 
   const request = parseAnalyzeApiRequest(rawBody, limits);
+  const local = validateTemplate(request.template).validation;
+  if (local.structure !== "valid") throw templateRequestError(new TemplateValidationError(local));
 
   try {
-    return analyze(
+    const report = analyze(
       request.template,
       request.sourceFiles === undefined &&
         request.sourceFileMappings === undefined &&
@@ -102,21 +113,15 @@ export function analyzeCloudFormationBody(
               : { sourceFileExclusions: request.sourceFileExclusions })
           }
     );
+    return { ...report, analysisStatus: "completed", validation: local };
   } catch (error) {
-    if (isInvalidTemplateError(error)) {
-      throw new ApiRequestError(
-        400,
-        "INVALID_TEMPLATE",
-        "Request body must be a valid CloudFormation template.",
-        getErrorMessage(error)
-      );
-    }
+    if (error instanceof TemplateValidationError) throw templateRequestError(error);
 
     throw new ApiRequestError(
       500,
-      "ANALYSIS_ERROR",
+      "ANALYZER_INTERNAL_ERROR",
       "Template analysis failed unexpectedly.",
-      getErrorMessage(error)
+      undefined, local, "failed"
     );
   }
 }
@@ -133,20 +138,12 @@ export function diffCloudFormationBody(
   try {
     return diff(request.oldTemplate, request.newTemplate);
   } catch (error) {
-    if (isInvalidTemplateError(error)) {
-      throw new ApiRequestError(
-        400,
-        "INVALID_TEMPLATE",
-        "Request body must include valid old and new CloudFormation templates.",
-        getErrorMessage(error)
-      );
-    }
+    if (error instanceof TemplateValidationError) throw templateRequestError(error);
 
     throw new ApiRequestError(
       500,
       "ANALYSIS_ERROR",
-      "Template diff analysis failed unexpectedly.",
-      getErrorMessage(error)
+      "Template diff analysis failed unexpectedly."
     );
   }
 }
@@ -161,22 +158,25 @@ export function applyCloudFormationBody(
   const request = parseApplyApiRequest(rawBody, limits);
 
   try {
-    return apply(parseTemplateInput(request.template), request.fixes);
-  } catch (error) {
-    if (isInvalidTemplateError(error)) {
-      throw new ApiRequestError(
-        400,
-        "INVALID_TEMPLATE",
-        "Request body must include a valid CloudFormation template.",
-        getErrorMessage(error)
-      );
+    const original = parseTemplateInput(request.template);
+    const result = apply(original, request.fixes);
+    // Validate the actual returned artifact even for an injected/custom patch engine.
+    const validation = validateTemplate(JSON.stringify(result.modifiedTemplate)).validation;
+    const appliedIds = new Set(result.results.filter(r => r.status === "applied").map(r => r.fixId));
+    for (const issue of validation.issues) {
+      issue.relatedFixIds = request.fixes.filter(f => appliedIds.has(f.id) &&
+        (!issue.path || issue.path === "Resources" || issue.path === "Resources." + f.targetResourceId ||
+          issue.path.startsWith("Resources." + f.targetResourceId + "."))).map(f => f.id);
     }
+    return { ...result, originalValidation: validateTemplate(request.template).validation,
+      validation, generatedTemplateStatus: getGeneratedTemplateStatus(validation) };
+  } catch (error) {
+    if (error instanceof TemplateValidationError) throw templateRequestError(error);
 
     throw new ApiRequestError(
       500,
       "ANALYSIS_ERROR",
-      "Applying template suggestions failed unexpectedly.",
-      getErrorMessage(error)
+      "Applying template suggestions failed unexpectedly."
     );
   }
 }
@@ -504,7 +504,7 @@ export function toApiRequestError(error: unknown): ApiRequestError {
     return error;
   }
 
-  return new ApiRequestError(500, "ANALYSIS_ERROR", "Unexpected API error.", getErrorMessage(error));
+  return new ApiRequestError(500, "ANALYSIS_ERROR", "Unexpected API error.");
 }
 
 export function toApiErrorResponse(error: ApiRequestError): ApiErrorResponse {
@@ -519,6 +519,8 @@ export function toApiErrorResponse(error: ApiRequestError): ApiErrorResponse {
     payload.error.detail = error.detail;
   }
 
+  if (error.validation !== undefined) payload.error.validation = error.validation;
+  if (error.analysisStatus !== undefined) payload.error.analysisStatus = error.analysisStatus;
   return payload;
 }
 
@@ -558,10 +560,32 @@ function byteLength(value: string): number {
   return Buffer.byteLength(value, "utf8");
 }
 
-function isInvalidTemplateError(error: unknown): boolean {
-  return getErrorMessage(error).startsWith("Invalid CloudFormation");
+function templateRequestError(error: TemplateValidationError): ApiRequestError {
+  return new ApiRequestError(400, "INVALID_TEMPLATE", "CloudFormation template validation failed.",
+    error.message, error.validation, "not-run");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// The transport adapters share these asynchronous validation steps.
+export async function analyzeValidatedBody(rawBody: string | undefined, analyze: AnalyzeTemplateHandler | undefined,
+  limits: ApiRequestLimits, validator?: CloudFormationTemplateValidator): Promise<AnalysisReport> {
+  const report = analyzeCloudFormationBody(rawBody, analyze, limits);
+  const request = parseAnalyzeApiRequest(rawBody!, limits);
+  return { ...report, validation: await validateWithCloudFormation(request.template, report.validation, validator) };
+}
+
+export async function applyValidatedBody(rawBody: string | undefined, apply: ApplyTemplateFixesHandler | undefined,
+  limits: ApiRequestLimits, validator?: CloudFormationTemplateValidator): Promise<ApplySuggestionsResult> {
+  const result = applyCloudFormationBody(rawBody, apply, limits);
+  const request = parseApplyApiRequest(rawBody!, limits);
+  const [originalValidation, validation] = await Promise.all([
+    validateWithCloudFormation(request.template, result.originalValidation, validator),
+    validateWithCloudFormation(JSON.stringify(result.modifiedTemplate, null, 2) + "\n", result.validation, validator)
+  ]);
+  for (const issue of validation.issues.filter(i => i.stage === "cloudFormation" && i.severity === "error"))
+    issue.relatedFixIds = result.results.filter(r => r.status === "applied").map(r => r.fixId);
+  return { ...result, originalValidation, validation, generatedTemplateStatus: getGeneratedTemplateStatus(validation) };
 }

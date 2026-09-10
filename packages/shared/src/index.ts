@@ -1,3 +1,5 @@
+import type { TemplateValidationResult, GeneratedTemplateStatus } from "./validation";
+export * from "./validation";
 export {
   normalizeSourceFilePath,
   normalizeSourceAnalysisInput,
@@ -126,6 +128,9 @@ export interface ApplyFixResult {
 }
 
 export interface ApplySuggestionsResult {
+  originalValidation: TemplateValidationResult;
+  validation: TemplateValidationResult;
+  generatedTemplateStatus: GeneratedTemplateStatus;
   modifiedTemplate: CfnTemplate;
   appliedFixCount: number;
   failedFixCount: number;
@@ -217,6 +222,8 @@ export interface PublicExposure {
 }
 
 export interface AnalysisReport extends AnalysisGraph, PublicExposure {
+  analysisStatus: "completed";
+  validation: TemplateValidationResult;
   score: AnalysisScore;
   summary: AnalysisSummary;
   findings: Finding[];
