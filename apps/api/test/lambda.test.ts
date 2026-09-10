@@ -304,7 +304,7 @@ Resources:
     const payload = readJson<ApiErrorResponse>(response);
     expect(payload.error).to.include({
       code: "INVALID_TEMPLATE",
-      message: "Request body must be a valid CloudFormation template."
+      message: "CloudFormation template validation failed."
     });
     expect(payload.error.detail).to.be.a("string");
   });
@@ -324,9 +324,9 @@ Resources:
     const payload = readJson<ApiErrorResponse>(response);
     expect(payload.error).to.include({
       code: "INVALID_TEMPLATE",
-      message: "Request body must be a valid CloudFormation template."
+      message: "CloudFormation template validation failed."
     });
-    expect(payload.error.detail).to.contain("missing Type string");
+    expect(payload.error.detail).to.contain("non-empty Type string");
   });
 
   it("returns a 500 error for unexpected analyzer failures", async () => {
@@ -344,9 +344,10 @@ Resources:
     expect(response.statusCode).to.equal(500);
     expect(readJson<ApiErrorResponse>(response)).to.deep.equal({
       error: {
-        code: "ANALYSIS_ERROR",
+        code: "ANALYZER_INTERNAL_ERROR",
         message: "Template analysis failed unexpectedly.",
-        detail: "boom"
+        analysisStatus: "failed",
+        validation: { parse: "valid", structure: "valid", cloudFormation: "not-run", issues: [] }
       }
     });
   });

@@ -22,7 +22,7 @@ export interface ApiOperationLogEntry {
 
 export type ApiLogWriter = (entry: ApiOperationLogEntry) => void;
 
-export interface ExecuteLoggedOperationInput<T extends ApiOperationResult> {
+export interface ExecuteLoggedOperationInput<T extends ApiOperationResult | Promise<ApiOperationResult>> {
   operation: ApiOperation;
   requestId: string;
   rawBody?: string;
@@ -31,7 +31,7 @@ export interface ExecuteLoggedOperationInput<T extends ApiOperationResult> {
   now?: () => number;
 }
 
-export function executeLoggedOperation<T extends ApiOperationResult>({
+export function executeLoggedOperation<T extends ApiOperationResult | Promise<ApiOperationResult>>({
   operation,
   requestId,
   rawBody,
@@ -42,30 +42,23 @@ export function executeLoggedOperation<T extends ApiOperationResult>({
   const startedAt = now();
   const sourceFileCount = countSourceFiles(rawBody);
 
-  try {
-    const result = execute();
-    writeLog({
-      event: "api_operation",
-      operation,
-      requestId,
-      outcome: "success",
-      durationMs: Math.max(0, now() - startedAt),
-      sourceFileCount,
-      ...getResultMetrics(result)
-    });
+  function success(result: ApiOperationResult) {
+    writeLog({ event: "api_operation", operation, requestId, outcome: "success",
+      durationMs: Math.max(0, now() - startedAt), sourceFileCount, ...getResultMetrics(result) });
     return result;
-  } catch (error) {
-    writeLog({
-      event: "api_operation",
-      operation,
-      requestId,
-      outcome: "error",
-      durationMs: Math.max(0, now() - startedAt),
-      sourceFileCount,
-      errorCategory: error instanceof ApiRequestError ? error.code : "UNEXPECTED_ERROR"
-    });
+  }
+  function failure(error: unknown): never {
+    writeLog({ event: "api_operation", operation, requestId, outcome: "error",
+      durationMs: Math.max(0, now() - startedAt), sourceFileCount,
+      errorCategory: error instanceof ApiRequestError ? error.code : "UNEXPECTED_ERROR" });
     throw error;
   }
+  try {
+    const result = execute();
+    if (result instanceof Promise) return result.then(success, failure) as T;
+    success(result);
+    return result;
+  } catch (error) { return failure(error); }
 }
 
 export function writeStructuredLog(entry: ApiOperationLogEntry): void {

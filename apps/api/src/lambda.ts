@@ -1,6 +1,7 @@
+import { configuredCloudFormationValidator, type CloudFormationTemplateValidator } from "./cloudFormationValidation";
 import {
-  analyzeCloudFormationBody,
-  applyCloudFormationBody,
+  analyzeValidatedBody,
+  applyValidatedBody,
   diffCloudFormationBody,
   toApiErrorResponse,
   toApiRequestError,
@@ -40,6 +41,7 @@ export interface ApiGatewayAnalyzeResponse {
 }
 
 export interface CreateAnalyzeLambdaHandlerOptions {
+  cloudFormationValidator?: CloudFormationTemplateValidator;
   analyze?: AnalyzeTemplateHandler;
   diff?: AnalyzeTemplateDiffHandler;
   apply?: ApplyTemplateFixesHandler;
@@ -55,6 +57,7 @@ export type AnalyzeLambdaHandler = (
 export function createAnalyzeLambdaHandler(
   options: CreateAnalyzeLambdaHandlerOptions = {}
 ): AnalyzeLambdaHandler {
+  const validator = options.cloudFormationValidator;
   const analyze = options.analyze;
   const diff = options.diff;
   const apply = options.apply;
@@ -90,7 +93,7 @@ export function createAnalyzeLambdaHandler(
 
     try {
       const rawBody = decodeRequestBody(event);
-      const result = executeLoggedOperation({
+      const result = await executeLoggedOperation({
         operation,
         requestId,
         rawBody,
@@ -109,15 +112,15 @@ export function createAnalyzeLambdaHandler(
       }
 
       if (operation === "/apply") {
-        return applyCloudFormationBody(rawBody, apply, requestLimits);
+        return applyValidatedBody(rawBody, apply, requestLimits, validator);
       }
 
-      return analyzeCloudFormationBody(rawBody, analyze, requestLimits);
+      return analyzeValidatedBody(rawBody, analyze, requestLimits, validator);
     }
   };
 }
 
-export const handler = createAnalyzeLambdaHandler();
+export const handler = createAnalyzeLambdaHandler({ cloudFormationValidator: configuredCloudFormationValidator() });
 
 function getHttpMethod(event: ApiGatewayAnalyzeRequest): string | undefined {
   return event.httpMethod ?? event.requestContext?.http?.method;

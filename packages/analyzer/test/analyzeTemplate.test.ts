@@ -114,6 +114,8 @@ Resources:
     const report: AnalysisReport = analyzeTemplate(rawTemplate);
 
     expect(Object.keys(report)).to.have.members([
+      "analysisStatus",
+      "validation",
       "score",
       "summary",
       "findings",

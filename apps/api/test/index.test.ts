@@ -64,6 +64,8 @@ describe("local API", () => {
       score: 100
     });
     expect(report).to.have.keys([
+      "analysisStatus",
+      "validation",
       "score",
       "summary",
       "findings",
@@ -331,7 +333,7 @@ Resources:
     const payload = await readJson<ApiErrorResponse>(response);
     expect(payload.error).to.include({
       code: "INVALID_TEMPLATE",
-      message: "Request body must be a valid CloudFormation template."
+      message: "CloudFormation template validation failed."
     });
     expect(payload.error.detail).to.be.a("string");
   });
@@ -350,9 +352,9 @@ Resources:
     const payload = await readJson<ApiErrorResponse>(response);
     expect(payload.error).to.include({
       code: "INVALID_TEMPLATE",
-      message: "Request body must be a valid CloudFormation template."
+      message: "CloudFormation template validation failed."
     });
-    expect(payload.error.detail).to.contain("missing Type string");
+    expect(payload.error.detail).to.contain("non-empty Type string");
   });
 
   function postAnalyze(body?: string): Promise<Response> {

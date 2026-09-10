@@ -10,7 +10,7 @@ import type {
 import type { SourceAnalysisInput } from "@infralens/shared";
 import { createAnalysisContext } from "./analysisContext";
 import { applyContextualSeverityAdjustments } from "./contextualSeverity";
-import { parseTemplateInput, templateToResourceNodes } from "./parseTemplate";
+import { validateTemplate, TemplateValidationError, templateToResourceNodes } from "./parseTemplate";
 import { extractCloudFormationReferences, referencesToArchitectureEdges } from "./extractReferences";
 import { generateLeastPrivilegeResourceSuggestions } from "./leastPrivilegeSuggestions";
 import { detectPublicEntryPoints } from "./publicEntryPoints";
@@ -67,7 +67,8 @@ export function analyzeTemplate(
   rawTemplate: string,
   options: AnalyzeTemplateOptions = {}
 ): AnalysisReport {
-  const template = parseTemplateInput(rawTemplate);
+  const { template, validation } = validateTemplate(rawTemplate);
+  if (template === undefined) throw new TemplateValidationError(validation);
   const resources = templateToResourceNodes(template);
   const referenceEdges = referencesToArchitectureEdges(extractCloudFormationReferences(template));
   const edges = [...referenceEdges, ...buildRuntimeArchitectureGraph(template)];
@@ -97,6 +98,8 @@ export function analyzeTemplate(
   const templateFixes = generateTemplateFixes(template, findings, leastPrivilegeSuggestions);
 
   return {
+    analysisStatus: "completed",
+    validation,
     findings,
     resources,
     edges: context.edges,

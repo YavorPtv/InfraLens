@@ -38,6 +38,8 @@ describe("CLI main", () => {
     expect(report).to.include({
       score: 100
     });
+    expect(report.analysisStatus).to.equal("completed");
+    expect(report.validation).to.deep.equal({ parse: "valid", structure: "valid", cloudFormation: "not-run", issues: [] });
     expect(report.findings).to.deep.equal([]);
     expect(report.edges).to.deep.equal([]);
   });
@@ -57,6 +59,8 @@ describe("CLI main", () => {
     expect(exitCode).to.equal(0);
     expect(io.stderrOutput).to.equal("");
     expect(io.stdoutOutput).to.contain("# InfraLens Analysis Report");
+    expect(io.stdoutOutput).to.contain("AWS CloudFormation validation: not-run");
+    expect(io.stdoutOutput).to.contain("Analyzer: completed");
     expect(io.stdoutOutput).to.contain("## Severity Summary");
     expect(io.stdoutOutput).to.contain("SQS queue is missing a dead-letter queue");
     expect(io.stdoutOutput).to.contain("Evidence path:");
@@ -278,7 +282,10 @@ Resources:
 
     expect(exitCode).to.equal(1);
     expect(io.stdoutOutput).to.equal("");
-    expect(io.stderrOutput).to.contain("Error: Could not analyze CloudFormation template.");
+    expect(io.stderrOutput).to.contain("Parse: valid");
+    expect(io.stderrOutput).to.contain("CloudFormation structure: invalid");
+    expect(io.stderrOutput).to.contain("Analyzer: not-run");
+    expect(io.stderrOutput).to.contain("AWS CloudFormation validation: not-run");
     expect(io.stderrOutput).to.contain("missing Resources object");
   });
 });

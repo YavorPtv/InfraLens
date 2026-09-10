@@ -18,6 +18,13 @@ See [Protected Production Deployment](../../docs/PRODUCTION_DEPLOYMENT.md) for c
 deployment outputs, inviting the first user, frontend auth settings, request limits, monitoring, and
 the production checklist.
 
+## Template validation
+
+The Lambda enables INFRALENS_CLOUDFORMATION_VALIDATION=true and can call only
+cloudformation:ValidateTemplate in addition to its scoped log writes. Resource `*` is required for
+this validation action, which has no resource-level scope; no stack deployment permission is granted.
+See [Template validation](../../docs/TEMPLATE_VALIDATION.md) for offline mode and validation limits.
+
 ## Verify
 
 From the repository root:

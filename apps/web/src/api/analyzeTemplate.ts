@@ -1,10 +1,16 @@
-import type { AnalysisReport } from "@infralens/shared";
+import type { AnalysisReport, TemplateValidationResult, AnalysisStatus } from "@infralens/shared";
 import { authenticatedFetch } from "../auth/authClient";
 import { serializeAnalyzeRequest, type AnalyzeTemplateRequest } from "./analyzeRequest";
 export type { AnalyzeTemplateRequest } from "./analyzeRequest";
 
+export class TemplateAnalysisError extends Error {
+  constructor(message: string, readonly validation?: TemplateValidationResult, readonly analysisStatus?: AnalysisStatus) { super(message); }
+}
+
 interface ApiErrorResponse {
   error?: {
+    validation?: TemplateValidationResult;
+    analysisStatus?: AnalysisStatus;
     code?: string;
     message?: string;
     detail?: string;
@@ -25,7 +31,7 @@ export async function analyzeTemplate(request: AnalyzeTemplateRequest): Promise<
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await readAnalysisError(response);
   }
 
   return (await response.json()) as AnalysisReport;
@@ -41,11 +47,11 @@ function getAnalyzeUrl(baseUrl: string): string {
   return `${normalizedBaseUrl}/analyze`;
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function readAnalysisError(response: Response): Promise<TemplateAnalysisError> {
   try {
     const payload = (await response.json()) as ApiErrorResponse;
-    return payload.error?.detail ?? payload.error?.message ?? "Template analysis failed.";
+    return new TemplateAnalysisError(payload.error?.detail ?? payload.error?.message ?? "Template analysis failed.", payload.error?.validation, payload.error?.analysisStatus);
   } catch {
-    return "Template analysis failed.";
+    return new TemplateAnalysisError("Template analysis failed.");
   }
 }

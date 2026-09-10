@@ -3,7 +3,7 @@
 This document tracks recommended development order, not a fixed release commitment. Update it as
 features land and priorities change.
 
-Last refreshed: September 9, 2026, with source-project path preservation implemented.
+Last refreshed: September 10, 2026, with template validation implemented on the task branch (uncommitted review).
 
 ## Completed Foundation: Protect The Hosted API
 
@@ -35,20 +35,25 @@ See [Workflow testing](TESTING.md) for fixtures, commands, smoke configuration, 
 Ordinary file selection can still expose only basenames. See [Source project uploads](SOURCE_UPLOADS.md)
 for supported behavior and remaining browser limitations.
 
-## Priority 1: Validate Generated Templates
+## Implemented Foundation: Template Validation
 
-- Add stronger CloudFormation validation for analyzed and modified templates.
-- Clearly separate parse success, analyzer success, and deployment validity.
-- Validate generated templates before presenting them as ready to download.
+- Separate parsing, local structure checks, analyzer completion and optional AWS ValidateTemplate.
+- Re-parse and validate generated artifacts; block invalid downloads while preserving inspectable output.
+- Display original/generated results and explicit AWS unavailable states in UI and exports.
+- Keep AWS SDK v3 in the API, with only ValidateTemplate permission in hosted Lambda IAM.
+- Cover adapter mappings and generated regressions offline; no live AWS calls or deployment in tests.
 
-## Priority 2: Deepen Analyzer Coverage Carefully
+See [Template validation](TEMPLATE_VALIDATION.md). Review of the current branch, manual UI checks
+and hosted validation verification remain; passing any validation does not guarantee deployment.
+
+## Priority 1: Deepen Analyzer Coverage Carefully
 
 - Prioritize new rules from real example templates and user needs rather than rule count alone.
 - Expand least-privilege metadata only when action/resource behavior can be represented safely.
 - Improve awareness of IAM conditions, managed policies, and permissions boundaries.
 - Reduce source-matching false positives before attempting broad language or package analysis.
 
-## Priority 3: Add Product Persistence When Needed
+## Priority 2: Add Product Persistence When Needed
 
 - Add saved reports and projects only when users need history or collaboration.
 - Design data retention and source-code handling before storing uploaded content.
@@ -72,7 +77,7 @@ for supported behavior and remaining browser limitations.
 ## Not Near-Term Priorities
 
 - PDF export
-- Live AWS account scanning or AWS SDK integration
+- Live AWS account scanning
 - Direct CDK, Terraform, or multi-language infrastructure parsing
 - Attempting a perfect graph layout for every template
 

@@ -2,12 +2,11 @@
 
 ## Start Here
 
-At the time this handoff was refreshed:
+At the time this handoff was refreshed (September 10, 2026):
 
-- Current branch: `main`
-- Working tree before this documentation edit: clean
-- Current commit: `d2100ff Protect hosted API for invited access (#48)`
-- This `HANDOFF.md` update may be the only uncommitted change.
+- Current task branch: `feature/template-validation`
+- Layered template validation is implemented in the working tree, awaiting review.
+- Changes are intentionally uncommitted; no deployment was performed.
 
 Always begin a new task by checking the live repository state rather than assuming this snapshot is
 still exact:
@@ -28,7 +27,8 @@ reliability risks, compares templates, and generates evidence-based least-privil
 and structured template fixes.
 
 The analyzer does not inspect live AWS accounts and must remain independent from React and the AWS
-SDK. Do not add the AWS SDK unless a future request explicitly changes that constraint.
+SDK. Optional CloudFormation ValidateTemplate uses SDK v3 only in apps/api; this does not change
+the analyzer or CLI credential-free workflow.
 
 ## Workspace Layout
 
@@ -51,7 +51,10 @@ Use npm workspaces and Mocha/Chai. Do not introduce Jest or Vitest.
 
 The analyzer currently:
 
-- Parses JSON and YAML CloudFormation templates.
+- Parses JSON and YAML CloudFormation templates, then validates local structure separately.
+- Reports analysisStatus and parse/structure/AWS validation independently. Generated artifacts are
+  re-parsed and validated; failures block normal download while keeping output inspectable.
+- Hosted /analyze and /apply optionally run AWS ValidateTemplate. See docs/TEMPLATE_VALIDATION.md.
 - Extracts `Ref`, `Fn::GetAtt`, `Fn::Sub`, `Fn::Join`, `Fn::If`, `Fn::ImportValue`, and `DependsOn`.
 - Builds `references`, `uses-role`, `invokes`, and `dead-letter` graph edges.
 - Detects public entry points/reachability and contextually escalates reachable IAM wildcard risks.
@@ -205,7 +208,10 @@ The existing API is REST API Gateway, not HTTP API Gateway. Production CDK confi
 - Retains structured Lambda/API access logs for 30 days.
 - Creates alarms for Lambda errors, throttles, p95 duration near timeout, and API 5XX responses.
 - Optionally creates SNS email alarm delivery and an AWS monthly budget.
-- Gives the analyzer Lambda only `logs:CreateLogStream` and `logs:PutLogEvents` on its own log group.
+- Gives the analyzer Lambda `logs:CreateLogStream` and `logs:PutLogEvents` on its own log group,
+  plus only `cloudformation:ValidateTemplate` with Resource `*` (the action has no resource scope).
+- Sets INFRALENS_CLOUDFORMATION_VALIDATION=true; local API defaults offline. AWS failures/timeouts
+  are explicit, and bodies over 51,200 bytes are unavailable rather than uploaded to S3.
 
 See `docs/PRODUCTION_DEPLOYMENT.md` before changing or deploying this stack.
 
@@ -305,7 +311,7 @@ Keep this summary consistent with the root README:
 - Source inference is lightweight. Folder uploads preserve relative paths; ordinary file selection
   may expose only basenames. Missing/ambiguous imports and unsupported aliases remain limitations.
 - High-confidence IAM output is only as complete as the submitted template and source files.
-- Parsing is not full CloudFormation schema/deployment validation.
+- Local structure validation and optional AWS ValidateTemplate do not guarantee deployment.
 - Compare does not accept separate old/new source trees.
 - Reports are not persisted across browser sessions.
 
@@ -313,12 +319,14 @@ Keep this summary consistent with the root README:
 
 Follow `docs/ROADMAP.md`, currently ordered as:
 
-1. Add stronger validation for analyzed and generated CloudFormation templates.
-2. Expand analyzer and least-privilege coverage from real use cases.
-3. Add persistence only when history/collaboration requirements are clear.
+1. Expand analyzer and least-privilege coverage from real use cases.
+2. Add persistence only when history/collaboration requirements are clear.
+
+Layered validation is implemented on the task branch. Browser validation-state rendering and real
+AWS acceptance remain manual checks, separate from offline adapter tests and CDK synth.
 
 Workflow integration coverage and source-project path preservation are implemented. Keep extending
 their Mocha/Chai coverage as behavior changes; browser controls still require manual verification.
 
-Not near-term: PDF export, live AWS account scanning/AWS SDK integration, broad multi-IaC parsing,
+Not near-term: PDF export, live AWS account scanning, broad multi-IaC parsing,
 or attempting a perfect graph layout for every template.

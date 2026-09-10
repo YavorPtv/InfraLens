@@ -126,9 +126,13 @@ actual-cost notification at 80 percent and a forecast notification at 100 percen
 delayed billing data and is not a real-time hard spending cap. API throttling is the default
 immediate control; reserved concurrency can add another cap when the account quota permits it.
 
-The synthesized Lambda role is limited to writing its designated log group. API Gateway receives
-permission to invoke the function. No broad analyzer data permissions, Cognito administration
-permissions, or frontend IAM credentials are added.
+The synthesized Lambda role can write its designated log group and call only
+`cloudformation:ValidateTemplate` (Resource `*`, because this action has no resource-level scope).
+CDK enables `INFRALENS_CLOUDFORMATION_VALIDATION=true` for /analyze and /apply. It grants no stack
+creation/update or S3 upload permissions. API Gateway receives permission to invoke the function.
+No Cognito administration permissions or frontend IAM credentials are added. See
+[Template validation](TEMPLATE_VALIDATION.md) for the 51,200-byte AWS limit, unavailable states and
+the distinction between validation and successful deployment.
 
 ## Before Deploying InfraLens Publicly
 

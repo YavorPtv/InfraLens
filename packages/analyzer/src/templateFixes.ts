@@ -1,3 +1,5 @@
+import { getGeneratedTemplateStatus } from "@infralens/shared";
+import { validateTemplate } from "./parseTemplate";
 import type {
   ApplyFixResult,
   ApplySuggestionsResult,
@@ -60,7 +62,17 @@ export function applyTemplateFixes(
 
   const appliedFixCount = results.filter((result) => result.status === "applied").length;
 
+  const originalValidation = validateTemplate(JSON.stringify(originalTemplate)).validation;
+  const validation = validateTemplate(JSON.stringify(modifiedTemplate)).validation;
+  for (const issue of validation.issues) {
+    issue.relatedFixIds = selectedFixes.filter(fix => results.some(r => r.fixId === fix.id && r.status === "applied") &&
+      (!issue.path || issue.path === "Resources" || issue.path === "Resources." + fix.targetResourceId ||
+        issue.path.startsWith("Resources." + fix.targetResourceId + "."))).map(fix => fix.id);
+  }
   return {
+    originalValidation,
+    validation,
+    generatedTemplateStatus: getGeneratedTemplateStatus(validation),
     modifiedTemplate,
     appliedFixCount,
     failedFixCount: results.length - appliedFixCount,

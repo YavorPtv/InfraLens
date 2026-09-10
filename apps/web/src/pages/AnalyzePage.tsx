@@ -1,6 +1,7 @@
+import { TemplateValidationPanel } from "../components/report/TemplateValidationPanel";
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { analyzeTemplate } from "../api/analyzeTemplate";
+import { analyzeTemplate, TemplateAnalysisError } from "../api/analyzeTemplate";
 import { useAnalysisReport } from "../reportState";
 import {
   acceptedSourceExtensions, autoDetectMappingValue, sharedSourceMappingValue, manualMappingValue,
@@ -14,6 +15,7 @@ export function AnalyzePage() {
   const [templateInput, setTemplateInput] = useState("");
   const [sourceFiles, setSourceFiles] = useState<SourceFileInput[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<TemplateAnalysisError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isReadingSources, setIsReadingSources] = useState(false);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
@@ -75,6 +77,7 @@ export function AnalyzePage() {
       return;
     }
 
+    setValidationError(null);
     setIsLoading(true);
     setError(null);
 
@@ -89,6 +92,7 @@ export function AnalyzePage() {
       setOriginalTemplateInput(templateInput);
       navigate("/report");
     } catch (analysisError) {
+      setValidationError(analysisError instanceof TemplateAnalysisError ? analysisError : null);
       setReport(null);
       setOriginalTemplateInput(null);
       setError(
@@ -308,6 +312,7 @@ export function AnalyzePage() {
         </button>
       </div>
 
+      {validationError?.validation && <TemplateValidationPanel validation={validationError.validation} analysisStatus={validationError.analysisStatus} />}
       {error !== null ? (
         <div className="error-message" role="alert">
           {error}

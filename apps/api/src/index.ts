@@ -1,3 +1,4 @@
+import { configuredCloudFormationValidator, type CloudFormationTemplateValidator } from "./cloudFormationValidation";
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
 import cors from "cors";
@@ -10,6 +11,8 @@ import express, {
 import { analyzeTemplate, analyzeTemplateDiff, applyTemplateFixes } from "@infralens/analyzer";
 import {
   analyzeCloudFormationBody,
+  analyzeValidatedBody,
+  applyValidatedBody,
   applyCloudFormationBody,
   ApiRequestError,
   diffCloudFormationBody,
@@ -44,6 +47,7 @@ export { defaultApiRequestLimits, getApiRequestLimits } from "./requestLimits";
 export type { ApiRequestLimits } from "./requestLimits";
 
 export interface CreateApiAppOptions {
+  cloudFormationValidator?: CloudFormationTemplateValidator;
   analyze?: AnalyzeTemplateHandler;
   diff?: AnalyzeTemplateDiffHandler;
   apply?: ApplyTemplateFixesHandler;
@@ -53,6 +57,7 @@ export interface CreateApiAppOptions {
 }
 
 export function createApiApp(options: CreateApiAppOptions = {}): Express {
+  const validator = options.cloudFormationValidator;
   const analyze = options.analyze ?? analyzeTemplate;
   const diff = options.diff ?? analyzeTemplateDiff;
   const apply = options.apply ?? applyTemplateFixes;
@@ -85,7 +90,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
 
   app.post("/analyze", (request, response) => {
     runApiOperation(request, response, "/analyze", options.writeLog, () =>
-      analyzeCloudFormationBody(getRawTemplateBody(request), analyze, requestLimits)
+      analyzeValidatedBody(getRawTemplateBody(request), analyze, requestLimits, validator)
     );
   });
 
@@ -97,7 +102,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
 
   app.post("/apply", (request, response) => {
     runApiOperation(request, response, "/apply", options.writeLog, () =>
-      applyCloudFormationBody(getRawTemplateBody(request), apply, requestLimits)
+      applyValidatedBody(getRawTemplateBody(request), apply, requestLimits, validator)
     );
   });
 
@@ -126,7 +131,7 @@ export function createApiServer(options: CreateApiAppOptions = {}): Server {
 }
 
 export function startApiServer(port = Number(process.env.PORT ?? 3000)): Server {
-  const server = createApiServer();
+  const server = createApiServer({ cloudFormationValidator: configuredCloudFormationValidator() });
 
   server.listen(port, () => {
     process.stdout.write(`${apiAppName} listening on http://localhost:${port}\n`);
@@ -169,19 +174,19 @@ function isBodyParserError(error: unknown): boolean {
   return typeof status === "number" && status >= 400;
 }
 
-function runApiOperation(
+async function runApiOperation(
   request: Request,
   response: Response,
   operation: ApiOperation,
   writeLog: ApiLogWriter | undefined,
-  execute: () => ApiOperationResult
-): void {
+  execute: () => ApiOperationResult | Promise<ApiOperationResult>
+): Promise<void> {
   const requestId = request.header("x-request-id") ?? randomUUID();
   response.setHeader("x-request-id", requestId);
 
   try {
     response.json(
-      executeLoggedOperation({
+      await executeLoggedOperation({
         operation,
         requestId,
         rawBody: getRawTemplateBody(request),

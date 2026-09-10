@@ -2,7 +2,7 @@
 
 InfraLens is a developer-focused AWS architecture analyzer. It parses CloudFormation templates, builds a resource and relationship graph, detects security and reliability risks, and produces evidence-based least-privilege IAM suggestions.
 
-The project is intentionally local-first today. It does not call AWS APIs or inspect deployed accounts. Optional Lambda source-code upload is used only to infer IAM actions from recognizable AWS SDK command names.
+The analyzer and CLI remain local-first and offline. The hosted API optionally calls AWS CloudFormation ValidateTemplate; it does not inspect deployed accounts. Optional Lambda source-code upload is used only to infer IAM actions from recognizable AWS SDK command names.
 
 ## Tech Stack
 
@@ -353,6 +353,17 @@ Applying fixes creates a new CloudFormation JSON template. Logical IDs, unrelate
 intrinsic functions such as `Ref`, `Fn::GetAtt`, and `Fn::Sub` are preserved. InfraLens does not
 write to the uploaded file or deploy the generated template.
 
+## Template Validation
+
+Input passes through parsing, local CloudFormation structure checks, analysis, and optional AWS
+validation. Reports show each stage separately. Generated templates are re-parsed and checked before
+download; invalid output remains inspectable with download blocked. If AWS validation is unavailable,
+locally valid output can be downloaded for review with an explicit warning.
+
+Analysis success does not mean that a CloudFormation template is deployable. Passing AWS
+CloudFormation ValidateTemplate does not guarantee that stack creation/update will succeed.
+See [Template validation](docs/TEMPLATE_VALIDATION.md) for configuration, API contracts and limits.
+
 ## Current Limitations
 
 - Rule and least-privilege coverage is limited to the resources, services, and AWS SDK commands
@@ -363,8 +374,8 @@ write to the uploaded file or deploy the generated template.
   mapping does not restore missing directory information.
 - High-confidence IAM suggestions are based only on the submitted template and uploaded files. They
   cannot guarantee that every runtime permission or production source file was included.
-- Template parsing is not full CloudFormation schema validation. Analyze and generated templates
-  should still be validated before deployment.
+- Local structure checks and optional AWS ValidateTemplate are separate from analysis success.
+  Neither guarantees deployment. See [Template validation](docs/TEMPLATE_VALIDATION.md).
 - Compare currently compares templates only; it does not compare separate old and new source trees.
 - Reports are not persisted; refreshing or leaving the current browser session loses analysis
   history.

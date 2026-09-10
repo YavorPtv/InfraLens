@@ -94,6 +94,8 @@ describe("report export", () => {
 
 function createAnalysisReport(overrides: Partial<AnalysisReport> = {}): AnalysisReport {
   const report: AnalysisReport = {
+    analysisStatus: "completed",
+    validation: { parse: "valid", structure: "valid", cloudFormation: "not-run", issues: [] },
     score: 72,
     resources: [],
     edges: [],

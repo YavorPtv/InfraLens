@@ -5,6 +5,8 @@ import { formatAnalysisReport } from "../src/formatReport";
 describe("formatAnalysisReport", () => {
   it("prints score, severity counts, and findings", () => {
     const report: AnalysisReport = {
+      analysisStatus: "completed",
+      validation: { parse: "valid", structure: "valid", cloudFormation: "not-run", issues: [] },
       score: 80,
       resources: [],
       edges: [
@@ -87,6 +89,11 @@ describe("formatAnalysisReport", () => {
     expect(formatAnalysisReport(report)).to.equal(
       [
         "InfraLens Analysis Summary",
+        "Parse: valid",
+        "CloudFormation structure: valid",
+        "Analyzer: completed",
+        "AWS CloudFormation validation: not-run",
+        "Passing validation does not guarantee stack deployment will succeed.",
         "Score: 80/100",
         "Findings: 1",
         "Severity counts:",
@@ -126,6 +133,8 @@ describe("formatAnalysisReport", () => {
 
   it("prints a no findings message", () => {
     const report: AnalysisReport = {
+      analysisStatus: "completed",
+      validation: { parse: "valid", structure: "valid", cloudFormation: "not-run", issues: [] },
       score: 100,
       resources: [],
       edges: [],

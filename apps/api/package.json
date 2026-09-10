@@ -25,6 +25,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudformation": "^3.1129.0",
     "@infralens/analyzer": "0.1.0",
     "@infralens/shared": "0.1.0",
     "cors": "^2.8.6",

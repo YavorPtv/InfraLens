@@ -102,10 +102,16 @@ export class InfraLensStack extends cdk.Stack {
       })
     );
 
+    // ValidateTemplate has no resource-level IAM scope; it cannot create or update stacks.
+    analysisFunctionRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["cloudformation:ValidateTemplate"], resources: ["*"]
+    }));
+
     const analysisFunction = new nodejs.NodejsFunction(this, "AnalysisApiFunction", {
       architecture: lambda.Architecture.ARM_64,
       bundling: {
         minify: false,
+        bundleAwsSDK: true,
         sourceMap: true,
         target: "node20"
       },
@@ -114,6 +120,7 @@ export class InfraLensStack extends cdk.Stack {
       environment: {
         INFRALENS_CORS_ORIGINS: frontendOrigin,
         INFRALENS_ENVIRONMENT: environmentName,
+        INFRALENS_CLOUDFORMATION_VALIDATION: "true",
         ...toRequestLimitEnvironment(props.requestLimits)
       },
       handler: "handler",

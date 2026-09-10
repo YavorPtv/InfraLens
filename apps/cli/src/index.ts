@@ -2,8 +2,9 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { analyzeTemplate, analyzeTemplateDiff } from "@infralens/analyzer";
+import { analyzeTemplate, analyzeTemplateDiff, TemplateValidationError } from "@infralens/analyzer";
 import {
+  formatValidationSummary,
   exportAnalysisReportToJson,
   exportAnalysisReportToMarkdown,
   exportDiffReportToMarkdown
@@ -75,6 +76,10 @@ function runAnalysis(options: CliOptions, io: CliIo): number {
 
     return writeOutput(output, options, io);
   } catch (error) {
+    if (error instanceof TemplateValidationError) {
+      io.stderr.write(formatValidationSummary(error.validation, "not-run").join("\n") + "\n");
+      return 1;
+    }
     io.stderr.write(`Error: Could not analyze CloudFormation template.\n${getErrorMessage(error)}\n`);
     return 1;
   }

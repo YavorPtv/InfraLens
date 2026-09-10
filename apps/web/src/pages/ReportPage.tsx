@@ -1,3 +1,4 @@
+import { TemplateValidationPanel } from "../components/report/TemplateValidationPanel";
 import { Link } from "react-router-dom";
 import { exportAnalysisReportToJson, exportAnalysisReportToMarkdown } from "@infralens/shared";
 import { useAnalysisReport } from "../reportState";
@@ -67,6 +68,7 @@ export function ReportPage() {
           </button>
         </div>
       </div>
+      <TemplateValidationPanel validation={report.validation} analysisStatus={report.analysisStatus} />
       <ScoreOverview report={report} />
       <ArchitectureGraph report={report} />
       <LeastPrivilegeSuggestions suggestions={report.leastPrivilegeSuggestions} />
