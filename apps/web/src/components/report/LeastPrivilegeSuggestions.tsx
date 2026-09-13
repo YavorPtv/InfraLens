@@ -11,6 +11,7 @@ interface LeastPrivilegeSuggestionsProps {
 }
 
 interface PolicyStatementPreview {
+  Condition?: CfnValue;
   Effect: "Allow";
   Action: string | string[];
   Resource: CfnValue | CfnValue[];
@@ -331,13 +332,15 @@ function EvidenceItem({ label, value }: { label: string; value: string }) {
 
 function createOriginalPolicyStatement(suggestion: PolicySuggestion): PolicyStatementPreview {
   return {
+    ...(suggestion.iamContext?.condition.value === undefined ? {} : { Condition: suggestion.iamContext.condition.value }),
     Effect: "Allow",
     Action: formatActions(getCurrentActions(suggestion)),
     Resource: suggestion.currentResource
   };
 }
 
-function createSuggestedPolicyStatement(suggestion: PolicySuggestion): PolicyStatementPreview {
+function createSuggestedPolicyStatement(suggestion: PolicySuggestion): PolicyStatementPreview | PolicyStatementPreview[] {
+  if (suggestion.suggestedStatements) return suggestion.suggestedStatements;
   return {
     Effect: "Allow",
     Action: formatActions(getSuggestedActions(suggestion)),
@@ -390,7 +393,7 @@ function formatPolicySource(suggestion: PolicySuggestion): string {
   const source =
     suggestion.policySourceType === "inline-role-policy"
       ? "inline role policy"
-      : "attached policy resource";
+      : suggestion.policySourceType === "managed-policy-resource" ? "template-defined managed policy" : "attached policy resource";
 
   return `${policyName} (${source})`;
 }

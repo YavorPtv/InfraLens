@@ -18,6 +18,7 @@ export interface IamActionMetadata {
   resourceType?: string;
   resourceForm?: IamResourceForm;
   sdkCommands?: AwsSdkCommandMetadata[];
+  reviewNotes?: string;
 }
 
 export interface ServiceResourceMetadata {
@@ -60,19 +61,22 @@ const dynamodbActions = [
   )
 ];
 
+// Low-level and document clients use different item command names, but Query/Scan
+// have the same names in both packages.
+for (const metadata of dynamodbActions) {
+  metadata.sdkCommands?.push({ commandName: `${metadata.action.split(":")[1]}Command`, packageName: "@aws-sdk/client-dynamodb" });
+}
+
 export const awsServiceMetadata: AwsServiceMetadata[] = [
   {
     service: "dynamodb",
     resources: [
       {
         resourceType: "AWS::DynamoDB::Table",
-        suggestedResourceFor: (resourceId, _resource, forms) => {
+        suggestedResourceFor: (resourceId, _resource, _forms) => {
           const tableArn: CfnValue = { "Fn::GetAtt": [resourceId, "Arn"] };
-          if (!forms.includes("dynamodb-table-and-index")) {
-            return tableArn;
-          }
-
-          return [tableArn, { "Fn::Join": ["", [tableArn, "/index/*"]] }];
+          // Index ARNs are added only from source IndexName + template evidence.
+          return tableArn;
         }
       }
     ],
@@ -216,6 +220,31 @@ export const awsServiceMetadata: AwsServiceMetadata[] = [
       "KMS identity-policy changes require review alongside the key policy and encryption context."
   }
 ];
+
+// These are conditional dependencies/alternate request forms, not additional
+// permissions automatically inferred from a command name.
+const actionReviewNotes: Record<string, string> = {
+  "dynamodb:Query": "Query can target a table or secondary index; index access requires source IndexName and a matching declared index.",
+  "dynamodb:Scan": "Scan can target a table or secondary index; index access requires source IndexName and a matching declared index.",
+  "s3:GetObject": "VersionId needs GetObjectVersion instead; SSE-KMS reads may also need kms:Decrypt. Access points are not modeled.",
+  "s3:PutObject": "ACLs, tags and object-lock options can require additional S3 actions; SSE-KMS can require KMS permissions. Access points are not modeled.",
+  "s3:DeleteObject": "VersionId needs DeleteObjectVersion instead. Object-lock bypass behavior requires review.",
+  "sns:Publish": "Only topic ARNs are candidates; SMS phone numbers and mobile platform endpoints require separate resource review. Encrypted topics may require KMS permissions.",
+  "lambda:InvokeFunction": "The function ARN is unqualified; versions, aliases and runtime FunctionName values require review.",
+  "events:PutEvents": "Only event-bus resources are modeled, not rule ARNs. Cross-account bus policies are not evaluated.",
+  "secretsmanager:GetSecretValue": "Ref returns the full secret ARN including its generated suffix; customer-managed encryption may also require kms:Decrypt.",
+  "ssm:GetParameter": "SecureString decryption can require kms:Decrypt; parameter versions and labels do not change the base parameter ARN.",
+  "ssm:GetParameters": "Each requested parameter needs access; multiple or dynamic names must be reviewed. SecureString decryption can require kms:Decrypt.",
+  "ssm:PutParameter": "Tags can require ssm:AddTagsToResource; SecureString encryption can require KMS permissions. These actions are not inferred automatically.",
+  "kms:Encrypt": "Identity policies must be reviewed with key policies and grants; no effective-access simulation is performed.",
+  "kms:Decrypt": "Identity policies must be reviewed with key policies, grants and encryption context.",
+  "kms:GenerateDataKey": "Identity policies must be reviewed with key policies, grants and encryption context."
+};
+for (const service of awsServiceMetadata) {
+  for (const action of service.actions) {
+    if (actionReviewNotes[action.action]) action.reviewNotes = actionReviewNotes[action.action];
+  }
+}
 
 export function getServiceMetadata(service: string): AwsServiceMetadata | undefined {
   return awsServiceMetadata.find((metadata) => metadata.service === service.toLowerCase());

@@ -42,6 +42,9 @@ helper rather than the shell's current directory. The tests reuse these small ex
 - `examples/order-service-risky-template.json`: realistic API, Lambda, IAM, DynamoDB, queue and logs.
   Selected fixes leave missing DLQ/log retention, unselected deletion protection/tracing, public API
   authorization and the separate logs wildcard statement visible.
+- `examples/analyzer-coverage/`: managed policies, boundaries, conditions, explicit Deny,
+  transitive S3 imports, alias evidence, statement splitting and a DynamoDB index query.
+  Covered by analyzer regression suites and the local API analyze/apply integration suite.
 - `examples/source-file-lambda-mapping/template.json`: two Lambdas with distinct roles and targets.
 - `examples/shared-source-import-graph/`: handlers, transitive database helper, shared SDK source,
   queue helper and unrelated delete action. Its `sharedDb.ts` and `queueClient.ts` supply real SDK

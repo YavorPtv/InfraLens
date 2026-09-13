@@ -2,7 +2,7 @@
 
 InfraLens is a developer-focused AWS architecture analyzer. It parses CloudFormation templates, builds a resource and relationship graph, detects security and reliability risks, and produces evidence-based least-privilege IAM suggestions.
 
-The analyzer and CLI remain local-first and offline. The hosted API optionally calls AWS CloudFormation ValidateTemplate; it does not inspect deployed accounts. Optional Lambda source-code upload is used only to infer IAM actions from recognizable AWS SDK command names.
+The analyzer and CLI remain local-first and offline. The hosted API optionally calls AWS CloudFormation ValidateTemplate; it does not inspect deployed accounts. Optional Lambda source-code upload uses JavaScript/TypeScript syntax and import-symbol evidence to infer supported AWS SDK v3 actions.
 
 ## Tech Stack
 
@@ -139,12 +139,12 @@ It also accepts an optional JSON envelope when Lambda source files should be ana
 {
   "template": "{ \"Resources\": {} }",
   "sourceFiles": {
-    "handler.ts": "await client.send(new GetCommand({ TableName: tableName }));"
+    "handler.ts": "import { GetCommand } from \"@aws-sdk/lib-dynamodb\"; await client.send(new GetCommand({ TableName: tableName }));"
   }
 }
 ```
 
-Source files are not stored. They are scanned only for supported AWS SDK command names that map to IAM actions.
+Source files are not stored. Supported SDK imports and command construction are inspected with TypeScript syntax and lexical symbol checks.
 
 `POST /diff` accepts old and new template strings and returns a `DiffReport`:
 
@@ -211,7 +211,7 @@ For a quick demo, upload:
 - `examples/order-service-risky-template.json` as the template
 - `examples/order-handler-source.ts` as the Lambda source file
 
-The source file contains mocked DynamoDB `GetCommand` and `PutCommand` usages, so InfraLens displays the inferred actions and related table for review. Because the self-contained demo has no real `@aws-sdk/lib-dynamodb` import, it does not automatically apply action narrowing. Uploaded application source with the matching SDK import provides exact package evidence.
+The source file declares local mock classes and correctly produces no AWS SDK actions. For import-based action narrowing, use [the realistic analyzer coverage fixture](examples/analyzer-coverage/README.md), or the shared-source and nested-source examples.
 
 After analysis, the Apply Suggestions section lists deterministic fixes separately from suggestions
 that require manual review. Select the fixes to apply, then review, copy, or download the generated
@@ -231,6 +231,8 @@ InfraLens currently recognizes and analyzes CloudFormation resources including:
 
 - `AWS::IAM::Role`
 - `AWS::IAM::Policy`
+- `AWS::IAM::ManagedPolicy`
+- `AWS::IAM::User` and `AWS::IAM::Group` identity policies
 - `AWS::Lambda::Function`
 - `AWS::Lambda::Permission`
 - `AWS::ApiGateway::RestApi`
@@ -252,9 +254,11 @@ Graph and exposure analysis currently includes:
 - SQS queue uses dead-letter queue: `dead-letter`
 - Public entry point detection for API Gateway, API Gateway V2, CloudFront, and internet-facing ALBs
 - Public reachability traversal over architecture edges 
-- Source-code IAM action inference from simple AWS SDK v3 command-name matches
+- Source-code IAM action inference from actual AWS SDK v3 imports and command uses
 
 ## Current Rules
+
+See [Analyzer coverage and evidence limits](docs/ANALYZER_COVERAGE.md) for rule rationale, IAM condition/boundary semantics, and the action/resource audit.
 
 - `IAM_WILDCARD_PERMISSIONS`: detects broad IAM permissions such as wildcard actions/resources
 - `API_GATEWAY_METHOD_NO_AUTH`: detects REST API methods with missing or `NONE` authorization
@@ -262,7 +266,8 @@ Graph and exposure analysis currently includes:
 - `SQS_MISSING_DLQ`: detects SQS queues without a dead-letter queue
 - `DYNAMODB_MISSING_PITR`: detects DynamoDB tables without point-in-time recovery
 - `LOG_GROUP_MISSING_RETENTION`: detects CloudWatch log groups without retention
-- `LAMBDA_DEAD_LETTER_CONFIG_MISSING`: detects `AWS::Lambda::EventInvokeConfig` resources without an on-failure destination; it does not flag every Lambda
+- `LAMBDA_SERVICE_PERMISSION_UNSCOPED`: detects selected Lambda service invocation permissions without a source restriction
+- `LAMBDA_DEAD_LETTER_CONFIG_MISSING`: checks asynchronous invocation failure handling, recognizing an existing function DLQ for an exactly resolved `$LATEST` function
 - `LAMBDA_RESERVED_CONCURRENCY_RISK`: detects the deterministic case where reserved concurrency is zero and all invocations are throttled
 - `S3_VERSIONING_DISABLED`: detects buckets without enabled versioning as a recovery/resilience risk
 - `SNS_TOPIC_ENCRYPTION_MISSING`: detects topics without explicit KMS encryption
@@ -275,7 +280,7 @@ Graph and exposure analysis currently includes:
 
 Generic S3 encryption, SQS encryption, and DynamoDB encryption-missing rules are intentionally not included. S3 encrypts all new objects with SSE-S3 by default, SQS enables SSE-SQS when `SqsManagedSseEnabled` is omitted, and DynamoDB uses an AWS owned key when KMS settings are omitted. Flagging those omissions as unencrypted would be misleading. Lambda failure handling is checked only when an `AWS::Lambda::EventInvokeConfig` proves asynchronous invocation configuration; InfraLens does not guess invocation behavior from a function alone.
 
-Contextual severity currently adjusts `IAM_WILDCARD_PERMISSIONS` to critical when the affected role is publicly reachable or used by a publicly reachable Lambda.
+Contextual severity adjusts `IAM_WILDCARD_PERMISSIONS` to critical when an affected identity is publicly reachable or used by a publicly reachable Lambda, unless represented conditions, boundaries, Deny statements or unresolved policy evidence require a partial assessment. IAM findings describe statements, not effective access.
 
 ## Least-Privilege Suggestions
 
@@ -297,11 +302,11 @@ Currently supported target services and source-inferred actions:
 
 Least-privilege suggestions are conservative and do not attempt to infer permissions when InfraLens lacks sufficient evidence.
 
-Action/resource compatibility is checked before a resource is suggested. S3 object actions use an object ARN ending in `/*`, while `ListBucket` uses the bucket ARN. DynamoDB `Query` and `Scan` include table and index ARN forms. Actions known to require `Resource: "*"`, unknown actions, ambiguous resources, and multi-service statements remain manual-only. KMS suggestions remain manual-only because identity policies must be reviewed with key policies and encryption context.
+Action/resource compatibility is checked before a resource is suggested. S3 object actions use an object ARN ending in `/*`, while `ListBucket` uses the bucket ARN; mixed bucket/object usage is split into separate generated statements. DynamoDB `Query` and `Scan` require source evidence to distinguish table-only access from a literal secondary index declared in the template; no index wildcard is added automatically. Actions known to require `Resource: "*"`, unknown actions, ambiguous resources, and multi-service statements remain manual-only. KMS suggestions remain manual-only because identity policies must be reviewed with key policies and encryption context.
 
-The analyzer infers resources from Lambda references in the template. If optional Lambda source files are provided, it can also infer exact IAM actions from supported AWS SDK v3 command names. Source files can be mapped explicitly or matched to Lambda handlers, and actions from resolved local imports can contribute to every Lambda that reaches the shared file.
+The analyzer identifies candidate resources from Lambda references in the template. Uploaded source can provide supported AWS SDK v3 action evidence through imported symbol usage. Source files can be mapped explicitly or matched to Lambda handlers, and actions from resolved local imports can contribute to every Lambda that reaches the shared file.
 
-Current source-code action inference is intentionally simple matching. Supported command mappings include:
+Source-code action inference uses syntax and imported symbols, including aliases and literal CommonJS imports. Supported command mappings include:
 
 - `GetCommand` -> `dynamodb:GetItem`
 - `PutCommand` -> `dynamodb:PutItem`
@@ -327,7 +332,7 @@ Current source-code action inference is intentionally simple matching. Supported
 - `DecryptCommand` -> `kms:Decrypt`
 - `GenerateDataKeyCommand` -> `kms:GenerateDataKey`
 
-Source-code inference does not parse a full AST or analyze `node_modules`. Relative imports between uploaded JavaScript and TypeScript files are resolved conservatively; unresolved or ambiguous imports are ignored. Exact SDK command evidence requires the expected `@aws-sdk` package import; command-name-only matches remain low-confidence evidence and cannot drive automatic action narrowing.
+Source-code inference parses JavaScript/TypeScript syntax using an in-memory compiler host and never analyzes `node_modules`. Relative imports resolve conservatively; unresolved/ambiguous imports and dynamic SDK patterns produce explicit limitations. Comments, strings, local classes and wrong-package commands produce no inferred actions. See [coverage details](docs/ANALYZER_COVERAGE.md) for supported import patterns and limitations.
 
 ## Apply Suggestions
 
@@ -368,7 +373,7 @@ See [Template validation](docs/TEMPLATE_VALIDATION.md) for configuration, API co
 
 - Rule and least-privilege coverage is limited to the resources, services, and AWS SDK commands
   documented above. InfraLens is not yet a comprehensive AWS security assessment.
-- Source inference uses lightweight command and import matching. Folder uploads preserve relative
+- Source inference uses syntax and import-symbol checks, without a full call graph or data flow. Folder uploads preserve relative
   paths; ordinary file selection may expose only basenames. Missing files, ambiguous paths, package
   imports and TypeScript path aliases can still prevent shared-source attribution. Explicit Lambda
   mapping does not restore missing directory information.

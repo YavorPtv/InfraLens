@@ -30,7 +30,8 @@ export function formatAnalysisReport(report: AnalysisReport): string {
     ...formatArchitectureEdges(report.edges),
     "",
     "Least-privilege suggestions:",
-    ...formatLeastPrivilegeSuggestions(report.leastPrivilegeSuggestions)
+    ...formatLeastPrivilegeSuggestions(report.leastPrivilegeSuggestions),
+    ...[...(report.iamAnalysis?.limitations ?? []), ...(report.sourceAnalysisWarnings ?? [])].map(value => `Analysis limitation: ${value}`)
   ];
 
   return lines.join("\n");
@@ -45,6 +46,7 @@ function formatFindings(report: AnalysisReport): string[] {
   for (const finding of report.findings) {
     lines.push(`  [${finding.severity.toUpperCase()}] ${finding.resourceId} - ${finding.title}`);
     lines.push(`    Evidence: ${finding.evidencePath}`);
+    if (finding.iamContext) lines.push(`    Explanation: ${finding.explanation}`);
     lines.push(`    Suggestion: ${finding.suggestion}`);
     if (finding.severityAdjustment !== undefined) {
       lines.push(

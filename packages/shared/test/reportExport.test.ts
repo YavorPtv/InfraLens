@@ -7,6 +7,27 @@ import {
 } from "../src";
 
 describe("report export", () => {
+  it("exports partial IAM/source limitations and partitioned policy statements", () => {
+    const report = createAnalysisReport();
+    report.iamAnalysis = { evaluation: "partial", principals: [], policies: [], limitations: ["External managed policy contents are unknown."] };
+    report.sourceAnalysisWarnings = ["Unresolved relative import: ./missing."];
+    const suggestion = report.leastPrivilegeSuggestions[0];
+    suggestion.service = "s3";
+    suggestion.suggestedStatements = [
+      { Effect: "Allow", Action: ["s3:ListBucket"], Resource: "arn:aws:s3:::files" },
+      { Effect: "Allow", Action: ["s3:GetObject"], Resource: "arn:aws:s3:::files/*" }
+    ];
+    suggestion.evidence.sourceActions![0].sdkPackage = "@aws-sdk/client-s3";
+    suggestion.evidence.sourceActions![0].useLocation = { line: 3, column: 7 };
+    const output = exportAnalysisReportToMarkdown(report);
+    expect(output).to.include("## Analysis limitations");
+    expect(output).to.include("External managed policy contents are unknown.");
+    expect(output).to.include("Unresolved relative import: ./missing.");
+    expect(output).to.include(JSON.stringify(suggestion.suggestedStatements, null, 2));
+    expect(output).to.include("SDK package: `@aws-sdk/client-s3`");
+    expect(output).to.include("command use: 3:7");
+    expect(JSON.parse(exportAnalysisReportToJson(report)).iamAnalysis.evaluation).to.equal("partial");
+  });
   it("exports an analysis report to formatted JSON", () => {
     const output = exportAnalysisReportToJson(createAnalysisReport());
 

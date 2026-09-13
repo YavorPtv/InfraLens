@@ -65,7 +65,7 @@ describe("source upload and mapping integration", () => {
       } else {
         expect(suggestion.manualOnly).to.equal(true);
         expect(suggestion.suggestedActions).to.deep.equal(["dynamodb:PutItem"]);
-        expect(suggestion.confidence).to.equal("medium");
+        expect(suggestion.confidence).to.equal("low");
         const fix = report.templateFixes!.find((f) => f.source.kind === "least-privilege" && f.source.lambdaFunctionId === "OrdersFunction")!;
         expect(fix.applicability).to.equal("manual-review");
         expect(fix.patches).to.deep.equal([]);

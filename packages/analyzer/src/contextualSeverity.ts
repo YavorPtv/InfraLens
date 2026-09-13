@@ -1,4 +1,5 @@
 import type { AnalysisContext, Finding } from "@infralens/shared";
+import { hasIamModifiers } from "./iamPolicyModel";
 
 const IAM_WILDCARD_PERMISSIONS_RULE_ID = "IAM_WILDCARD_PERMISSIONS";
 
@@ -31,8 +32,10 @@ function shouldEscalateIamWildcardFinding(
 ): boolean {
   return (
     finding.ruleId === IAM_WILDCARD_PERMISSIONS_RULE_ID &&
+    !(finding.iamContext && hasIamModifiers(finding.iamContext)) &&
     finding.severity !== "critical" &&
-    isPubliclyReachableRole(finding.resourceId, context, publiclyReachableResourceIds)
+    [finding.resourceId, ...(finding.iamContext?.principalIds ?? [])].some(id =>
+      isPubliclyReachableRole(id, context, publiclyReachableResourceIds))
   );
 }
 

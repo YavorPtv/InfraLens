@@ -71,7 +71,56 @@ export type Severity = "low" | "medium" | "high" | "critical";
 
 export type RuleId = string;
 
+export interface IamConditionAnalysis {
+  status: "none" | "understood" | "unknown";
+  restrictions: string[];
+  unknown: string[];
+  value?: CfnValue;
+}
+
+export interface IamManagedPolicyReference {
+  value: CfnValue;
+  evidencePath: string;
+  status: "template-defined" | "unresolved";
+  policyResourceId?: string;
+}
+
+export interface IamPrincipal {
+  resourceId: string;
+  resourceType: string;
+  managedPolicies: IamManagedPolicyReference[];
+  permissionsBoundary?: IamManagedPolicyReference;
+}
+
+export interface IamPolicyDocument {
+  unresolvedAttachments?: Array<{ value: CfnValue; evidencePath: string }>;
+  resourceId: string;
+  kind: "inline" | "policy-resource" | "managed-policy-resource";
+  evidencePath: string;
+  document?: CfnValue;
+  principalIds: string[];
+  boundaryFor: string[];
+}
+
+export interface IamAnalysis {
+  evaluation: "partial";
+  principals: IamPrincipal[];
+  policies: IamPolicyDocument[];
+  limitations: string[];
+}
+
+export interface IamStatementContext {
+  unresolvedPolicyAttachments?: string[];
+  condition: IamConditionAnalysis;
+  principalIds: string[];
+  boundaries: IamManagedPolicyReference[];
+  unresolvedManagedPolicies: IamManagedPolicyReference[];
+  explicitDenyEvidencePaths: string[];
+  partial: true;
+}
+
 export interface Finding {
+  iamContext?: IamStatementContext;
   ruleId: RuleId;
   title: string;
   severity: Severity;
@@ -162,6 +211,11 @@ export interface PolicySuggestionEvidence {
 }
 
 export interface PolicySuggestionSourceActionEvidence {
+  importedSymbol?: string;
+  localSymbol?: string;
+  useLocation?: { line: number; column: number };
+  limitations?: string[];
+  indexAccess?: { kind: "table" | "index" | "unknown"; indexName?: string };
   action: string;
   filePath: string;
   lambdaFunctionId: ResourceId;
@@ -186,10 +240,12 @@ export type PolicySuggestionService =
   | "kms";
 
 export interface PolicySuggestion {
+  iamContext?: IamStatementContext;
+  suggestedStatements?: Array<{ Effect: "Allow"; Action: string[]; Resource: CfnValue }>;
   lambdaFunctionId: ResourceId;
   roleId: ResourceId;
   policyName?: string;
-  policySourceType: "inline-role-policy" | "policy-resource";
+  policySourceType: "inline-role-policy" | "policy-resource" | "managed-policy-resource";
   policyResourceId?: ResourceId;
   service: PolicySuggestionService;
   currentActions: string[];
@@ -222,6 +278,8 @@ export interface PublicExposure {
 }
 
 export interface AnalysisReport extends AnalysisGraph, PublicExposure {
+  iamAnalysis?: IamAnalysis;
+  sourceAnalysisWarnings?: string[];
   analysisStatus: "completed";
   validation: TemplateValidationResult;
   score: AnalysisScore;

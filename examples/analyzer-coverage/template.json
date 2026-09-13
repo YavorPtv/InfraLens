@@ -1,0 +1,446 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Offline regression fixture for partial IAM and source analysis; do not deploy.",
+  "Resources": {
+    "FilesBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "IgnorePublicAcls": true,
+          "BlockPublicPolicy": true,
+          "RestrictPublicBuckets": true
+        }
+      }
+    },
+    "OrdersTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "id",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "customerId",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "id",
+            "KeyType": "HASH"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "ByCustomer",
+            "KeySchema": [
+              {
+                "AttributeName": "customerId",
+                "KeyType": "HASH"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            }
+          }
+        ],
+        "DeletionProtectionEnabled": true,
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true
+        }
+      }
+    },
+    "FilesRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "Access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": {
+                "Effect": "Allow",
+                "Action": "s3:*",
+                "Resource": "*"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "FilesFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Role": {
+          "Fn::GetAtt": [
+            "FilesRole",
+            "Arn"
+          ]
+        },
+        "Handler": "files.handler",
+        "Runtime": "nodejs22.x",
+        "Code": {
+          "ZipFile": "exports.handler = async () => {};"
+        },
+        "Environment": {
+          "Variables": {
+            "BUCKET": {
+              "Ref": "FilesBucket"
+            }
+          }
+        },
+        "TracingConfig": {
+          "Mode": "Active"
+        }
+      }
+    },
+    "QueryRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "Access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": {
+                "Effect": "Allow",
+                "Action": "dynamodb:*",
+                "Resource": "*"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "QueryFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Role": {
+          "Fn::GetAtt": [
+            "QueryRole",
+            "Arn"
+          ]
+        },
+        "Handler": "query.handler",
+        "Runtime": "nodejs22.x",
+        "Code": {
+          "ZipFile": "exports.handler = async () => {};"
+        },
+        "Environment": {
+          "Variables": {
+            "TABLE": {
+              "Ref": "OrdersTable"
+            }
+          }
+        },
+        "TracingConfig": {
+          "Mode": "Active"
+        }
+      }
+    },
+    "ConditionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "Access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": {
+                "Effect": "Allow",
+                "Action": "s3:*",
+                "Resource": "*",
+                "Condition": {
+                  "StringEquals": {
+                    "aws:RequestedRegion": "eu-west-1"
+                  },
+                  "Bool": {
+                    "aws:SecureTransport": true
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "ExternalRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "Access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": {
+                "Effect": "Allow",
+                "Action": "s3:*",
+                "Resource": "*"
+              }
+            }
+          }
+        ],
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AdministratorAccess"
+        ]
+      }
+    },
+    "BoundedRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "Access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": {
+                "Effect": "Allow",
+                "Action": "s3:*",
+                "Resource": "*"
+              }
+            }
+          }
+        ],
+        "PermissionsBoundary": {
+          "Ref": "Boundary"
+        }
+      }
+    },
+    "Boundary": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": {
+            "Effect": "Allow",
+            "Action": "s3:GetObject",
+            "Resource": "*"
+          }
+        }
+      }
+    },
+    "ManagedRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [],
+        "ManagedPolicyArns": [
+          {
+            "Ref": "FilesManagedPolicy"
+          }
+        ]
+      }
+    },
+    "FilesManagedPolicy": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": {
+            "Effect": "Allow",
+            "Action": "s3:*",
+            "Resource": "*"
+          }
+        }
+      }
+    },
+    "StandalonePolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "DenyDeletion",
+        "Roles": [
+          {
+            "Ref": "BoundedRole"
+          }
+        ],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": {
+            "Effect": "Deny",
+            "Action": "s3:DeleteObject",
+            "Resource": "*"
+          }
+        }
+      }
+    },
+    "FailedEvents": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "MessageRetentionPeriod": 1209600
+      }
+    },
+    "AsyncWorkerRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "Access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": {
+                "Effect": "Allow",
+                "Action": "sqs:SendMessage",
+                "Resource": "*"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "AsyncWorker": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Role": {
+          "Fn::GetAtt": [
+            "AsyncWorkerRole",
+            "Arn"
+          ]
+        },
+        "Handler": "worker.handler",
+        "Runtime": "nodejs22.x",
+        "Code": {
+          "ZipFile": "exports.handler = async () => {};"
+        },
+        "Environment": {
+          "Variables": {
+            "FAILURES": {
+              "Ref": "FailedEvents"
+            }
+          }
+        },
+        "TracingConfig": {
+          "Mode": "Active"
+        },
+        "DeadLetterConfig": {
+          "TargetArn": {
+            "Fn::GetAtt": [
+              "FailedEvents",
+              "Arn"
+            ]
+          }
+        }
+      }
+    },
+    "AsyncConfig": {
+      "Type": "AWS::Lambda::EventInvokeConfig",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "AsyncWorker"
+        },
+        "Qualifier": "$LATEST"
+      }
+    },
+    "UnscopedSnsPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "AsyncWorker"
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "sns.amazonaws.com"
+      }
+    },
+    "ScopedApiPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "FilesFunction"
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:example/*"
+        }
+      }
+    }
+  }
+}

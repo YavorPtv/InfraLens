@@ -111,9 +111,9 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
     });
 
     expect(
-      generateLeastPrivilegeResourceSuggestions(template, {
+      withoutSyntaxDetails(generateLeastPrivilegeResourceSuggestions(template, {
         sourceActionInferences
-      })
+      }))
     ).to.deep.equal([
       {
         lambdaFunctionId: "AppFunction",
@@ -216,7 +216,7 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
     expect(suggestion.suggestedResources).to.deep.equal([]);
     expect(suggestion.manualOnly).to.equal(true);
     expect(suggestion.manualReviewReason).to.include("resource-compatibility metadata");
-    expect(suggestion.evidence.sourceActions).to.equal(undefined);
+    expect(withoutSyntaxDetails(suggestion.evidence.sourceActions)).to.equal(undefined);
   });
 
   it("suggests narrowing SQS wildcard resources from an attached IAM policy", () => {
@@ -327,7 +327,7 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
     ]);
   });
 
-  it("uses medium confidence when multiple matching resources are referenced", () => {
+  it("requires review when multiple matching resources are referenced", () => {
     const template: CfnTemplate = {
       Resources: {
         AppFunction: lambdaFunctionWithRoleAndEnvironment({
@@ -359,7 +359,7 @@ describe("generateLeastPrivilegeResourceSuggestions", () => {
 
     const [suggestion] = generateLeastPrivilegeResourceSuggestions(template);
 
-    expect(suggestion.confidence).to.equal("medium");
+    expect(suggestion.confidence).to.equal("low");
     expect(suggestion.suggestedResources.map((resource) => resource.resourceId)).to.deep.equal([
       "PrimaryTable",
       "AuditTable"
@@ -443,4 +443,9 @@ function roleWithInlinePolicy(policy: Record<string, CfnValue>): CfnResource {
       Policies: [policy]
     }
   };
+}
+
+function withoutSyntaxDetails<T>(value: T): T {
+  if (value === undefined) return value;
+  return JSON.parse(JSON.stringify(value, (key, item) => ["importedSymbol", "localSymbol", "useLocation", "indexAccess"].includes(key) ? undefined : item));
 }

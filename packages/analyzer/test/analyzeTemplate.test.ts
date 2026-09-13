@@ -114,6 +114,8 @@ Resources:
     const report: AnalysisReport = analyzeTemplate(rawTemplate);
 
     expect(Object.keys(report)).to.have.members([
+      "iamAnalysis",
+      "sourceAnalysisWarnings",
       "analysisStatus",
       "validation",
       "score",
@@ -328,7 +330,7 @@ Resources:
       "dynamodb:GetItem",
       "dynamodb:PutItem"
     ]);
-    expect(report.leastPrivilegeSuggestions[0].evidence.sourceActions).to.deep.equal([
+    expect(withoutSyntaxDetails(report.leastPrivilegeSuggestions[0].evidence.sourceActions)).to.deep.equal([
       {
         action: "dynamodb:GetItem",
         filePath: "handler.ts",
@@ -474,7 +476,7 @@ Resources:
     );
 
     expect(ordersSuggestion?.suggestedActions).to.deep.equal(["dynamodb:GetItem"]);
-    expect(ordersSuggestion?.evidence.sourceActions).to.deep.equal([
+    expect(withoutSyntaxDetails(ordersSuggestion?.evidence.sourceActions)).to.deep.equal([
       {
         action: "dynamodb:GetItem",
         filePath: "shared/orders-db.ts",
@@ -489,7 +491,7 @@ Resources:
       }
     ]);
     expect(queueSuggestion?.suggestedActions).to.deep.equal(["sqs:SendMessage"]);
-    expect(queueSuggestion?.evidence.sourceActions).to.deep.equal([
+    expect(withoutSyntaxDetails(queueSuggestion?.evidence.sourceActions)).to.deep.equal([
       {
         action: "sqs:SendMessage",
         filePath: "shared/queue-client.ts",
@@ -505,3 +507,8 @@ Resources:
     ]);
   });
 });
+
+function withoutSyntaxDetails<T>(value: T): T {
+  if (value === undefined) return value;
+  return JSON.parse(JSON.stringify(value, (key, item) => ["importedSymbol", "localSymbol", "useLocation", "indexAccess"].includes(key) ? undefined : item));
+}

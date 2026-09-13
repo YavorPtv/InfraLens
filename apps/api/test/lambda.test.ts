@@ -90,7 +90,7 @@ Resources:
       "dynamodb:GetItem",
       "dynamodb:PutItem"
     ]);
-    expect(report.leastPrivilegeSuggestions[0].evidence.sourceActions).to.deep.equal([
+    expect(withoutSyntaxDetails(report.leastPrivilegeSuggestions[0].evidence.sourceActions)).to.deep.equal([
       {
         action: "dynamodb:GetItem",
         filePath: "src/order-handler.ts",
@@ -421,4 +421,9 @@ function lambdaDynamoTemplate(): Record<string, unknown> {
       }
     }
   };
+}
+
+function withoutSyntaxDetails<T>(value: T): T {
+  if (value === undefined) return value;
+  return JSON.parse(JSON.stringify(value, (key, item) => ["importedSymbol", "localSymbol", "useLocation", "indexAccess"].includes(key) ? undefined : item));
 }

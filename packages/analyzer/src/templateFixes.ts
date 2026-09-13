@@ -1,5 +1,7 @@
 import { getGeneratedTemplateStatus } from "@infralens/shared";
 import { validateTemplate } from "./parseTemplate";
+import { buildIamAnalysis, hasIamModifiers, iamStatementContext } from "./iamPolicyModel";
+import { findLambdaExecutionRole } from "./iamPolicyLookup";
 import type {
   ApplyFixResult,
   ApplySuggestionsResult,
@@ -115,7 +117,7 @@ export function generateLeastPrivilegeTemplateFixes(
   return suggestions.map((suggestion) => {
     const targetResourceId = suggestion.policyResourceId ?? suggestion.roleId;
     const targetResourceType =
-      suggestion.policySourceType === "policy-resource"
+      suggestion.policySourceType === "managed-policy-resource" ? "AWS::IAM::ManagedPolicy" : suggestion.policySourceType === "policy-resource"
         ? "AWS::IAM::Policy"
         : "AWS::IAM::Role";
     const statementPath = parseResourcePath(
@@ -161,6 +163,9 @@ export function createLeastPrivilegeTemplateFix(
   if (
     suggestion.manualOnly === true ||
     !isRecord(statement) ||
+    statement.Effect !== "Allow" ||
+    statement.Condition !== undefined ||
+    statement.NotAction !== undefined || statement.NotResource !== undefined ||
     suggestion.suggestedResources.length !== 1
   ) {
     return manualFix;
@@ -175,15 +180,32 @@ export function createLeastPrivilegeTemplateFix(
     return manualFix;
   }
 
+  if ((suggestion.suggestedStatements?.length ?? 0) > 1) {
+    const replacements = suggestion.suggestedStatements!.map((replacement, index) => {
+      const value: Record<string, CfnValue> = { ...statement, ...replacement };
+      if (index > 0) delete value.Sid;
+      return value;
+    });
+    const index = statementPath[statementPath.length - 1];
+    const path = typeof index === "number" ? statementPath.slice(0, -1) : statementPath;
+    const original = getValueAtResourcePath(template, targetResourceId, path);
+    if (typeof index === "number" && !Array.isArray(original)) return manualFix;
+    const value = typeof index === "number" && Array.isArray(original)
+      ? [...original.slice(0, index), ...replacements, ...original.slice(index + 1)] : replacements;
+    return { ...manualFix, applicability: "applicable", confidence: suggestion.confidence,
+      explanation: suggestion.explanation,
+      patches: [{ targetResourceId, targetResourceType, path, operation: "set", value, allowCreate: false, expectedValue: cloneValue(original as CfnValue) }] };
+  }
+
   const patches: TemplatePatch[] = [
     {
       targetResourceId,
       targetResourceType,
-      path: [...statementPath, "Resource"],
+      path: statementPath,
       operation: "set",
-      value: suggestion.suggestedResources[0].suggestedResource,
+      value: { ...statement, Resource: suggestion.suggestedResources[0].suggestedResource },
       allowCreate: false,
-      expectedValue: "*"
+      expectedValue: cloneValue(statement)
     }
   ];
   const hasExactSourceActions =
@@ -194,18 +216,8 @@ export function createLeastPrivilegeTemplateFix(
     suggestion.suggestedActions.length > 0;
 
   if (hasExactSourceActions) {
-    patches.push({
-      targetResourceId,
-      targetResourceType,
-      path: [...statementPath, "Action"],
-      operation: "set",
-      value:
-        suggestion.suggestedActions.length === 1
-          ? suggestion.suggestedActions[0]
-          : suggestion.suggestedActions,
-      allowCreate: false,
-      expectedValue: statement.Action
-    });
+    (patches[0].value as Record<string, CfnValue>).Action = suggestion.suggestedActions.length === 1
+      ? suggestion.suggestedActions[0] : suggestion.suggestedActions;
   }
 
   return {
@@ -382,6 +394,19 @@ function createManualLeastPrivilegeFix(
 }
 
 function applyFix(template: CfnTemplate, fix: TemplateFix): string | undefined {
+  if (fix.source.kind === "least-privilege") {
+    const source = fix.source;
+    const path = parseResourcePath(source.evidencePath, fix.targetResourceId);
+    const statement = path ? getValueAtResourcePath(template, fix.targetResourceId, path) : undefined;
+    if (!isRecord(statement) || statement.Effect !== "Allow" || hasIamModifiers(iamStatementContext(template, source.evidencePath, statement))) {
+      return "IAM statement or permission modifiers changed; re-analyze before applying this fix.";
+    }
+    const policy = buildIamAnalysis(template).policies.find(policy => source.evidencePath.startsWith(`${policy.evidencePath}.Statement`));
+    const consumers = Object.keys(template.Resources).filter(id => findLambdaExecutionRole(template, id)?.roleId === source.roleId);
+    if ((policy?.principalIds.length ?? 0) > 1 || consumers.length > 1 || findLambdaExecutionRole(template, source.lambdaFunctionId)?.roleId !== source.roleId) {
+      return "IAM policy attachments or Lambda execution roles changed; re-analyze before applying this fix.";
+    }
+  }
   for (const patch of fix.patches) {
     if (
       patch.targetResourceId !== fix.targetResourceId ||
@@ -470,6 +495,21 @@ function findConflictingFixes(fixes: TemplateFix[]): Set<string> {
   }
 
   const conflicts = new Set<string>();
+  // A statement split replaces its containing array. Reject a second fix inside
+  // that array rather than applying it to a shifted statement index.
+  const allPatches = fixes.flatMap(fix => fix.patches.map(patch => ({ fixId: fix.id, patch })));
+  for (let left = 0; left < allPatches.length; left++) {
+    for (let right = left + 1; right < allPatches.length; right++) {
+      const a = allPatches[left], b = allPatches[right];
+      if (a.fixId === b.fixId || a.patch.targetResourceId !== b.patch.targetResourceId || a.patch.path.length === b.patch.path.length) continue;
+      const shorter = a.patch.path.length < b.patch.path.length ? a.patch.path : b.patch.path;
+      const longer = a.patch.path.length < b.patch.path.length ? b.patch.path : a.patch.path;
+      if (shorter.every((segment, index) => segment === longer[index])) {
+        conflicts.add(a.fixId);
+        conflicts.add(b.fixId);
+      }
+    }
+  }
   for (const patches of patchesByPath.values()) {
     if (patches.some((patch) => !deepEqual(patch.value, patches[0].value))) {
       patches.forEach((patch) => conflicts.add(patch.fixId));

@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@infralens/shared": "0.1.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "typescript": "^5.8.3"
   }
 }

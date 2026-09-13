@@ -1,10 +1,11 @@
 import type { CfnResource, CfnTemplate } from "@infralens/shared";
 import { normalizeSourceAnalysisInput, normalizeSourceFilePath } from "@infralens/shared";
-import { getAwsSdkCommandMappings } from "./serviceMetadata";
+import { scanSourceSyntax, type SourceSyntax, type SourceCommandUse } from "./sourceSyntax";
 
 export type SourceCodeActionInferenceConfidence = "low" | "medium" | "high";
 
-export interface SourceCodeActionInference {
+export interface SourceCodeActionInference extends Partial<SourceCommandUse> {
+  limitations?: string[];
   action: string;
   filePath: string;
   lambdaFunctionId?: string;
@@ -36,12 +37,10 @@ interface ReachableSourceFile {
 
 const sourceExtensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
-const awsSdkCommandActionMappings = getAwsSdkCommandMappings();
-
-export function inferIamActionsFromSourceCode(
+export function analyzeSourceCode(
   files: Record<string, string>,
   options: InferIamActionsFromSourceCodeOptions = {}
-): SourceCodeActionInference[] {
+): { inferences: SourceCodeActionInference[]; warnings: string[] } {
   const normalizedInput = normalizeSourceAnalysisInput({
     sourceFiles: files,
     sourceFileMappings: options.sourceFileMappings,
@@ -51,71 +50,63 @@ export function inferIamActionsFromSourceCode(
   options = { ...options, ...normalizedInput };
   const sourceFileMappings = mapSourceFilesToLambdaFunctions(files, options);
   const sourceFileExclusions = new Set(options.sourceFileExclusions ?? []);
-  const importGraph = buildSourceFileImportGraph(files);
+  const syntax = new Map(Object.entries(files).map(([path, code]) => [path, scanSourceSyntax(path, code)]));
+  const importGraph = buildSourceFileImportGraph(files, syntax);
+  const warnings: string[] = [];
   const reachedSourceFiles = new Set<string>();
   const inferences = new Map<string, SourceCodeActionInference>();
 
   for (const [rootFilePath, sourceFileMapping] of sourceFileMappings) {
-    for (const reachableFile of findReachableSourceFiles(rootFilePath, importGraph)) {
+    const reachable = findReachableSourceFiles(rootFilePath, importGraph);
+    const limitations = reachable.flatMap(file => (syntax.get(file.filePath)?.limitations ?? []).map(message => file.filePath + ': ' + message));
+    warnings.push(...limitations.map(message => sourceFileMapping.lambdaFunctionId + ': ' + message));
+    for (const reachableFile of reachable) {
       reachedSourceFiles.add(reachableFile.filePath);
 
       for (const inference of inferIamActionsFromSourceFile(
         reachableFile.filePath,
-        files[reachableFile.filePath],
+        syntax.get(reachableFile.filePath)!,
         sourceFileMapping,
         rootFilePath,
-        reachableFile.importChain
+        reachableFile.importChain,
+        limitations
       )) {
         addStrongestInference(inferences, inference);
       }
     }
   }
 
-  for (const [filePath, sourceCode] of Object.entries(files)) {
+  for (const filePath of Object.keys(files)) {
     if (sourceFileExclusions.has(filePath) || reachedSourceFiles.has(filePath)) {
       continue;
     }
 
-    for (const inference of inferIamActionsFromSourceFile(filePath, sourceCode)) {
+    for (const inference of inferIamActionsFromSourceFile(filePath, syntax.get(filePath)!)) {
       addStrongestInference(inferences, inference);
     }
   }
 
-  return [...inferences.values()];
+  for (const [path, parsed] of syntax) warnings.push(...parsed.limitations.map(message => path + ': ' + message));
+  return { inferences: [...inferences.values()], warnings: [...new Set(warnings)] };
+}
+
+export function inferIamActionsFromSourceCode(files: Record<string, string>, options: InferIamActionsFromSourceCodeOptions = {}): SourceCodeActionInference[] {
+  return analyzeSourceCode(files, options).inferences;
 }
 
 function inferIamActionsFromSourceFile(
-  filePath: string,
-  sourceCode: string,
-  sourceFileMapping?: SourceFileLambdaMapping,
-  rootFilePath?: string,
-  importChain?: string[]
+  filePath: string, syntax: SourceSyntax, mapping?: SourceFileLambdaMapping,
+  rootFilePath?: string, importChain?: string[], limitations: string[] = syntax.limitations
 ): SourceCodeActionInference[] {
-  const isImportedSource = rootFilePath !== undefined && rootFilePath !== filePath;
-
-  return awsSdkCommandActionMappings.flatMap((commandMapping) => {
-    if (!containsCommandUsage(sourceCode, commandMapping.commandName)) {
-      return [];
-    }
-
-    const hasExpectedPackage = containsPackageImport(sourceCode, commandMapping.packageName);
-    return [
-      {
-        action: commandMapping.action,
-        filePath,
-        ...(sourceFileMapping === undefined
-          ? {}
-          : { lambdaFunctionId: sourceFileMapping.lambdaFunctionId }),
-        ...(isImportedSource ? { rootFilePath, importChain } : {}),
-        matchedCommand: commandMapping.commandName,
-        confidence: sourceFileMapping?.confidence ?? "low",
-        ...(hasExpectedPackage
-          ? { actionConfidence: "high" as const, sdkPackage: commandMapping.packageName }
-          : {}),
-        evidence: sourceFileMapping?.evidence ?? `No Lambda source mapping found for ${filePath}.`
-      }
-    ];
-  });
+  return syntax.commands.map(command => ({
+    ...command, filePath,
+    ...(mapping ? { lambdaFunctionId: mapping.lambdaFunctionId } : {}),
+    ...(rootFilePath && rootFilePath !== filePath ? { rootFilePath, importChain } : {}),
+    confidence: mapping?.confidence ?? "low",
+    actionConfidence: limitations.length ? "low" : "high",
+    ...(limitations.length ? { limitations } : {}),
+    evidence: mapping?.evidence ?? `No Lambda source mapping found for ${filePath}.`
+  }));
 }
 
 function mapSourceFilesToLambdaFunctions(
@@ -409,7 +400,7 @@ function stripSourceExtension(filePath: string): string {
   return filePath.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/i, "");
 }
 
-function buildSourceFileImportGraph(files: Record<string, string>): Map<string, string[]> {
+function buildSourceFileImportGraph(files: Record<string, string>, syntax: Map<string, SourceSyntax>): Map<string, string[]> {
   const filePathsByNormalizedPath = new Map<string, string[]>();
 
   for (const filePath of Object.keys(files)) {
@@ -420,10 +411,10 @@ function buildSourceFileImportGraph(files: Record<string, string>): Map<string, 
   }
 
   return new Map(
-    Object.entries(files).map(([filePath, sourceCode]) => {
+    Object.keys(files).map(filePath => {
       const imports = new Set<string>();
 
-      for (const importSpecifier of extractLocalImportSpecifiers(sourceCode)) {
+      for (const importSpecifier of (syntax.get(filePath)?.imports ?? []).filter(isRelativeImport)) {
         const resolvedFilePath = resolveLocalImport(
           filePath,
           importSpecifier,
@@ -432,30 +423,14 @@ function buildSourceFileImportGraph(files: Record<string, string>): Map<string, 
 
         if (resolvedFilePath !== undefined) {
           imports.add(resolvedFilePath);
+        } else {
+          syntax.get(filePath)?.limitations.push(`Unresolved or ambiguous relative import: ${importSpecifier}.`);
         }
       }
 
       return [filePath, [...imports]];
     })
   );
-}
-
-function extractLocalImportSpecifiers(sourceCode: string): string[] {
-  const importSpecifiers = new Set<string>();
-  const esModuleImportPattern =
-    /\bimport\s+(?:type\s+)?(?:[^"'`;]*?\s+from\s+)?["']([^"']+)["']/g;
-  const commonJsRequirePattern = /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
-
-  for (const pattern of [esModuleImportPattern, commonJsRequirePattern]) {
-    for (const match of sourceCode.matchAll(pattern)) {
-      const importSpecifier = match[1];
-      if (isRelativeImport(importSpecifier)) {
-        importSpecifiers.add(importSpecifier);
-      }
-    }
-  }
-
-  return [...importSpecifiers];
 }
 
 function resolveLocalImport(
@@ -526,7 +501,7 @@ function addStrongestInference(
   inferences: Map<string, SourceCodeActionInference>,
   candidate: SourceCodeActionInference
 ): void {
-  const inferenceKey = `${candidate.lambdaFunctionId ?? ""}\u0000${candidate.filePath}\u0000${candidate.action}`;
+  const inferenceKey = `${candidate.lambdaFunctionId ?? ""}\u0000${candidate.filePath}\u0000${candidate.action}\u0000${candidate.useLocation?.line}:${candidate.useLocation?.column}`;
   const existing = inferences.get(inferenceKey);
 
   if (existing === undefined || isStrongerInference(candidate, existing)) {
@@ -576,21 +551,6 @@ function getConfidenceScore(confidence: SourceCodeActionInferenceConfidence): nu
     medium: 2,
     high: 3
   }[confidence];
-}
-
-function containsCommandUsage(sourceCode: string, commandName: string): boolean {
-  return new RegExp(`\\bnew\\s+${escapeRegExp(commandName)}\\s*\\(`).test(sourceCode);
-}
-
-function containsPackageImport(sourceCode: string, packageName: string): boolean {
-  const packagePattern = escapeRegExp(packageName);
-  return new RegExp(
-    `(?:\\bfrom\\s*|\\brequire\\s*\\(\\s*)["']${packagePattern}["']`
-  ).test(sourceCode);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
