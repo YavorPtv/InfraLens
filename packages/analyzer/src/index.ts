@@ -13,6 +13,8 @@ export {
   type CreateAnalysisContextInput
 } from "./analysisContext";
 export { analyzeTemplate, type AnalyzeTemplateOptions } from "./analyzeTemplate";
+export { buildIamAnalysis } from "./iamPolicyModel";
+export { analyzeIamCondition } from "./iamConditions";
 export {
   extractCloudFormationReferences,
   referencesToArchitectureEdges,
@@ -49,6 +51,7 @@ export {
 } from "./serviceMetadata";
 export {
   inferIamActionsFromSourceCode,
+  analyzeSourceCode,
   type InferIamActionsFromSourceCodeOptions,
   type SourceCodeActionInference,
   type SourceCodeActionInferenceConfidence,

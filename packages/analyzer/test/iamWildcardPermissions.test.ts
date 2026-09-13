@@ -30,12 +30,13 @@ describe("IAM_WILDCARD_PERMISSIONS", () => {
 
     expect(wildcardFindings(report.findings)).to.have.lengthOf(1);
     expect(wildcardFindings(report.findings)[0]).to.deep.equal({
+      iamContext: { condition: { status: "none", restrictions: [], unknown: [] }, principalIds: ["AppRole"], boundaries: [], unresolvedManagedPolicies: [], explicitDenyEvidencePaths: [], partial: true },
       ruleId: "IAM_WILDCARD_PERMISSIONS",
       title: "IAM policy allows wildcard actions on wildcard resources",
       severity: "high",
       resourceId: "AppRole",
       explanation:
-        "This IAM policy statement allows wildcard permissions against wildcard resources, which can grant broader access than intended.",
+        "This IAM policy statement allows wildcard permissions against wildcard resources, which can grant broader access than intended. Associated template identities: AppRole. This is statement-level policy evidence, not proof of effective access.",
       evidencePath: "Resources.AppRole.Properties.Policies[0].PolicyDocument.Statement",
       suggestion:
         "Replace wildcard actions and resources with the smallest specific actions and resource ARNs required by the workload."

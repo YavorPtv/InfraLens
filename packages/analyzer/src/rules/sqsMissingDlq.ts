@@ -1,5 +1,7 @@
 import type { AnalysisContext, CfnValue, Finding, Rule } from "@infralens/shared";
 
+import { directResourceId } from "../iamPolicyModel";
+
 const RULE_ID = "SQS_MISSING_DLQ";
 
 export const sqsMissingDlqRule: Rule = {
@@ -43,39 +45,24 @@ function findDeadLetterQueueResourceIds(context: AnalysisContext): Set<string> {
   const resourceIds = new Set<string>();
 
   for (const resource of Object.values(context.template.Resources)) {
-    if (resource.Type !== "AWS::SQS::Queue") {
-      continue;
+    const properties = resource.Properties;
+    const targets: Array<CfnValue | undefined> = [];
+    if (resource.Type === "AWS::SQS::Queue" && isRecord(properties?.RedrivePolicy)) targets.push(properties.RedrivePolicy.deadLetterTargetArn);
+    if (resource.Type === "AWS::Lambda::Function" && isRecord(properties?.DeadLetterConfig)) targets.push(properties.DeadLetterConfig.TargetArn);
+    if (["AWS::Lambda::EventInvokeConfig", "AWS::Lambda::EventSourceMapping"].includes(resource.Type) && isRecord(properties?.DestinationConfig)) {
+      const failure = properties.DestinationConfig.OnFailure;
+      if (isRecord(failure)) targets.push(failure.Destination);
     }
-
-    const redrivePolicy = resource.Properties?.RedrivePolicy;
-    if (!isRecord(redrivePolicy)) {
-      continue;
+    if (resource.Type === "AWS::Events::Rule" && Array.isArray(properties?.Targets)) {
+      for (const target of properties.Targets) if (isRecord(target) && isRecord(target.DeadLetterConfig)) targets.push(target.DeadLetterConfig.Arn);
     }
-
-    const targetResourceId = getDeadLetterTargetResourceId(redrivePolicy.deadLetterTargetArn);
-    if (targetResourceId !== undefined) {
-      resourceIds.add(targetResourceId);
+    if (resource.Type === "AWS::SNS::Subscription" && isRecord(properties?.RedrivePolicy)) targets.push(properties.RedrivePolicy.deadLetterTargetArn);
+    for (const target of targets) {
+      const id = directResourceId(target);
+      if (id && context.template.Resources[id]?.Type === "AWS::SQS::Queue") resourceIds.add(id);
     }
   }
-
   return resourceIds;
-}
-
-function getDeadLetterTargetResourceId(targetArn: CfnValue | undefined): string | undefined {
-  if (!isRecord(targetArn)) {
-    return undefined;
-  }
-
-  const getAtt = targetArn["Fn::GetAtt"];
-  if (Array.isArray(getAtt) && typeof getAtt[0] === "string") {
-    return getAtt[0];
-  }
-
-  if (typeof getAtt === "string") {
-    return getAtt.split(".")[0];
-  }
-
-  return undefined;
 }
 
 function isRecord(value: CfnValue | undefined): value is Record<string, CfnValue> {

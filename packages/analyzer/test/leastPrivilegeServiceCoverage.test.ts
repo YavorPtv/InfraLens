@@ -26,20 +26,14 @@ describe("least-privilege service metadata coverage", () => {
     });
   });
 
-  it("includes DynamoDB index ARNs for Query", () => {
+  it("requires source evidence before choosing DynamoDB index resources", () => {
     const suggestion = suggestionFor("dynamodb:Query", "TABLE", "OrdersTable", {
       Type: "AWS::DynamoDB::Table"
     });
 
-    expect(suggestion.suggestedResources[0].suggestedResource).to.deep.equal([
-      { "Fn::GetAtt": ["OrdersTable", "Arn"] },
-      {
-        "Fn::Join": [
-          "",
-          [{ "Fn::GetAtt": ["OrdersTable", "Arn"] }, "/index/*"]
-        ]
-      }
-    ]);
+    expect(suggestion.suggestedResources).to.deep.equal([]);
+    expect(suggestion.manualOnly).to.equal(true);
+    expect(suggestion.manualReviewReason).to.include("index access is unresolved");
   });
 
   it("combines bucket and object forms when both S3 actions are required", () => {
@@ -146,10 +140,10 @@ describe("least-privilege service metadata coverage", () => {
 
     expect(suggestion.suggestedResources).to.deep.equal([]);
     expect(suggestion.manualOnly).to.equal(true);
-    expect(suggestion.manualReviewReason).to.include("compatibility metadata");
+    expect(suggestion.manualReviewReason).to.include("Unknown or exclusion-based");
   });
 
-  it("keeps command-only action narrowing manual while retaining resource evidence", () => {
+  it("does not infer actions from command names without imports", () => {
     const template = createTemplate("dynamodb:*", {
       TABLE: { Ref: "OrdersTable" }
     }, {
@@ -163,10 +157,11 @@ describe("least-privilege service metadata coverage", () => {
       sourceActionInferences
     });
 
-    expect(suggestion.suggestedActions).to.deep.equal(["dynamodb:GetItem"]);
-    expect(suggestion.suggestedResources).to.have.lengthOf(1);
+    expect(sourceActionInferences).to.deep.equal([]);
+    expect(suggestion.suggestedActions).to.deep.equal(["dynamodb:*"]);
+    expect(suggestion.suggestedResources).to.have.lengthOf(0);
     expect(suggestion.manualOnly).to.equal(true);
-    expect(suggestion.manualReviewReason).to.include("command-package evidence");
+    expect(suggestion.manualReviewReason).to.include("compatibility metadata");
   });
 
   it("does not narrow an action that requires Resource wildcard", () => {

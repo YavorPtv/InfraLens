@@ -224,6 +224,17 @@ describe("template fixes", () => {
     ]);
   });
 
+  it("snapshots the original IAM statement when a direct caller creates a fix", () => {
+    const template = leastPrivilegeTemplate();
+    const suggestion = analyzeTemplate(JSON.stringify(template)).leastPrivilegeSuggestions[0];
+    const fix = createLeastPrivilegeTemplateFix(template, suggestion, "AppRole", "AWS::IAM::Role", ["Properties", "Policies", 0, "PolicyDocument", "Statement"]);
+    setLeastPrivilegeActions(template, "dynamodb:PutItem");
+    const result = applyTemplateFixes(template, [fix]);
+    expect(result.failedFixCount).to.equal(1);
+    expect(result.results[0].message).to.include("expected value");
+    expect(result.modifiedTemplate).to.deep.equal(template);
+  });
+
   it("applies exact IAM Action narrowing when high-confidence source evidence exists", () => {
     const template = leastPrivilegeTemplate();
     setLeastPrivilegeActions(template, "dynamodb:*");
@@ -256,8 +267,7 @@ describe("template fixes", () => {
         : undefined;
 
     expect(fix.patches.map((patch) => patch.path.at(-1))).to.deep.equal([
-      "Resource",
-      "Action"
+      "Statement"
     ]);
     expect(statement).to.deep.equal({
       Statement: {

@@ -22,6 +22,7 @@ import {
   type IamResourceForm
 } from "./serviceMetadata";
 import type { SourceCodeActionInference } from "./sourceCodeAnalysis";
+import { buildIamAnalysis, describeIamContext, hasIamModifiers, iamStatementContext } from "./iamPolicyModel";
 
 export interface GenerateLeastPrivilegeResourceSuggestionsOptions {
   sourceActionInferences?: SourceCodeActionInference[];
@@ -102,7 +103,7 @@ function toInlinePolicyDocumentLookup(policy: InlineRolePolicyLookup): PolicyDoc
 function toAttachedPolicyDocumentLookup(policy: AttachedPolicyResourceLookup): PolicyDocumentLookup {
   return {
     policyName: policy.policyName,
-    policySourceType: "policy-resource",
+    policySourceType: policy.policyResource.Type === "AWS::IAM::ManagedPolicy" ? "managed-policy-resource" : "policy-resource",
     policyResourceId: policy.policyResourceId,
     policyDocument: policy.policyDocument,
     policyEvidencePath: `${policy.evidencePath}.Properties`
@@ -156,6 +157,14 @@ function createSuggestionsForStatement(
   }
 
   const actions = getActionStrings(statement.Action);
+  const iamContext = iamStatementContext(template, statementEvidencePath, statement);
+  const sharedPolicy = buildIamAnalysis(template).policies.find(document => statementEvidencePath.startsWith(`${document.evidencePath}.Statement`));
+  const roleConsumers = Object.keys(template.Resources).filter(id => findLambdaExecutionRole(template, id)?.roleId === lambdaRole.roleId);
+  const iamReviewReason = hasIamModifiers(iamContext) ? describeIamContext(iamContext)
+    : (sharedPolicy?.principalIds.length ?? 0) > 1 || roleConsumers.length > 1
+      ? "This policy or execution role is shared; source from one Lambda cannot establish every consumer's required permissions."
+      : statement.NotAction !== undefined || statement.NotResource !== undefined || actions.some(action => action !== `${action.split(":")[0]}:*` && getActionMetadata(action) === undefined)
+        ? "Unknown or exclusion-based action/resource semantics require manual review." : undefined;
 
   const statementServices = new Set(
     actions.flatMap((action) => {
@@ -178,7 +187,7 @@ function createSuggestionsForStatement(
       matchingActions
     );
     const suggestedActions =
-      sourceActions.length > 0 ? sourceActions.map((sourceAction) => sourceAction.action) : matchingActions;
+      sourceActions.length > 0 ? unique(sourceActions.map((sourceAction) => sourceAction.action)) : matchingActions;
     const canNarrowActions =
       sourceActions.length > 0 &&
       sourceActions.every(
@@ -186,18 +195,20 @@ function createSuggestionsForStatement(
           sourceAction.confidence === "high" && sourceAction.actionConfidence === "high"
       );
     const sourceActionReviewRequired =
-      sourceActions.length > 0 &&
+      sourceActions.some(action => (action.limitations?.length ?? 0) > 0) || sourceActions.length > 0 &&
       !canNarrowActions &&
       !haveSameActions(suggestedActions, matchingActions);
+    // Tentative source evidence can describe candidates, but cannot authorize a patch.
     const resourceActions = sourceActions.length > 0 ? suggestedActions : matchingActions;
     const resourceResolution = findReferencedResourceCandidates(
       template,
       lambdaReferences,
       service,
-      resourceActions
+      resourceActions,
+      sourceActions
     );
     const suggestedResources = resourceResolution.candidates;
-    const manualReviewReason = getManualReviewReason({
+    const manualReviewReason = iamReviewReason ?? getManualReviewReason({
       service,
       isMixedServiceStatement,
       sourceActionReviewRequired,
@@ -215,18 +226,21 @@ function createSuggestionsForStatement(
           ? {}
           : { policyResourceId: policy.policyResourceId }),
         service: service.service,
-        currentActions: matchingActions,
+        currentActions: actions,
         suggestedActions,
         actions: suggestedActions,
         currentResource: statement.Resource,
-        confidence: getConfidence(suggestedResources, sourceActions),
+        confidence: manualReviewReason ? "low" : getConfidence(suggestedResources, sourceActions),
+        ...(hasIamModifiers(iamContext) ? { iamContext } : {}),
+        ...(manualReviewReason === undefined && suggestedResources.length === 1 && service.service === "s3"
+          ? { suggestedStatements: splitS3Statements(resourceActions, suggestedResources[0].resourceId) } : {}),
         suggestedResources,
         explanation: buildExplanation(
           service.service,
           suggestedResources,
           sourceActions,
           manualReviewReason
-        ),
+        ) + (sourceActions.some(action => action.limitations?.length) ? " " + unique(sourceActions.flatMap(action => action.limitations ?? [])).join(" ") : ""),
         ...(manualReviewReason === undefined
           ? {}
           : { manualOnly: true, manualReviewReason }),
@@ -247,7 +261,8 @@ function findReferencedResourceCandidates(
   template: CfnTemplate,
   references: ResourceReference[],
   service: AwsServiceMetadata,
-  actions: string[]
+  actions: string[],
+  sourceActions: PolicySuggestionSourceActionEvidence[] = []
 ): { candidates: PolicySuggestionResourceCandidate[]; reason?: string } {
   const actionMetadata = actions.map((action) => getActionMetadata(action));
   if (actionMetadata.some((metadata) => metadata === undefined)) {
@@ -309,13 +324,30 @@ function findReferencedResourceCandidates(
       continue;
     }
 
-    const suggestedResource = resourceMetadata.suggestedResourceFor(
+    let suggestedResource = resourceMetadata.suggestedResourceFor(
       reference.resourceId,
       resource,
       resourceForms
     );
     if (suggestedResource === undefined) {
       continue;
+    }
+
+    if (resourceForms.includes("dynamodb-table-and-index")) {
+      const queryActions = actions.filter(action => ["dynamodb:query", "dynamodb:scan"].includes(action.toLowerCase()));
+      const uses = sourceActions.filter(action => queryActions.some(query => query.toLowerCase() === action.action.toLowerCase()));
+      if (queryActions.some(action => !uses.some(use => use.action.toLowerCase() === action.toLowerCase())) ||
+          uses.some(use => !use.indexAccess || use.indexAccess.kind === "unknown" || use.actionConfidence !== "high")) {
+        return { candidates: [], reason: "DynamoDB Query/Scan index access is unresolved; provide literal IndexName or an explicit table-only command input before narrowing resources." };
+      }
+      const indexNames = unique(uses.flatMap(use => use.indexAccess?.kind === "index" ? [use.indexAccess.indexName!] : []));
+      const declaredIndexes = [resource.Properties?.GlobalSecondaryIndexes, resource.Properties?.LocalSecondaryIndexes]
+        .flatMap(indexes => Array.isArray(indexes) ? indexes : [])
+        .flatMap(index => isRecord(index) && typeof index.IndexName === "string" ? [index.IndexName] : []);
+      if (indexNames.some(name => !declaredIndexes.includes(name) || !/^[a-zA-Z0-9_.-]+$/.test(name))) {
+        return { candidates: [], reason: "The source IndexName does not match a literal secondary index on the referenced table." };
+      }
+      if (indexNames.length) suggestedResource = [suggestedResource, ...indexNames.map(name => ({ "Fn::Join": ["", [{ "Fn::GetAtt": [reference.resourceId, "Arn"] }, `/index/${name}`]] }))];
     }
 
     candidatesById.set(reference.resourceId, {
@@ -363,13 +395,12 @@ function findSourceActionsForService(
     if (
       inference.lambdaFunctionId !== lambdaFunctionId ||
       !isActionForService(inference.action, service) ||
-      !policyActions.some((policyAction) => actionCovers(policyAction, inference.action)) ||
-      sourceActionsByAction.has(inference.action)
+      !policyActions.some((policyAction) => actionCovers(policyAction, inference.action))
     ) {
       continue;
     }
 
-    sourceActionsByAction.set(inference.action, {
+    sourceActionsByAction.set(`${inference.action}:${inference.filePath}:${inference.useLocation?.line}:${inference.useLocation?.column}`, {
       action: inference.action,
       filePath: inference.filePath,
       lambdaFunctionId: inference.lambdaFunctionId,
@@ -378,6 +409,9 @@ function findSourceActionsForService(
         : { rootFilePath: inference.rootFilePath }),
       ...(inference.importChain === undefined ? {} : { importChain: inference.importChain }),
       matchedCommand: inference.matchedCommand,
+      ...(inference.importedSymbol ? { importedSymbol: inference.importedSymbol, localSymbol: inference.localSymbol, useLocation: inference.useLocation } : {}),
+      ...(inference.indexAccess ? { indexAccess: inference.indexAccess } : {}),
+      ...(inference.limitations ? { limitations: inference.limitations } : {}),
       confidence: inference.confidence,
       ...(inference.actionConfidence === undefined
         ? {}
@@ -488,6 +522,16 @@ function getManualReviewReason(input: {
   }
 
   return undefined;
+}
+
+function splitS3Statements(actions: string[], bucketId: string): NonNullable<PolicySuggestion["suggestedStatements"]> {
+  const bucketActions = actions.filter(action => getActionMetadata(action)?.resourceForm === "arn");
+  const objectActions = actions.filter(action => getActionMetadata(action)?.resourceForm === "s3-object");
+  const arn = { "Fn::GetAtt": [bucketId, "Arn"] };
+  return [
+    ...(bucketActions.length ? [{ Effect: "Allow" as const, Action: bucketActions, Resource: arn }] : []),
+    ...(objectActions.length ? [{ Effect: "Allow" as const, Action: objectActions, Resource: { "Fn::Join": ["", [arn, "/*"]] } }] : [])
+  ];
 }
 
 function unique<T>(values: T[]): T[] {

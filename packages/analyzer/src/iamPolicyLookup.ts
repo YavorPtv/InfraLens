@@ -1,5 +1,6 @@
 import type { CfnResource, CfnTemplate, CfnValue } from "@infralens/shared";
 import { extractResourceReferences, type ResourceReference } from "./resourceReferences";
+import { directResourceId } from "./iamPolicyModel";
 
 export interface LambdaRoleLookup {
   lambdaFunctionId: string;
@@ -42,7 +43,7 @@ export function findLambdaExecutionRole(
     `Resources.${lambdaFunctionId}.Properties.Role`
   );
   const roleReference = roleReferences.find((reference) =>
-    isResourceType(template, reference.resourceId, "AWS::IAM::Role")
+    reference.resourceId === directResourceId(lambdaFunction.Properties?.Role) && isResourceType(template, reference.resourceId, "AWS::IAM::Role")
   );
 
   if (roleReference === undefined) {
@@ -94,23 +95,32 @@ export function findPolicyResourcesAttachedToRole(
   }
 
   return Object.entries(template.Resources).flatMap(([policyResourceId, policyResource]) => {
-    if (policyResource.Type !== "AWS::IAM::Policy") {
+    if (policyResource.Type !== "AWS::IAM::Policy" && policyResource.Type !== "AWS::IAM::ManagedPolicy") {
       return [];
     }
 
-    return findRoleReferencesInPolicyResource(
+    const attachments = findRoleReferencesInPolicyResource(
       template,
       roleId,
       role,
       policyResourceId,
       policyResource
-    ).map((roleReference) => ({
+    );
+    if (policyResource.Type === "AWS::IAM::ManagedPolicy" && Array.isArray(role.Properties?.ManagedPolicyArns)) {
+      role.Properties.ManagedPolicyArns.forEach((value, index) => {
+        if (directResourceId(value) === policyResourceId) attachments.push({ resourceId: roleId,
+          evidencePath: `Resources.${roleId}.Properties.ManagedPolicyArns[${index}]` });
+      });
+    }
+    return attachments.slice(0, 1).map((roleReference) => ({
         roleId,
         role,
         policyResourceId,
         policyResource,
         policyName:
-          typeof policyResource.Properties?.PolicyName === "string"
+          typeof policyResource.Properties?.ManagedPolicyName === "string"
+            ? policyResource.Properties.ManagedPolicyName
+            : typeof policyResource.Properties?.PolicyName === "string"
             ? policyResource.Properties.PolicyName
             : undefined,
         policyDocument: policyResource.Properties?.PolicyDocument,

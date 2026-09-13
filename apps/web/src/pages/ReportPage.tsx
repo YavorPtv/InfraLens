@@ -72,6 +72,12 @@ export function ReportPage() {
       <ScoreOverview report={report} />
       <ArchitectureGraph report={report} />
       <LeastPrivilegeSuggestions suggestions={report.leastPrivilegeSuggestions} />
+      {((report.iamAnalysis?.limitations.length ?? 0) + (report.sourceAnalysisWarnings?.length ?? 0)) > 0 && (
+        <details className="muted-note">
+          <summary>IAM and source analysis limitations</summary>
+          <ul>{[...(report.iamAnalysis?.limitations ?? []), ...(report.sourceAnalysisWarnings ?? [])].map((message, index) => <li key={index}>{message}</li>)}</ul>
+        </details>
+      )}
       <ApplySuggestionsPanel
         fixes={report.templateFixes ?? []}
         originalTemplateInput={originalTemplateInput}

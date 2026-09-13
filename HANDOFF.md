@@ -2,10 +2,10 @@
 
 ## Start Here
 
-At the time this handoff was refreshed (September 10, 2026):
+At the time this handoff was refreshed (September 11, 2026):
 
-- Current task branch: `feature/template-validation`
-- Layered template validation is implemented in the working tree, awaiting review.
+- Current task branch: `feature/deepen-analyzer-coverage`
+- Analyzer accuracy improvements are implemented in the working tree, awaiting review. See `docs/ANALYZER_COVERAGE.md` for condition/managed-policy/boundary semantics, SDK syntax analysis, S3 statement splitting and evidence-based DynamoDB index handling.
 - Changes are intentionally uncommitted; no deployment was performed.
 
 Always begin a new task by checking the live repository state rather than assuming this snapshot is
@@ -65,6 +65,7 @@ The analyzer currently:
 
 Current rule IDs:
 
+- `LAMBDA_SERVICE_PERMISSION_UNSCOPED`
 - `IAM_WILDCARD_PERMISSIONS`
 - `IAM_PASSROLE_WILDCARD`
 - `IAM_PRIVILEGE_ESCALATION_ACTIONS`
@@ -87,8 +88,7 @@ Every analyzer rule must have Mocha/Chai unit tests and every finding must inclu
 
 ### Source Inference And Least Privilege
 
-Uploaded JavaScript/TypeScript files are scanned through lightweight package-aware AWS SDK v3
-command matching. Source actions include the source path, command, IAM action, Lambda logical ID when
+Uploaded JavaScript/TypeScript files are parsed using TypeScript syntax and lexical symbol checks in a closed in-memory host. Comments, strings, mock classes and wrong-package commands do not infer actions. Aliases and literal CommonJS imports are supported. Source actions include the source path, command, IAM action, Lambda logical ID when
 known, action confidence, mapping confidence, and evidence.
 
 Source-to-Lambda mapping supports:
@@ -250,8 +250,8 @@ Required frontend production variables:
 
 ## Example Fixtures
 
-- `examples/order-service-risky-template.json` plus `examples/order-handler-source.ts`: basic source
-  action narrowing demo
+- `examples/analyzer-coverage`: realistic partial IAM, S3 splitting, index access and source syntax fixtures
+- `examples/order-service-risky-template.json` plus `examples/order-handler-source.ts`: template-risk demo; local mock command classes do not infer AWS actions
 - `examples/source-file-lambda-mapping`: two-Lambda explicit mapping request/fixtures
 - `examples/shared-source-import-graph`: shared, transitive, circular, excluded, and unrelated source
   graph examples
@@ -308,7 +308,7 @@ The Vite build currently emits a non-failing warning that the main bundle is sli
 Keep this summary consistent with the root README:
 
 - Rule/service/SDK-command coverage is useful but not comprehensive AWS security coverage.
-- Source inference is lightweight. Folder uploads preserve relative paths; ordinary file selection
+- Source inference uses JS/TS syntax and import symbols without full data flow. Folder uploads preserve relative paths; ordinary file selection
   may expose only basenames. Missing/ambiguous imports and unsupported aliases remain limitations.
 - High-confidence IAM output is only as complete as the submitted template and source files.
 - Local structure validation and optional AWS ValidateTemplate do not guarantee deployment.
@@ -322,7 +322,7 @@ Follow `docs/ROADMAP.md`, currently ordered as:
 1. Expand analyzer and least-privilege coverage from real use cases.
 2. Add persistence only when history/collaboration requirements are clear.
 
-Layered validation is implemented on the task branch. Browser validation-state rendering and real
+Layered validation is already on main. Analyzer coverage improvements are implemented on the task branch. Browser validation-state rendering and real
 AWS acceptance remain manual checks, separate from offline adapter tests and CDK synth.
 
 Workflow integration coverage and source-project path preservation are implemented. Keep extending

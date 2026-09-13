@@ -1,3 +1,4 @@
+import { buildIamAnalysis, describeIamContext, iamStatementContext } from "../iamPolicyModel";
 import type { AnalysisContext, Finding, Rule } from "@infralens/shared";
 import {
   findIamPolicyStatements,
@@ -19,7 +20,8 @@ export const iamPrivilegeEscalationActionsRule: Rule = {
   title: "IAM permission-mutation actions apply to wildcard resources",
   severity: "high",
   evaluate(context: AnalysisContext): Finding[] {
-    return findIamPolicyStatements(context.template).flatMap(({ resourceId, statement, evidencePath }) => {
+    const model = buildIamAnalysis(context.template);
+    return findIamPolicyStatements(context.template, model).flatMap(({ resourceId, statement, evidencePath }) => {
       const dangerousActions = getIamActionStrings(statement.Action).filter((action) =>
         permissionMutationActions.has(action.toLowerCase())
       );
@@ -32,11 +34,12 @@ export const iamPrivilegeEscalationActionsRule: Rule = {
       }
 
       return [{
+        iamContext: iamStatementContext(context.template, evidencePath, statement, model),
         ruleId: RULE_ID,
         title: "IAM permission-mutation actions apply to wildcard resources",
         severity: "high",
         resourceId,
-        explanation: `This statement allows permission-changing IAM actions on wildcard resources: ${dangerousActions.join(", ")}. These concrete permissions can modify roles or managed policies and may enable privilege escalation.`,
+        explanation: `This statement allows permission-changing IAM actions on wildcard resources: ${dangerousActions.join(", ")}. These concrete permissions can modify roles or managed policies and may enable privilege escalation.` + " " + describeIamContext(iamStatementContext(context.template, evidencePath, statement, model)),
         evidencePath,
         suggestion:
           "Remove unneeded permission-management actions and restrict required actions to specific role or policy ARNs."

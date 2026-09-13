@@ -16,8 +16,9 @@ import { generateLeastPrivilegeResourceSuggestions } from "./leastPrivilegeSugge
 import { detectPublicEntryPoints } from "./publicEntryPoints";
 import { findPubliclyReachableResources } from "./publicReachability";
 import { buildRuntimeArchitectureGraph } from "./runtimeGraph";
-import { inferIamActionsFromSourceCode } from "./sourceCodeAnalysis";
+import { analyzeSourceCode } from "./sourceCodeAnalysis";
 import { generateTemplateFixes } from "./templateFixes";
+import { buildIamAnalysis } from "./iamPolicyModel";
 import { apiGatewayMethodNoAuthRule } from "./rules/apiGatewayMethodNoAuth";
 import { apiGatewayAccessLoggingMissingRule } from "./rules/apiGatewayAccessLoggingMissing";
 import { apiGatewayTracingDisabledRule } from "./rules/apiGatewayTracingDisabled";
@@ -34,8 +35,10 @@ import { s3PublicAccessBlockMissingRule } from "./rules/s3PublicAccessBlockMissi
 import { s3VersioningDisabledRule } from "./rules/s3VersioningDisabled";
 import { snsTopicEncryptionMissingRule } from "./rules/snsTopicEncryptionMissing";
 import { sqsMissingDlqRule } from "./rules/sqsMissingDlq";
+import { lambdaServicePermissionUnscopedRule } from "./rules/lambdaServicePermissionUnscoped";
 
 const rules: Rule[] = [
+  lambdaServicePermissionUnscopedRule,
   iamWildcardPermissionsRule,
   iamPassRoleWildcardRule,
   iamPrivilegeEscalationActionsRule,
@@ -76,16 +79,16 @@ export function analyzeTemplate(
   const publiclyReachableResourceIds = [
     ...findPubliclyReachableResources(publicEntryPointIds, edges)
   ];
-  const sourceActionInferences =
+  const sourceAnalysis =
     options.sourceFiles === undefined
-      ? []
-      : inferIamActionsFromSourceCode(options.sourceFiles, {
+      ? { inferences: [], warnings: [] }
+      : analyzeSourceCode(options.sourceFiles, {
           template,
           sourceFileMappings: options.sourceFileMappings,
           sourceFileExclusions: options.sourceFileExclusions
         });
   const leastPrivilegeSuggestions = generateLeastPrivilegeResourceSuggestions(template, {
-    sourceActionInferences
+    sourceActionInferences: sourceAnalysis.inferences
   });
   const context = createAnalysisContext({
     template,
@@ -98,6 +101,8 @@ export function analyzeTemplate(
   const templateFixes = generateTemplateFixes(template, findings, leastPrivilegeSuggestions);
 
   return {
+    iamAnalysis: buildIamAnalysis(template),
+    sourceAnalysisWarnings: sourceAnalysis.warnings,
     analysisStatus: "completed",
     validation,
     findings,

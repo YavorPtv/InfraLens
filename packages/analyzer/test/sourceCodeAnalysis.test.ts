@@ -14,7 +14,7 @@ describe("inferIamActionsFromSourceCode", () => {
       `
     });
 
-    expect(inferences).to.deep.equal([
+    expect(withoutSyntaxDetails(inferences)).to.deep.equal([
       {
         action: "dynamodb:GetItem",
         filePath: "src/handler.ts",
@@ -47,20 +47,23 @@ describe("inferIamActionsFromSourceCode", () => {
 
   it("returns evidence for matches across multiple source files", () => {
     const inferences = inferIamActionsFromSourceCode({
-      "src/orders.ts": `
+      "src/orders.ts": `import { QueryCommand } from "@aws-sdk/lib-dynamodb";
+
         await client.send(new QueryCommand({ TableName: "Orders" }));
       `,
-      "src/uploads.ts": `
+      "src/uploads.ts": `import { PutObjectCommand } from "@aws-sdk/client-s3";
+
         await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body }));
       `
     });
 
-    expect(inferences).to.deep.equal([
+    expect(withoutSyntaxDetails(inferences)).to.deep.equal([
       {
         action: "dynamodb:Query",
         filePath: "src/orders.ts",
         matchedCommand: "QueryCommand",
         confidence: "low",
+        actionConfidence: "high", sdkPackage: "@aws-sdk/lib-dynamodb",
         evidence: "No Lambda source mapping found for src/orders.ts."
       },
       {
@@ -68,6 +71,7 @@ describe("inferIamActionsFromSourceCode", () => {
         filePath: "src/uploads.ts",
         matchedCommand: "PutObjectCommand",
         confidence: "low",
+        actionConfidence: "high", sdkPackage: "@aws-sdk/client-s3",
         evidence: "No Lambda source mapping found for src/uploads.ts."
       }
     ]);
@@ -76,7 +80,8 @@ describe("inferIamActionsFromSourceCode", () => {
   it("maps source files to Lambda functions from handler paths", () => {
     const inferences = inferIamActionsFromSourceCode(
       {
-        "src/orders.ts": `
+        "src/orders.ts": `import { GetCommand } from "@aws-sdk/lib-dynamodb";
+
           await client.send(new GetCommand({ TableName: "Orders" }));
         `
       },
@@ -94,13 +99,14 @@ describe("inferIamActionsFromSourceCode", () => {
       }
     );
 
-    expect(inferences).to.deep.equal([
+    expect(withoutSyntaxDetails(inferences)).to.deep.equal([
       {
         action: "dynamodb:GetItem",
         filePath: "src/orders.ts",
         lambdaFunctionId: "OrdersFunction",
         matchedCommand: "GetCommand",
         confidence: "medium",
+        actionConfidence: "high", sdkPackage: "@aws-sdk/lib-dynamodb",
         evidence: "Resources.OrdersFunction.Properties.Handler"
       }
     ]);
@@ -109,7 +115,8 @@ describe("inferIamActionsFromSourceCode", () => {
   it("uses explicit source file mappings before automatic mappings", () => {
     const inferences = inferIamActionsFromSourceCode(
       {
-        "src/shared.ts": `
+        "src/shared.ts": `import { SendMessageCommand } from "@aws-sdk/client-sqs";
+
           await client.send(new SendMessageCommand({ QueueUrl: queueUrl }));
         `
       },
@@ -136,13 +143,14 @@ describe("inferIamActionsFromSourceCode", () => {
       }
     );
 
-    expect(inferences).to.deep.equal([
+    expect(withoutSyntaxDetails(inferences)).to.deep.equal([
       {
         action: "sqs:SendMessage",
         filePath: "src/shared.ts",
         lambdaFunctionId: "QueueFunction",
         matchedCommand: "SendMessageCommand",
         confidence: "high",
+        actionConfidence: "high", sdkPackage: "@aws-sdk/client-sqs",
         evidence: "sourceFileMappings.src/shared.ts"
       }
     ]);
@@ -151,7 +159,8 @@ describe("inferIamActionsFromSourceCode", () => {
   it("excludes source files marked as shared from Lambda-specific inference", () => {
     const inferences = inferIamActionsFromSourceCode(
       {
-        "src/shared.ts": `
+        "src/shared.ts": `import { SendMessageCommand } from "@aws-sdk/client-sqs";
+
           await client.send(new SendMessageCommand({ QueueUrl: queueUrl }));
         `
       },
@@ -170,14 +179,15 @@ describe("inferIamActionsFromSourceCode", () => {
       }
     );
 
-    expect(inferences).to.deep.equal([]);
+    expect(withoutSyntaxDetails(inferences)).to.deep.equal([]);
   });
 
   it("associates actions from an imported shared file with its Lambda", () => {
     const inferences = inferIamActionsFromSourceCode(
       {
         "src/ordersHandler.ts": `import { saveOrder } from "./utils";`,
-        "src/utils.ts": `
+        "src/utils.ts": `import { PutCommand } from "@aws-sdk/lib-dynamodb";
+
           export async function saveOrder() {
             await client.send(new PutCommand({ TableName: "Orders" }));
           }
@@ -193,7 +203,7 @@ describe("inferIamActionsFromSourceCode", () => {
       }
     );
 
-    expect(inferences).to.deep.include({
+    expect(withoutSyntaxDetails(inferences)).to.deep.include({
       action: "dynamodb:PutItem",
       filePath: "src/utils.ts",
       lambdaFunctionId: "OrdersFunction",
@@ -201,7 +211,8 @@ describe("inferIamActionsFromSourceCode", () => {
       importChain: ["src/ordersHandler.ts", "src/utils.ts"],
       matchedCommand: "PutCommand",
       confidence: "high",
-      evidence: "sourceFileMappings.src/ordersHandler.ts"
+      actionConfidence: "high", sdkPackage: "@aws-sdk/lib-dynamodb",
+        evidence: "sourceFileMappings.src/ordersHandler.ts"
     });
   });
 
@@ -210,7 +221,8 @@ describe("inferIamActionsFromSourceCode", () => {
       {
         "src/ordersHandler.ts": `import "./shared";`,
         "src/auditHandler.ts": `const shared = require("./shared");`,
-        "src/shared.ts": `await client.send(new PutCommand({ TableName: "Orders" }));`
+        "src/shared.ts": `import { PutCommand } from "@aws-sdk/lib-dynamodb";
+await client.send(new PutCommand({ TableName: "Orders" }));`
       },
       {
         template: lambdaTemplate({
@@ -232,7 +244,8 @@ describe("inferIamActionsFromSourceCode", () => {
     const inferences = inferIamActionsFromSourceCode(
       {
         "src/ordersHandler.ts": `export function handler() { return "ok"; }`,
-        "src/unrelated.ts": `await client.send(new PutCommand({ TableName: "Other" }));`
+        "src/unrelated.ts": `import { PutCommand } from "@aws-sdk/lib-dynamodb";
+await client.send(new PutCommand({ TableName: "Other" }));`
       },
       {
         template: lambdaTemplate({
@@ -253,7 +266,8 @@ describe("inferIamActionsFromSourceCode", () => {
       {
         "src/handler.ts": `import { run } from "./service";`,
         "src/service.ts": `import { load } from "./db";`,
-        "src/db.ts": `await client.send(new PutCommand({ TableName: "Orders" }));`
+        "src/db.ts": `import { PutCommand } from "@aws-sdk/lib-dynamodb";
+await client.send(new PutCommand({ TableName: "Orders" }));`
       },
       {
         template: lambdaTemplate({
@@ -262,7 +276,7 @@ describe("inferIamActionsFromSourceCode", () => {
       }
     );
 
-    expect(inferences).to.deep.include({
+    expect(withoutSyntaxDetails(inferences)).to.deep.include({
       action: "dynamodb:PutItem",
       filePath: "src/db.ts",
       lambdaFunctionId: "OrdersFunction",
@@ -270,18 +284,21 @@ describe("inferIamActionsFromSourceCode", () => {
       importChain: ["src/handler.ts", "src/service.ts", "src/db.ts"],
       matchedCommand: "PutCommand",
       confidence: "medium",
-      evidence: "Resources.OrdersFunction.Properties.Handler"
+      actionConfidence: "high", sdkPackage: "@aws-sdk/lib-dynamodb",
+        evidence: "Resources.OrdersFunction.Properties.Handler"
     });
   });
 
   it("handles circular imports without duplicate inferences", () => {
     const inferences = inferIamActionsFromSourceCode(
       {
-        "src/handler.ts": `
+        "src/handler.ts": `import { GetCommand } from "@aws-sdk/lib-dynamodb";
+
           import "./service";
           await client.send(new GetCommand({ TableName: "Orders" }));
         `,
-        "src/service.ts": `
+        "src/service.ts": `import { PutCommand } from "@aws-sdk/lib-dynamodb";
+
           import "./handler";
           await client.send(new PutCommand({ TableName: "Orders" }));
         `
@@ -302,9 +319,11 @@ describe("inferIamActionsFromSourceCode", () => {
     const inferences = inferIamActionsFromSourceCode(
       {
         "src/ordersHandler.ts": `import "./ordersDb";`,
-        "src/ordersDb.ts": `await client.send(new GetCommand({ TableName: "Orders" }));`,
+        "src/ordersDb.ts": `import { GetCommand } from "@aws-sdk/lib-dynamodb";
+await client.send(new GetCommand({ TableName: "Orders" }));`,
         "src/queueHandler.ts": `import "./queueClient";`,
-        "src/queueClient.ts": `await client.send(new SendMessageCommand({ QueueUrl: queueUrl }));`
+        "src/queueClient.ts": `import { SendMessageCommand } from "@aws-sdk/client-sqs";
+await client.send(new SendMessageCommand({ QueueUrl: queueUrl }));`
       },
       {
         template: lambdaTemplate({
@@ -332,8 +351,10 @@ describe("inferIamActionsFromSourceCode", () => {
           import "./startup.js";
           const feature = require("./feature");
         `,
-        "src/startup.js": `await client.send(new PublishCommand({ TopicArn: topicArn }));`,
-        "src/feature/index.ts": `await client.send(new GetCommand({ TableName: "Orders" }));`
+        "src/startup.js": `import { PublishCommand } from "@aws-sdk/client-sns";
+await client.send(new PublishCommand({ TopicArn: topicArn }));`,
+        "src/feature/index.ts": `import { GetCommand } from "@aws-sdk/lib-dynamodb";
+await client.send(new GetCommand({ TableName: "Orders" }));`
       },
       {
         template: lambdaTemplate({
@@ -354,8 +375,10 @@ describe("inferIamActionsFromSourceCode", () => {
     const inferences = inferIamActionsFromSourceCode(
       {
         "src/handler.ts": `import "./utils";`,
-        "src/utils.ts": `await client.send(new GetCommand({ TableName: "Orders" }));`,
-        "src/utils.js": `await client.send(new PutCommand({ TableName: "Orders" }));`
+        "src/utils.ts": `import { GetCommand } from "@aws-sdk/lib-dynamodb";
+await client.send(new GetCommand({ TableName: "Orders" }));`,
+        "src/utils.js": `import { PutCommand } from "@aws-sdk/lib-dynamodb";
+await client.send(new PutCommand({ TableName: "Orders" }));`
       },
       {
         template: lambdaTemplate({
@@ -387,7 +410,11 @@ describe("inferIamActionsFromSourceCode", () => {
     ];
 
     const inferences = inferIamActionsFromSourceCode({
-      "src/all-commands.ts": commandNames
+      "src/all-commands.ts": `import { GetCommand, PutCommand, UpdateCommand, DeleteCommand, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
+import { PublishCommand } from "@aws-sdk/client-sns";
+import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+` + commandNames
         .map((commandName) => `await client.send(new ${commandName}({}));`)
         .join("\n")
     });
@@ -399,11 +426,11 @@ describe("inferIamActionsFromSourceCode", () => {
       "dynamodb:DeleteItem",
       "dynamodb:Query",
       "dynamodb:Scan",
+      "sqs:SendMessage",
+      "sns:Publish",
       "s3:GetObject",
       "s3:PutObject",
-      "s3:DeleteObject",
-      "sqs:SendMessage",
-      "sns:Publish"
+      "s3:DeleteObject"
     ]);
   });
 
@@ -416,7 +443,7 @@ describe("inferIamActionsFromSourceCode", () => {
       `
     });
 
-    expect(inferences).to.deep.equal([]);
+    expect(withoutSyntaxDetails(inferences)).to.deep.equal([]);
   });
 
   it("maps expanded AWS SDK commands through package-aware metadata", () => {
@@ -458,39 +485,28 @@ describe("inferIamActionsFromSourceCode", () => {
       "kms:Decrypt",
       "kms:GenerateDataKey"
     ]);
-    expect(inferences.every((inference) => inference.actionConfidence === "high")).to.equal(true);
+    expect(inferences.every((inference) => inference.actionConfidence === "low")).to.equal(true);
+    expect(inferences[0].limitations?.join(" ")).to.include("version/alias");
   });
 
   it("does not treat an unexpected AWS SDK package as exact command evidence", () => {
-    const [inference] = inferIamActionsFromSourceCode({
+    const inferences = inferIamActionsFromSourceCode({
       "src/custom.ts": `
         import { InvokeCommand } from "@aws-sdk/client-something-else";
         new InvokeCommand({});
       `
     });
 
-    expect(inference.action).to.equal("lambda:InvokeFunction");
-    expect(inference.actionConfidence).to.equal(undefined);
-    expect(inference.sdkPackage).to.equal(undefined);
+    expect(inferences).to.deep.equal([]);
   });
 
-  it("returns one inference per command per file", () => {
-    const inferences = inferIamActionsFromSourceCode({
-      "src/repeated.ts": `
-        await client.send(new GetObjectCommand({ Bucket: bucket, Key: firstKey }));
-        await client.send(new GetObjectCommand({ Bucket: bucket, Key: secondKey }));
-      `
-    });
-
-    expect(inferences).to.deep.equal([
-      {
-        action: "s3:GetObject",
-        filePath: "src/repeated.ts",
-        matchedCommand: "GetObjectCommand",
-        confidence: "low",
-        evidence: "No Lambda source mapping found for src/repeated.ts."
-      }
-    ]);
+  it("preserves separate command use locations", () => {
+    const inferences = inferIamActionsFromSourceCode({ "src/repeated.ts": `import { GetObjectCommand } from "@aws-sdk/client-s3";
+new GetObjectCommand({ Bucket: bucket, Key: firstKey });
+new GetObjectCommand({ Bucket: bucket, Key: secondKey });` });
+    expect(inferences).to.have.lengthOf(2);
+    expect(inferences.map(value => value.action)).to.deep.equal(["s3:GetObject", "s3:GetObject"]);
+    expect(inferences.map(value => value.useLocation)).to.deep.equal([{ line: 2, column: 1 }, { line: 3, column: 1 }]);
   });
 
   it("returns an empty list when no supported commands are found", () => {
@@ -516,4 +532,9 @@ function lambdaTemplate(handlers: Record<string, string>) {
       ])
     )
   };
+}
+
+function withoutSyntaxDetails<T>(value: T): T {
+  if (value === undefined) return value;
+  return JSON.parse(JSON.stringify(value, (key, item) => ["importedSymbol", "localSymbol", "useLocation", "indexAccess"].includes(key) ? undefined : item));
 }

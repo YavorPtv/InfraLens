@@ -45,8 +45,14 @@ export function exportAnalysisReportToMarkdown(report: AnalysisReport): string {
     "",
     "## Least-Privilege Suggestions",
     "",
-    ...formatLeastPrivilegeSuggestions(report.leastPrivilegeSuggestions)
+    ...formatLeastPrivilegeSuggestions(report.leastPrivilegeSuggestions),
+    ...formatAnalysisLimitations(report)
   ].join("\n");
+}
+
+function formatAnalysisLimitations(report: AnalysisReport): string[] {
+  const limitations = [...(report.iamAnalysis?.limitations ?? []), ...(report.sourceAnalysisWarnings ?? [])];
+  return limitations.length ? ["", "## Analysis limitations", "", ...limitations.map(value => `- ${value}`)] : [];
 }
 
 export function exportDiffReportToMarkdown(report: DiffReport): string {
@@ -157,6 +163,7 @@ function formatLeastPrivilegeSuggestions(suggestions: PolicySuggestion[]): strin
     `- Suggested resources: ${formatSuggestedResources(suggestion)}`,
     `- Evidence path: \`${suggestion.evidence.statementEvidencePath}\``,
     `- Suggestion: ${suggestion.explanation}`,
+    ...(suggestion.suggestedStatements ? ["", "```json", JSON.stringify(suggestion.suggestedStatements, null, 2), "```"] : []),
     ...formatSourceActionEvidence(suggestion),
     ""
   ]);
@@ -205,7 +212,7 @@ function formatSourceActionEvidence(suggestion: PolicySuggestion): string[] {
             : `; handler root: \`${action.rootFilePath}\`; import chain: ${action.importChain
                 .map((filePath) => `\`${filePath}\``)
                 .join(" -> ")}`
-        }`
+        }${action.sdkPackage ? `; SDK package: \`${action.sdkPackage}\`` : ""}${action.useLocation ? `; command use: ${action.useLocation.line}:${action.useLocation.column}` : ""}`
     )
   ];
 }
