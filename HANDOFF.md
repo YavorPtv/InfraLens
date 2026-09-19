@@ -1,332 +1,137 @@
-# InfraLens Codex Handoff
+# InfraLens Handoff
+
+Last refreshed: September 19, 2026.
 
 ## Start Here
 
-At the time this handoff was refreshed (September 11, 2026):
-
-- Current task branch: `feature/deepen-analyzer-coverage`
-- Analyzer accuracy improvements are implemented in the working tree, awaiting review. See `docs/ANALYZER_COVERAGE.md` for condition/managed-policy/boundary semantics, SDK syntax analysis, S3 statement splitting and evidence-based DynamoDB index handling.
-- Changes are intentionally uncommitted; no deployment was performed.
-
-Always begin a new task by checking the live repository state rather than assuming this snapshot is
-still exact:
+- Verified local baseline: `main` at `9c156f9` (PR #52, analyzer coverage), following
+  PR #51 (template validation) and PR #50 (source project paths). These features are merged.
+- No implementation is awaiting merge from that work. This refresh changes documentation only.
+- The analyzer coverage task did not deploy anything. Current AWS deployment and CI status
+  have not been verified; do not infer them from the local branch or historical checks.
+- Read `AGENTS.md`, this file, and then only the documentation and code relevant to the task.
+  Use `README.md` for setup and usage; do not reread every document for each new task.
+- Always check live state before editing; preserve unrelated user changes:
 
 ```powershell
 git status --short --branch
-git log --oneline --decorate -8
+git log --oneline --decorate -5
 ```
 
-Read `AGENTS.md`, the root `README.md`, and the files relevant to the task before changing code. Do
-not discard unrelated user changes in a dirty worktree.
+## Project And Code Map
 
-## Project Summary
+InfraLens analyzes CloudFormation JSON/YAML, including synthesized CDK templates, for AWS
+security/reliability risks. It builds resource graphs, compares templates, suggests least-privilege
+IAM policies, and generates modified templates from selected deterministic fixes.
 
-InfraLens is a TypeScript monorepo for local-first AWS architecture analysis. It parses
-CloudFormation JSON/YAML, builds resource and runtime relationship graphs, detects security and
-reliability risks, compares templates, and generates evidence-based least-privilege IAM suggestions
-and structured template fixes.
+TypeScript, npm workspaces, React/Vite, Node/Express, Mocha/Chai, and AWS CDK. Follow `AGENTS.md`:
+keep the analyzer independent of React and AWS SDK, test every analyzer rule, and ask before
+changing project structure. No Bootstrap unless requested.
 
-The analyzer does not inspect live AWS accounts and must remain independent from React and the AWS
-SDK. Optional CloudFormation ValidateTemplate uses SDK v3 only in apps/api; this does not change
-the analyzer or CLI credential-free workflow.
+| Area | Location |
+| --- | --- |
+| Parsing, rules, graph, IAM, source analysis, fixes and diff | `packages/analyzer/src` |
+| Shared report/API types and exports | `packages/shared/src` |
+| Express and Lambda API adapters | `apps/api/src` |
+| React UI and Cognito authentication | `apps/web/src` |
+| CLI analysis and comparison | `apps/cli/src` |
+| Hosted infrastructure | `infra/cdk` |
+| Templates and uploaded-source fixtures | `examples` |
 
-## Workspace Layout
+Analyzer/CLI run offline. Only the API optionally calls AWS CloudFormation ValidateTemplate;
+this is validation, not live account scanning. Hosted routes use REST API Gateway (not HTTP API).
 
-- `packages/analyzer`: parsing, rules, graph/reachability analysis, source inference, diffing, and
-  structured fixes
-- `packages/shared`: public report/contracts and Markdown/JSON exporters
-- `apps/api`: local Express API and Lambda-compatible API Gateway handler
-- `apps/cli`: single-template analysis, template diff, and report export
-- `apps/web`: React + Vite analysis, compare, report, source mapping, apply, and authentication UI
-- `infra/cdk`: S3/CloudFront frontend hosting, REST API Gateway, Lambda, Cognito, logs, alarms, and
-  optional budget
-- `examples`: CloudFormation and source-code fixtures
-- `docs`: architecture, roadmap, demos, and protected deployment instructions
+## Current Behavior And Important Contracts
 
-Use npm workspaces and Mocha/Chai. Do not introduce Jest or Vitest.
+- Analyze -> Review -> Apply -> Compare -> Export is implemented with local integration coverage.
+  API: `GET /health`, `POST /analyze`, `/diff`, `/apply`. Web: `/`, `/analyze`, `/report`, `/compare`.
+- Parsing, local structure validity, analyzer completion and optional AWS validation are separate
+  statuses. Generated templates are revalidated; invalid downloads are blocked but inspectable.
+  AWS ValidateTemplate does not prove deployability.
+- Folder uploads preserve relative paths. Shared normalization lives in
+  `packages/shared/src/sourceFiles.ts`; ordinary file selection can still expose only basenames.
+  Explicit Lambda mappings, handler inference, exclusions and transitive relative imports exist.
+- Source inference uses TypeScript syntax and lexical symbols in a closed in-memory host. It does
+  not execute source or load node_modules. Real SDK imports, aliases and literal CommonJS imports
+  are supported; comments, strings, local mock classes and shadowed names do not infer actions.
+- IAM analysis covers inline identity policies and template-defined attached/managed policies.
+  Conditions, boundaries, unresolved references and relevant Deny paths are evidence, not computed
+  effective permissions. `iamAnalysis.evaluation` is always `partial`; `iamContext` carries context.
+  No boundary intersection, external-policy fetching or complete IAM evaluation is implemented.
+- Uncertain, conditional, bounded or shared-policy replacements require manual review. Shared
+  execution roles cannot be narrowed using only one Lambda's source.
+- S3 bucket/object actions use separate suggested statements. DynamoDB Query/Scan index ARNs
+  require specific source/template evidence; no automatic `/index/*` expansion.
+- `PolicySuggestion.currentActions` renders the original policy; `suggestedActions` is proposed;
+  `actions` is the legacy alias. Use `suggestedStatements` for multi-statement replacements.
+  Do not offer a copyable no-op replacement as action narrowing.
+- Supported service metadata: DynamoDB, S3, SQS, SNS, Lambda invocation, EventBridge, Secrets
+  Manager, SSM and conservative/manual KMS. See `serviceMetadata.ts` and the coverage document.
+- `LAMBDA_SERVICE_PERMISSION_UNSCOPED` checks supported service invocation permissions.
+  Lambda failure-handling checks distinguish `$LATEST` from versions/aliases; known SQS failure
+  targets are not required to have an endless chain of dead-letter queues.
+- Report UI shows aggregate IAM/source limitations. The Source Inference panel shows commands,
+  actions, confidence, handler roots and import chains, but does not directly render
+  `importedSymbol`, `localSymbol`, `useLocation`, `sdkPackage`, `indexAccess` or per-action `limitations`.
+  See `apps/web/src/components/report/LeastPrivilegeSuggestions.tsx`.
 
-## Current Capabilities
+## Read More Only As Needed
 
-### Analysis And Rules
+| Task | Reference |
+| --- | --- |
+| Priorities and unfinished work | [Roadmap](docs/ROADMAP.md) |
+| Setup, API inputs and CLI usage | [README](README.md) |
+| Current API size/count limits | `apps/api/src/requestLimits.ts` |
+| IAM semantics, source evidence, service mappings and limitations | [Analyzer coverage](docs/ANALYZER_COVERAGE.md) |
+| Parse/structure/AWS validation and generated artifacts | [Template validation](docs/TEMPLATE_VALIDATION.md) |
+| Folder uploads, paths, mappings and exclusions | [Source uploads](docs/SOURCE_UPLOADS.md) |
+| Integration tests and opt-in hosted smoke checks | [Testing](docs/TESTING.md) |
+| Authentication and deployment configuration | [Production deployment](docs/PRODUCTION_DEPLOYMENT.md) |
 
-The analyzer currently:
+Use `examples/analyzer-coverage` for realistic IAM/source cases, `examples/nested-source-project`
+for preserved paths, and `examples/shared-source-import-graph` for shared imports. The original
+`examples/order-handler-source.ts` uses mock command classes and correctly infers no SDK actions.
+`examples/compare` demonstrates template comparison.
 
-- Parses JSON and YAML CloudFormation templates, then validates local structure separately.
-- Reports analysisStatus and parse/structure/AWS validation independently. Generated artifacts are
-  re-parsed and validated; failures block normal download while keeping output inspectable.
-- Hosted /analyze and /apply optionally run AWS ValidateTemplate. See docs/TEMPLATE_VALIDATION.md.
-- Extracts `Ref`, `Fn::GetAtt`, `Fn::Sub`, `Fn::Join`, `Fn::If`, `Fn::ImportValue`, and `DependsOn`.
-- Builds `references`, `uses-role`, `invokes`, and `dead-letter` graph edges.
-- Detects public entry points/reachability and contextually escalates reachable IAM wildcard risks.
-- Compares old/new templates and separates added, removed, changed, introduced, resolved, and
-  unchanged results.
-- Creates structured, selectable template fixes while preserving unrelated properties and intrinsic
-  functions.
+## Verification
 
-Current rule IDs:
-
-- `LAMBDA_SERVICE_PERMISSION_UNSCOPED`
-- `IAM_WILDCARD_PERMISSIONS`
-- `IAM_PASSROLE_WILDCARD`
-- `IAM_PRIVILEGE_ESCALATION_ACTIONS`
-- `API_GATEWAY_METHOD_NO_AUTH`
-- `API_GATEWAY_ACCESS_LOGGING_MISSING`
-- `API_GATEWAY_TRACING_DISABLED`
-- `S3_PUBLIC_ACCESS_BLOCK_MISSING`
-- `S3_VERSIONING_DISABLED`
-- `SQS_MISSING_DLQ`
-- `SNS_TOPIC_ENCRYPTION_MISSING`
-- `DYNAMODB_MISSING_PITR`
-- `DYNAMODB_DELETION_PROTECTION_DISABLED`
-- `LOG_GROUP_MISSING_RETENTION`
-- `LAMBDA_TRACING_DISABLED`
-- `LAMBDA_DEAD_LETTER_CONFIG_MISSING`
-- `LAMBDA_RESERVED_CONCURRENCY_RISK`
-
-Every analyzer rule must have Mocha/Chai unit tests and every finding must include `ruleId`, `title`,
-`severity`, `resourceId`, `explanation`, `evidencePath`, and `suggestion`.
-
-### Source Inference And Least Privilege
-
-Uploaded JavaScript/TypeScript files are parsed using TypeScript syntax and lexical symbol checks in a closed in-memory host. Comments, strings, mock classes and wrong-package commands do not infer actions. Aliases and literal CommonJS imports are supported. Source actions include the source path, command, IAM action, Lambda logical ID when
-known, action confidence, mapping confidence, and evidence.
-
-Source-to-Lambda mapping supports:
-
-- Explicit mappings from API/UI input, treated as high confidence
-- Lambda `Properties.Handler`, code/metadata conventions, and file-name matching
-- `Auto-detect` and `Shared / not a Lambda handler` in the web UI
-- A relative local import graph for ES imports, side-effect imports, and practical CommonJS requires
-- `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, and index-file resolution
-- Transitive/shared imports, cycle protection, ambiguity rejection, and deduplication
-
-Folder uploads now preserve `webkitRelativePath`, including the selected directory name. Files,
-mappings and exclusions share project-relative path normalization in `packages/shared/src/sourceFiles.ts`.
-The existing API map format is retained. Exact-path uploads visibly replace content and keep mappings;
-removing a file removes its mapping. See `docs/SOURCE_UPLOADS.md` and `examples/nested-source-project`.
-
-Shared files contribute actions only to Lambda handlers that can reach them through the uploaded
-import graph. They do not receive IAM roles of their own. Different Lambda source trees must not mix
-actions.
-
-Least-privilege metadata currently covers DynamoDB, S3, SQS, SNS, Lambda invocation, EventBridge,
-Secrets Manager, SSM Parameter Store, and conservatively reviewed KMS actions. Exact action
-narrowing requires strong source command/package and Lambda mapping evidence. Unknown actions,
-mixed-service statements, ambiguous resources, and KMS changes remain manual review where a safe
-patch cannot be proven.
-
-Important contract detail: `PolicySuggestion` has `currentActions`, `suggestedActions`, and the
-legacy `actions` alias. Original policy rendering must use `currentActions`. A suggestion with equal
-current/suggested actions is not action narrowing; the UI now says no safe action narrowing was
-inferred and does not offer a copyable no-op replacement.
-
-### API
-
-Both Express and Lambda support:
-
-- `GET /health`
-- `POST /analyze`
-- `POST /diff`
-- `POST /apply`
-
-`POST /analyze` accepts a raw JSON/YAML template or an envelope containing:
-
-```json
-{
-  "template": "{ \"Resources\": {} }",
-  "sourceFiles": {
-    "src/handler.ts": "source text"
-  },
-  "sourceFileMappings": {
-    "src/handler.ts": "HandlerFunction"
-  },
-  "sourceFileExclusions": []
-}
-```
-
-`POST /diff` accepts `oldTemplate` and `newTemplate` strings. `POST /apply` accepts a template string
-and selected structured fixes.
-
-Centralized API limits in `apps/api/src/requestLimits.ts` are shared by Express and Lambda:
-
-- Request: 4 MiB
-- Template: 1 MiB
-- Source files: 100
-- One source file: 256 KiB
-- Combined source: 2 MiB
-- Source mappings: 100
-- Source exclusions: 100
-- Combined diff templates: 2 MiB
-- Selected fixes: 200
-
-Oversized input returns a structured `413 PAYLOAD_TOO_LARGE` before analyzer work. Operation logs are
-structured and intentionally exclude templates, source contents, bodies, tokens, and secrets.
-
-### CLI And Exports
-
-The CLI supports readable, JSON, and Markdown analysis output, output files, and old/new template
-diffing. Shared exporters support `AnalysisReport` JSON/Markdown and `DiffReport` Markdown.
-
-Examples:
+The analyzer coverage task recorded 435 passing tests (analyzer 284, API 106, CLI 17, shared 20,
+CDK 8), workspace typecheck/build, and production CDK synthesis with no lookups. These are historical
+local results, not newly rerun checks or proof of CI success. PR #52 was merged without waiting for CI.
+No browser/E2E checks, live AWS calls or deployment were performed for that task.
 
 ```powershell
-npm.cmd run analyze -- examples\order-service-risky-template.json
-npm.cmd run analyze -- --json examples\order-service-risky-template.json
-npm.cmd run diff -- examples\simple-good-template.json examples\simple-bad-template.json
-npm.cmd run analyze -- --diff --markdown examples\simple-good-template.json examples\simple-bad-template.json
-```
-
-### Web App
-
-Main routes:
-
-- `/`: workspace home
-- `/analyze`: template input, source upload, and Lambda mapping
-- `/report`: score, graph, findings, least privilege, evidence, exports, and apply suggestions
-- `/compare`: old/new template comparison and diff export
-- `/auth/callback`: production Cognito OAuth callback
-
-The frontend can download JSON and Markdown reports and generate/download a modified template from
-selected deterministic fixes. It never overwrites or deploys the submitted template.
-
-Production authentication uses Cognito hosted sign-in with authorization-code flow and PKCE, stores
-tokens in session storage, refreshes expired access tokens, adds bearer tokens to protected requests,
-and handles `401`/`403`. Authentication is isolated under `apps/web/src/auth`.
-
-### Hosted Infrastructure
-
-The existing API is REST API Gateway, not HTTP API Gateway. Production CDK configuration:
-
-- Creates a Cognito User Pool with self-sign-up disabled.
-- Protects `POST /analyze`, `/diff`, and `/apply` with a Cognito authorizer and `openid` scope.
-- Leaves the cheap mock `GET /health` endpoint unauthenticated.
-- Restricts CORS to the CloudFront/custom frontend origin and allows only required methods/headers.
-- Uses a 30-second, 512 MiB ARM64 Lambda.
-- Leaves reserved concurrency unset by default because reduced-quota AWS accounts may be unable to
-  reserve any; `lambdaReservedConcurrency` remains an opt-in CDK context setting.
-- Throttles REST API traffic at 2 requests/second with a burst of 5 by default.
-- Retains structured Lambda/API access logs for 30 days.
-- Creates alarms for Lambda errors, throttles, p95 duration near timeout, and API 5XX responses.
-- Optionally creates SNS email alarm delivery and an AWS monthly budget.
-- Gives the analyzer Lambda `logs:CreateLogStream` and `logs:PutLogEvents` on its own log group,
-  plus only `cloudformation:ValidateTemplate` with Resource `*` (the action has no resource scope).
-- Sets INFRALENS_CLOUDFORMATION_VALIDATION=true; local API defaults offline. AWS failures/timeouts
-  are explicit, and bodies over 51,200 bytes are unavailable rather than uploaded to S3.
-
-See `docs/PRODUCTION_DEPLOYMENT.md` before changing or deploying this stack.
-
-## Deployment Lessons And Gotchas
-
-- There is no `npm run deploy` script. Deploy from the root with `npm exec`:
-
-```powershell
-npm.cmd run build --workspace @infralens/cdk
-npm.cmd exec --workspace @infralens/cdk -- cdk deploy --context environment=production --context cognitoDomainPrefix=YOUR_VALID_PREFIX
-```
-
-- Cognito prefix domains must be globally unique, 1-63 lowercase letters/numbers/internal hyphens,
-  and cannot contain the reserved strings `aws`, `amazon`, or `cognito`. CDK now validates this
-  before deployment.
-- A deployment using `infralens-cognito` failed because `cognito` is reserved.
-- A deployment using default reserved concurrency of 5 failed in a reduced-quota account because it
-  would leave fewer than 10 executions unreserved. Reserved concurrency is now opt-in.
-- Failed/removed production stacks can leave Cognito User Pools, S3 buckets, and log groups because
-  they use `RemovalPolicy.RETAIN`. Delete orphaned resources manually when complete cleanup is wanted.
-- `cdk destroy` takes the app offline but does not remove those retained resources.
-- CDK creates the frontend bucket/distribution but does not upload `apps/web/dist`. Build the web app
-  with the deployed `VITE_INFRALENS_*` values, run `aws s3 sync`, and invalidate CloudFront.
-- PowerShell does not use `\` as a line continuation. Prefer one-line commands in user instructions
-  unless PowerShell backticks are shown explicitly.
-- A manually exercised production deployment succeeded after using a valid domain and omitting
-  reserved concurrency, but do not assume any AWS resources are still deployed.
-
-Required frontend production variables:
-
-- `VITE_INFRALENS_API_BASE_URL`
-- `VITE_INFRALENS_AUTH_ENABLED=true`
-- `VITE_INFRALENS_COGNITO_CLIENT_ID`
-- `VITE_INFRALENS_COGNITO_DOMAIN`
-- Optional explicit callback/logout URI overrides
-
-## Example Fixtures
-
-- `examples/analyzer-coverage`: realistic partial IAM, S3 splitting, index access and source syntax fixtures
-- `examples/order-service-risky-template.json` plus `examples/order-handler-source.ts`: template-risk demo; local mock command classes do not infer AWS actions
-- `examples/source-file-lambda-mapping`: two-Lambda explicit mapping request/fixtures
-- `examples/shared-source-import-graph`: shared, transitive, circular, excluded, and unrelated source
-  graph examples
-- `examples/compare`: documented introduced/resolved/added/removed/changed diff workflow
-- `examples/simple-good-template.json` and `examples/simple-bad-template.json`: basic rule fixtures
-- `examples/simple-yaml-template.yaml`: YAML parsing fixture
-
-`simple-bad-template.json` currently produces six findings and score 25, but no least-privilege
-suggestions. Its policy uses generic `Action: "*"`, its Lambda has no table/queue reference, and no
-source is submitted. It is a rule fixture, not a least-privilege fixture.
-
-## Testing And Build Notes
-
-Common commands:
-
-```powershell
-npm.cmd install
 npm.cmd run typecheck
 npm.cmd run test
 npm.cmd run build
-npm.cmd run synth --workspace @infralens/cdk
+npm.cmd run test:integration
 ```
 
-Production synthesis requires a valid Cognito prefix:
+API/CLI tests can resolve stale workspace `dist` output; rebuild shared and analyzer first when
+needed. `test:integration` already builds these dependencies. CDK tests/synth use esbuild, which
+can need sandbox access or a separate output directory. Production synthesis:
 
 ```powershell
 npm.cmd run build --workspace @infralens/cdk
-npm.cmd exec --workspace @infralens/cdk -- cdk synth --context environment=production --context cognitoDomainPrefix=infralens-login-synth-review
+npm.cmd exec --workspace @infralens/cdk -- cdk synth --no-lookups --context environment=production --context cognitoDomainPrefix=infralens-login-synth-review
 ```
 
-Tests use Mocha and Chai. Test `tsconfig` files intentionally include Mocha types; preserve that
-pattern when adding tests in a new workspace/folder.
+## Deployment And Remaining Work
 
-Workspace dependencies can be stale when a package test resolves another package's `dist` output.
-If API/CLI tests cannot find or appear not to include analyzer/shared changes, build these first:
+Production uses invited Cognito access, authorization-code flow with PKCE, protected POST routes,
+restricted CORS, request limits, throttling, logs and alarms. Health is public. Do not log submitted
+source/templates or tokens. Read the deployment guide before infrastructure changes.
 
-```powershell
-npm.cmd run build --workspace @infralens/shared
-npm.cmd run build --workspace @infralens/analyzer
-```
+Keep these deployment lessons: reserved concurrency is opt-in for reduced-quota accounts; Cognito
+prefixes must be valid and unique; retained pools/buckets/logs can survive stack deletion; CDK does
+not upload the web build (S3 sync and CloudFront invalidation are separate). There is no root deploy
+script. PowerShell does not support backslash line continuation.
 
-CDK synthesis/tests invoke esbuild. In restricted tooling environments, bundling can require access
-outside the default sandbox or a separate `--output` directory if another CDK process is using
-`infra/cdk/cdk.out`.
+Next recommended work: expose the remaining source evidence in the UI, then improve bounded
+command-input/resource and wrapper analysis using real fixtures. Persistence waits for demonstrated
+history/collaboration needs. See the roadmap for details.
 
-Recent verification for the protected API work included the full workspace typecheck, Mocha suites,
-workspace build, development/production synth, IAM review, plus focused web and CDK checks after
-deployment fixes. No browser/E2E test was used for that task.
-
-The Vite build currently emits a non-failing warning that the main bundle is slightly over 500 kB.
-
-## Current Limitations
-
-Keep this summary consistent with the root README:
-
-- Rule/service/SDK-command coverage is useful but not comprehensive AWS security coverage.
-- Source inference uses JS/TS syntax and import symbols without full data flow. Folder uploads preserve relative paths; ordinary file selection
-  may expose only basenames. Missing/ambiguous imports and unsupported aliases remain limitations.
-- High-confidence IAM output is only as complete as the submitted template and source files.
-- Local structure validation and optional AWS ValidateTemplate do not guarantee deployment.
-- Compare does not accept separate old/new source trees.
-- Reports are not persisted across browser sessions.
-
-## Recommended Next Work
-
-Follow `docs/ROADMAP.md`, currently ordered as:
-
-1. Expand analyzer and least-privilege coverage from real use cases.
-2. Add persistence only when history/collaboration requirements are clear.
-
-Layered validation is already on main. Analyzer coverage improvements are implemented on the task branch. Browser validation-state rendering and real
-AWS acceptance remain manual checks, separate from offline adapter tests and CDK synth.
-
-Workflow integration coverage and source-project path preservation are implemented. Keep extending
-their Mocha/Chai coverage as behavior changes; browser controls still require manual verification.
-
-Not near-term: PDF export, live AWS account scanning, broad multi-IaC parsing,
-or attempting a perfect graph layout for every template.
+Browser interactions and hosted authenticated workflows still need verification. Compare accepts
+templates only; reports are not persisted across browser sessions. Source analysis has no full data
+flow or runtime-completeness guarantee. PDF export, live scanning and broad multi-IaC parsing are
+not near-term priorities.

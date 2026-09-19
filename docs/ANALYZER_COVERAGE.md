@@ -2,7 +2,7 @@
 
 InfraLens analyzes submitted CloudFormation JSON/YAML (including synthesized CDK
 templates) and uploaded JavaScript/TypeScript. It does not inspect an AWS account.
-This document describes the implementation on `feature/deepen-analyzer-coverage`.
+This document describes the implementation merged to `main` in PR #52 (`9c156f9`).
 
 ## Changes driven by existing examples
 

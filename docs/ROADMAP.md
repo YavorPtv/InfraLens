@@ -3,7 +3,9 @@
 This document tracks recommended development order, not a fixed release commitment. Update it as
 features land and priorities change.
 
-Last refreshed: September 10, 2026, with template validation implemented on the task branch (uncommitted review).
+Last refreshed: September 19, 2026. Verified against local `main` at `9c156f9`:
+source project paths (#50), template validation (#51), and deeper analyzer coverage (#52) are merged.
+This is implementation status, not confirmation of deployment or current CI results.
 
 ## Completed Foundation: Protect The Hosted API
 
@@ -35,7 +37,7 @@ See [Workflow testing](TESTING.md) for fixtures, commands, smoke configuration, 
 Ordinary file selection can still expose only basenames. See [Source project uploads](SOURCE_UPLOADS.md)
 for supported behavior and remaining browser limitations.
 
-## Implemented Foundation: Template Validation
+## Completed Foundation: Template Validation
 
 - Separate parsing, local structure checks, analyzer completion and optional AWS ValidateTemplate.
 - Re-parse and validate generated artifacts; block invalid downloads while preserving inspectable output.
@@ -43,17 +45,46 @@ for supported behavior and remaining browser limitations.
 - Keep AWS SDK v3 in the API, with only ValidateTemplate permission in hosted Lambda IAM.
 - Cover adapter mappings and generated regressions offline; no live AWS calls or deployment in tests.
 
-See [Template validation](TEMPLATE_VALIDATION.md). Review of the current branch, manual UI checks
-and hosted validation verification remain; passing any validation does not guarantee deployment.
+See [Template validation](TEMPLATE_VALIDATION.md). Manual UI checks and hosted validation
+verification remain; passing any validation does not guarantee deployment.
 
-## Priority 1: Deepen Analyzer Coverage Carefully
+## Completed Foundation: Deeper Analyzer Coverage
 
-- Prioritize new rules from real example templates and user needs rather than rule count alone.
-- Expand least-privilege metadata only when action/resource behavior can be represented safely.
-- Improve awareness of IAM conditions, managed policies, and permissions boundaries.
-- Reduce source-matching false positives before attempting broad language or package analysis.
+- Track IAM conditions, template-defined policy attachments, managed policies, boundaries and
+  relevant explicit-deny evidence. External policies remain unresolved; boundary intersection and
+  complete effective-permission evaluation are not implemented.
+- Use TypeScript syntax and lexical symbols for SDK commands, aliases and literal CommonJS imports;
+  ignore comments, strings, local mock classes, shadowed bindings and wrong-package commands.
+- Preserve command-use locations, import symbols, SDK packages, confidence and source limitations.
+- Split S3 bucket/object permissions and require specific evidence for DynamoDB index ARNs.
+- Add unscoped Lambda service-invocation detection and improve Lambda/SQS failure-target handling.
+- Add realistic examples, regression tests, and report-level IAM/source limitations.
 
-## Priority 2: Add Product Persistence When Needed
+See [Analyzer coverage and evidence limits](ANALYZER_COVERAGE.md) and
+[coverage examples](../examples/analyzer-coverage/README.md). The implementation task recorded
+435 passing local tests, typecheck, build and production synthesis with no lookups. It did not
+perform browser/E2E testing, live AWS calls or deployment; the PR was merged without waiting for CI.
+
+## Priority 1: Make Source Evidence Easier To Review
+
+- Display the existing `importedSymbol`, `localSymbol`, `sdkPackage`, `useLocation`, `indexAccess`
+  and per-action `limitations` fields in the Source Inference panel. They are in report data but
+  are not directly rendered there today; handler roots/import chains already are.
+- Explain why a suggestion requires manual review using the associated uncertainty and evidence.
+- Keep statement-level findings distinct from effective-access claims, and distinguish command
+  confidence from source-to-Lambda mapping confidence.
+- Verify the UI against `examples/analyzer-coverage`, including split statements and uncertain input.
+
+## Priority 2: Extend Analyzer Accuracy From Concrete Use Cases
+
+- Add bounded command-input-to-resource analysis and safe local SDK-wrapper propagation.
+- Improve qualifier/version-aware Lambda targets and conditional resource references.
+- Expand request-option/dependent-action coverage only with action/resource-specific tests.
+- Consider limited resource-policy and group-inheritance support with explicit scope and evidence;
+  a full IAM simulator is not implied by the current policy model.
+- Prioritize real templates and false-positive reduction over rule count or broad language support.
+
+## Priority 3: Add Product Persistence When Needed
 
 - Add saved reports and projects only when users need history or collaboration.
 - Design data retention and source-code handling before storing uploaded content.
