@@ -1,11 +1,12 @@
 # InfraLens Handoff
 
-Last refreshed: September 19, 2026.
+Last refreshed: September 23, 2026.
 
 ## Start Here
 
-- Verified local baseline: `main` at `9c156f9` (PR #52, analyzer coverage), following
-  PR #51 (template validation) and PR #50 (source project paths). These features are merged.
+- Verified local baseline: `main` at `694ff3d` (documentation refresh), following `9c156f9`
+  (PR #52, analyzer coverage), PR #51 (template validation) and PR #50 (source project paths).
+  These features are merged.
 - No implementation is awaiting merge from that work. This refresh changes documentation only.
 - The analyzer coverage task did not deploy anything. Current AWS deployment and CI status
   have not been verified; do not infer them from the local branch or historical checks.
@@ -19,6 +20,12 @@ git log --oneline --decorate -5
 ```
 
 ## Project And Code Map
+
+The project's primary goal is now portfolio value and learning unfamiliar AWS infrastructure.
+The analyzer is sufficient for this stage: fix serious bugs, but defer broad coverage expansion.
+The replacement roadmap prioritizes saved projects/history, asynchronous analysis, reliable event
+dispatch and operations. The final integrated showcase comes after those features. These are plans,
+not existing capabilities; no persistence or job infrastructure was added in this documentation task.
 
 InfraLens analyzes CloudFormation JSON/YAML, including synthesized CDK templates, for AWS
 security/reliability risks. It builds resource graphs, compares templates, suggests least-privilege
@@ -127,9 +134,16 @@ prefixes must be valid and unique; retained pools/buckets/logs can survive stack
 not upload the web build (S3 sync and CloudFront invalidation are separate). There is no root deploy
 script. PowerShell does not support backslash line continuation.
 
-Next recommended work: expose the remaining source evidence in the UI, then improve bounded
-command-input/resource and wrapper analysis using real fixtures. Persistence waits for demonstrated
-history/collaboration needs. See the roadmap for details.
+Next work: milestone 1 of [the replacement roadmap](docs/ROADMAP.md). Build owner-scoped projects
+and saved analysis runs using DynamoDB metadata and private S3 artifacts. Derive ownership from
+trusted Cognito claims; the current Lambda event contract still needs those claims exposed. Keep
+AWS adapters outside the analyzer and preserve credential-free local tests/CLI behavior.
+
+Start with create project -> server-side analyze/save -> list/reopen report -> cross-user denial.
+Complete pagination, idempotency, deletion and retention before asynchronous processing. Later
+milestones add SQS workers, DynamoDB Streams dispatch, scheduled recovery, and operational evidence.
+Container workers/Step Functions/EventBridge fan-out are optional, justified scale experiments;
+do not implement all by default. No project-structure change is authorized by the roadmap alone.
 
 Browser interactions and hosted authenticated workflows still need verification. Compare accepts
 templates only; reports are not persisted across browser sessions. Source analysis has no full data
