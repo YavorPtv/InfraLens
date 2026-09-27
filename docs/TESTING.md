@@ -125,3 +125,14 @@ credential is introduced.
   validity or live AWS acceptance. CDK assertions check validation IAM/configuration, not deployed
   behavior. Hosted authenticated apply/diff, operational alarms and provisioning remain outside smoke
   coverage. Validation-state rendering and disabled download clicks still require manual UI checks.
+
+## Saved projects checks
+
+`apps/api/test/history.integration.test.ts` tests owner isolation, server-authoritative saves,
+idempotency, scoped cursors, retention, quotas, failure recovery, deletion races and fresh-client
+report restoration without a browser. These checks are included in normal tests and integration.
+
+The real storage suite is separate: `npm.cmd run test:aws --workspace @infralens/api` requires an
+explicit disposable AWS opt-in and table/bucket names. It is not part of normal tests. See
+[Saved projects verification](SAVED_PROJECTS.md#explicit-disposable-aws-checks) for configuration,
+cleanup and optional two-user Cognito checks. Do not run it against production.

@@ -107,19 +107,79 @@ describe("InfraLensStack", () => {
         ])
       }
     });
-    const lambdaLoggingPolicy = Object.values(
-      template.findResources("AWS::IAM::Policy")
-    ).find((resource) => JSON.stringify(resource).includes("logs:PutLogEvents"));
+    const lambdaLoggingPolicy = Object.values(template.findResources("AWS::IAM::Policy")).find(
+      (resource) => JSON.stringify(resource).includes("logs:PutLogEvents")
+    );
     expect(lambdaLoggingPolicy).not.to.equal(undefined);
-    const statements = lambdaLoggingPolicy!.Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Resource: unknown }>;
-    const logStatement = statements.find(statement => JSON.stringify(statement.Action).includes("logs:PutLogEvents"));
+    const statements = lambdaLoggingPolicy!.Properties.PolicyDocument.Statement as Array<{
+      Action: string | string[];
+      Resource: unknown;
+    }>;
+    const logStatement = statements.find((statement) =>
+      JSON.stringify(statement.Action).includes("logs:PutLogEvents")
+    );
     expect(JSON.stringify(logStatement)).not.to.contain('"Resource":"*"');
-    const awsStatements = statements.filter(statement => JSON.stringify(statement.Action).includes("cloudformation:"));
+    const awsStatements = statements.filter((statement) =>
+      JSON.stringify(statement.Action).includes("cloudformation:")
+    );
     expect(awsStatements).to.have.length(1);
-    expect(awsStatements[0]).to.deep.include({ Action: "cloudformation:ValidateTemplate", Resource: "*" });
-    expect(statements.flatMap(statement => statement.Action)).to.have.members([
-      "logs:CreateLogStream", "logs:PutLogEvents", "cloudformation:ValidateTemplate"
+    expect(awsStatements[0]).to.deep.include({
+      Action: "cloudformation:ValidateTemplate",
+      Resource: "*"
+    });
+    expect(statements.flatMap((statement) => statement.Action)).to.have.members([
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+      "cloudformation:ValidateTemplate",
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:PutItem",
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:PutObjectTagging",
+      "s3:DeleteObject"
     ]);
+    const storageStatements = statements.filter((statement) => {
+      const actions = JSON.stringify(statement.Action);
+      return actions.includes("dynamodb:") || actions.includes("s3:");
+    });
+    for (const statement of storageStatements) {
+      expect(statement.Resource).not.to.equal("*");
+      expect(JSON.stringify(statement.Action)).not.to.match(/(?:dynamodb|s3):\*/);
+    }
+    template.resourceCountIs("AWS::DynamoDB::Table", 2);
+    const tables = template.findResources("AWS::DynamoDB::Table");
+    for (const table of Object.values(tables)) {
+      expect(table.DeletionPolicy).to.equal("Retain");
+      expect(table.Properties.GlobalSecondaryIndexes).to.equal(undefined);
+      expect(table.Properties.SSESpecification.SSEEnabled).to.equal(true);
+    }
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true
+      },
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({
+            ExpirationInDays: 7,
+            TagFilters: [{ Key: "retention", Value: "input" }]
+          })
+        ])
+      }
+    });
+    const methods = Object.values(template.findResources("AWS::ApiGateway::Method"));
+    const protectedMethods = methods.filter(
+      (method) => method.Properties.Integration?.Type === "AWS_PROXY"
+    );
+    expect(protectedMethods.length).to.equal(14);
+    expect(
+      protectedMethods.every(
+        (method) => method.Properties.AuthorizationType === "COGNITO_USER_POOLS"
+      )
+    ).to.equal(true);
     template.hasResourceProperties("AWS::Lambda::Function", {
       Environment: { Variables: Match.objectLike({ INFRALENS_CLOUDFORMATION_VALIDATION: "true" }) }
     });
@@ -216,8 +276,7 @@ function findApiResource(
 ): { logicalId: string; resource: SynthesizedResource } {
   const resourceEntry = Object.entries(resources).find(
     ([, resource]) =>
-      resource.Type === "AWS::ApiGateway::Resource" &&
-      resource.Properties?.PathPart === pathPart
+      resource.Type === "AWS::ApiGateway::Resource" && resource.Properties?.PathPart === pathPart
   );
 
   expect(resourceEntry, `API resource ${pathPart} should exist`).to.not.equal(undefined);

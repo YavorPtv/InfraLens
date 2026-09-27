@@ -396,3 +396,10 @@ See [Protected Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) for require
 first-user invitation, current limits, monitoring, cost alerts, and the pre-deployment checklist.
 
 See [Production Roadmap](docs/ROADMAP.md) for the recommended next development priorities.
+
+## Saved projects
+
+The optional Projects workflow saves server-generated analysis reports and reopens them after a
+fresh browser session. See [Saved projects and analysis history](docs/SAVED_PROJECTS.md) for local
+memory setup, Cognito ownership, DynamoDB/S3 configuration, retention and disposable AWS testing.
+Stateless analysis and CLI usage continue to work without persistence or AWS credentials.

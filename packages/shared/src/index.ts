@@ -330,3 +330,4 @@ export {
   exportAnalysisReportToMarkdown,
   exportDiffReportToMarkdown
 } from "./reportExport";
+export * from "./history";

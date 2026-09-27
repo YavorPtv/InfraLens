@@ -1,6 +1,8 @@
 import { TemplateValidationPanel } from "../components/report/TemplateValidationPanel";
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { historyClient, saveRequestKey } from "../api/history";
+import { HistoryRequestError } from "../api/historyClient";
 import { analyzeTemplate, TemplateAnalysisError } from "../api/analyzeTemplate";
 import { useAnalysisReport } from "../reportState";
 import {
@@ -12,6 +14,9 @@ import {
 const acceptedTemplateExtensions = [".json", ".yaml", ".yml"];
 
 export function AnalyzePage() {
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get("project");
+  const [retainSource, setRetainSource] = useState(false);
   const [templateInput, setTemplateInput] = useState("");
   const [sourceFiles, setSourceFiles] = useState<SourceFileInput[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -82,16 +87,40 @@ export function AnalyzePage() {
     setError(null);
 
     try {
-      const report = await analyzeTemplate({
+      const analysisInput = {
         templateInput,
         sourceFiles: toSourceFileMap(sourceFiles),
         sourceFileMappings: toSourceFileMappings(sourceFiles, lambdaLogicalIds),
         sourceFileExclusions: toSourceFileExclusions(sourceFiles, lambdaLogicalIds)
-      });
+      };
+
+      if (projectId) {
+        const input = {
+          template: templateInput,
+          sourceFiles: analysisInput.sourceFiles,
+          sourceFileMappings: analysisInput.sourceFileMappings,
+          sourceFileExclusions: analysisInput.sourceFileExclusions
+        };
+        const idempotencyKey = await saveRequestKey(projectId, input, retainSource);
+        const saved = await historyClient.save(projectId, {
+          input,
+          idempotencyKey,
+          retainSource
+        });
+
+        sessionStorage.removeItem(`infralens-save-${projectId}`);
+        navigate(`/projects/${projectId}/runs/${saved.run.runId}`);
+        return;
+      }
+
+      const report = await analyzeTemplate(analysisInput);
       setReport(report);
       setOriginalTemplateInput(templateInput);
       navigate("/report");
     } catch (analysisError) {
+      if (projectId && analysisError instanceof HistoryRequestError && analysisError.status === 410) {
+        sessionStorage.removeItem(`infralens-save-${projectId}`);
+      }
       setValidationError(analysisError instanceof TemplateAnalysisError ? analysisError : null);
       setReport(null);
       setOriginalTemplateInput(null);
@@ -107,6 +136,31 @@ export function AnalyzePage() {
 
   return (
     <section className="page-section analyze-layout">
+      {projectId ? (
+        <div>
+          <p>
+            Saving a server-generated report to this project. Template input is retained for 7 days.
+          </p>
+          <label>
+            <input
+              type="checkbox"
+              checked={retainSource}
+              disabled={isLoading}
+              onChange={(event) => setRetainSource(event.target.checked)}
+            />{" "}
+            Retain uploaded source for 7 days (optional)
+          </label>
+          <p className="muted-note">
+            Reports and derived evidence remain until deletion. Expired inputs must be reuploaded
+            for reanalysis or comparison.
+          </p>
+          <Link to="/analyze">Analyze without saving</Link>
+        </div>
+      ) : (
+        <p>
+          <Link to="/projects">Choose a project to save an analysis</Link>
+        </p>
+      )}
       <div className="input-toolbar">
         <div>
           <label className="input-label" htmlFor="template-input">
@@ -308,7 +362,7 @@ export function AnalyzePage() {
           }}
           type="button"
         >
-          {isLoading ? "Analyzing..." : "Analyze"}
+          {isLoading ? "Analyzing..." : projectId ? "Analyze and save" : "Analyze"}
         </button>
       </div>
 

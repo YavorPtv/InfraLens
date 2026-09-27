@@ -1,4 +1,4 @@
-export type AppRoute = "/" | "/analyze" | "/compare" | "/report";
+export type AppRoute = "/" | "/analyze" | "/compare" | "/report" | "/projects";
 
 export interface NavItem {
   path: AppRoute;
@@ -6,6 +6,10 @@ export interface NavItem {
 }
 
 export const navItems: NavItem[] = [
+  {
+    path: "/projects",
+    label: "Projects"
+  },
   {
     path: "/",
     label: "Home"
@@ -25,6 +29,9 @@ export const navItems: NavItem[] = [
 ];
 
 export function getPageTitle(pathname: string): string {
+  if (pathname.startsWith("/projects")) {
+    return "Saved Projects";
+  }
   switch (pathname) {
     case "/analyze":
       return "Analyze a Template";

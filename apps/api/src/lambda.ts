@@ -17,6 +17,9 @@ import {
   type ApiOperation
 } from "./operationLogging";
 import { getApiRequestLimits, type ApiRequestLimits } from "./requestLimits";
+import type { HistoryService } from "./historyService";
+import { routeHistory } from "./historyRoutes";
+import { configuredHistory } from "./historyConfig";
 
 export interface ApiGatewayAnalyzeRequest {
   body?: string | null;
@@ -24,7 +27,13 @@ export interface ApiGatewayAnalyzeRequest {
   path?: string;
   rawPath?: string;
   isBase64Encoded?: boolean;
+  queryStringParameters?: Record<string, string | undefined> | null;
   requestContext?: {
+    authorizer?: {
+      claims?: {
+        sub?: string;
+      };
+    };
     requestId?: string;
     http?: {
       method?: string;
@@ -41,6 +50,7 @@ export interface ApiGatewayAnalyzeResponse {
 }
 
 export interface CreateAnalyzeLambdaHandlerOptions {
+  history?: HistoryService;
   cloudFormationValidator?: CloudFormationTemplateValidator;
   analyze?: AnalyzeTemplateHandler;
   diff?: AnalyzeTemplateDiffHandler;
@@ -69,6 +79,37 @@ export function createAnalyzeLambdaHandler(
       "content-type": "application/json",
       ...getCorsResponseHeaders(getRequestOrigin(event), allowedOrigins)
     };
+
+    const path = getPath(event) ?? "";
+    if (path === "/projects" || path.startsWith("/projects/")) {
+      const historyResponseHeaders = {
+        ...responseHeaders,
+        "cache-control": "no-store"
+      };
+
+      try {
+        const result = await routeHistory(
+          options.history,
+          {
+            method: getHttpMethod(event) ?? "",
+            path,
+            owner: event.requestContext?.authorizer?.claims?.sub,
+            body: decodeRequestBody(event),
+            query: event.queryStringParameters ?? undefined
+          },
+          requestLimits.maxRequestBytes
+        );
+
+        return jsonResponse(result.statusCode, historyResponseHeaders, result.payload);
+      } catch (error) {
+        const apiError = toApiRequestError(error);
+        return jsonResponse(
+          apiError.statusCode,
+          historyResponseHeaders,
+          toApiErrorResponse(apiError)
+        );
+      }
+    }
 
     if (getHttpMethod(event) !== "POST") {
       return jsonResponse(405, responseHeaders, {
@@ -120,7 +161,10 @@ export function createAnalyzeLambdaHandler(
   };
 }
 
-export const handler = createAnalyzeLambdaHandler({ cloudFormationValidator: configuredCloudFormationValidator() });
+export const handler = createAnalyzeLambdaHandler({
+  cloudFormationValidator: configuredCloudFormationValidator(),
+  history: configuredHistory(true)
+});
 
 function getHttpMethod(event: ApiGatewayAnalyzeRequest): string | undefined {
   return event.httpMethod ?? event.requestContext?.http?.method;

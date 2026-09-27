@@ -44,6 +44,13 @@ export type ApplyTemplateFixesHandler = (
 ) => ApplySuggestionsResult;
 
 export type ApiErrorCode =
+  | "UNAUTHORIZED"
+  | "INVALID_REQUEST"
+  | "CONFLICT"
+  | "QUOTA_EXCEEDED"
+  | "INPUT_EXPIRED"
+  | "UNAVAILABLE"
+  | "GONE"
   | "MISSING_BODY"
   | "INVALID_TEMPLATE"
   | "INVALID_FIX"
@@ -181,7 +188,7 @@ export function applyCloudFormationBody(
   }
 }
 
-function parseAnalyzeApiRequest(
+export function parseAnalyzeApiRequest(
   rawBody: string,
   limits: ApiRequestLimits
 ): AnalyzeApiRequest {
