@@ -8,6 +8,8 @@ import { ReportPage } from "./pages/ReportPage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { SignInPage } from "./pages/SignInPage";
 import { AnalysisReportProvider } from "./reportState";
+import { ProjectsPage } from "./pages/ProjectsPage";
+import { SavedReportPage } from "./pages/SavedReportPage";
 
 export function App() {
   return (
@@ -40,6 +42,9 @@ function AuthenticatedApp() {
           <Route element={<AnalyzePage />} path="analyze" />
           <Route element={<ComparePage />} path="compare" />
           <Route element={<ReportPage />} path="report" />
+          <Route element={<ProjectsPage />} path="projects" />
+          <Route element={<ProjectsPage />} path="projects/:projectId" />
+          <Route element={<SavedReportPage />} path="projects/:projectId/runs/:runId" />
           <Route element={<Navigate replace to="/" />} path="*" />
         </Route>
       </Routes>

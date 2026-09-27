@@ -1,6 +1,23 @@
 # InfraLens Handoff
 
-Last refreshed: September 23, 2026.
+Last refreshed: September 26, 2026.
+
+## Saved Projects Work In Progress
+
+- Branch `feature/saved-projects-analysis-history` adds milestone 1 persistence within the existing
+  workspaces. Changes are intentionally uncommitted for review.
+- Read [Saved projects](docs/SAVED_PROJECTS.md) for API routes, key design, idempotency, cleanup,
+  quotas, retention, local setup and opt-in disposable AWS tests. `/projects` is the web entry point.
+- API adapters are `apps/api/src/history*.ts`; shared contracts are `packages/shared/src/history.ts`.
+  Stateless analysis/CLI behavior is preserved. No queue or background janitor was added.
+- No disposable AWS environment was configured for this task; no deployment or browser test was
+  performed. Hosted persistence verification remains required. The older baseline below describes
+  the previously merged state, not these uncommitted changes.
+- Local verification: 23 new persistence tests pass; existing API, analyzer, CLI and shared suites
+  pass. CDK's 8 tests pass after rerunning outside the sandbox for esbuild access. Workspace
+  typecheck/build and integration pass. Production synthesis with no lookups passes; persistence
+  IAM, lifecycle/TTL, encryption and RETAIN policies were inspected. Vite reports a >500 kB chunk
+  warning. No CI result is claimed.
 
 ## Start Here
 

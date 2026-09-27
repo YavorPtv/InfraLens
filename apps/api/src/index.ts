@@ -32,6 +32,9 @@ import {
   type ApiOperation
 } from "./operationLogging";
 import { getApiRequestLimits, type ApiRequestLimits } from "./requestLimits";
+import type { HistoryService } from "./historyService";
+import { routeHistory } from "./historyRoutes";
+import { configuredHistory, localHistoryOwner } from "./historyConfig";
 
 export const apiAppName = "InfraLens API";
 
@@ -47,6 +50,9 @@ export { defaultApiRequestLimits, getApiRequestLimits } from "./requestLimits";
 export type { ApiRequestLimits } from "./requestLimits";
 
 export interface CreateApiAppOptions {
+  history?: HistoryService;
+  /** Explicit dependency for local tests; never read from HTTP headers or request bodies. */
+  localOwner?: string;
   cloudFormationValidator?: CloudFormationTemplateValidator;
   analyze?: AnalyzeTemplateHandler;
   diff?: AnalyzeTemplateDiffHandler;
@@ -57,6 +63,14 @@ export interface CreateApiAppOptions {
 }
 
 export function createApiApp(options: CreateApiAppOptions = {}): Express {
+  if (
+    options.localOwner &&
+    (process.env.INFRALENS_ENVIRONMENT === "production" ||
+      process.env.NODE_ENV === "production" ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME)
+  ) {
+    throw new Error("Local identity cannot be used by a production or Lambda API.");
+  }
   const validator = options.cloudFormationValidator;
   const analyze = options.analyze ?? analyzeTemplate;
   const diff = options.diff ?? analyzeTemplateDiff;
@@ -68,7 +82,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
   app.use(
     cors({
       allowedHeaders: ["Authorization", "Content-Type"],
-      methods: ["GET", "OPTIONS", "POST"],
+      methods: ["GET", "OPTIONS", "POST", "PATCH", "DELETE"],
       origin(origin, callback) {
         if (origin === undefined || allowedOrigins.includes(origin)) {
           callback(null, true);
@@ -81,6 +95,40 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
   );
 
   app.use(express.text({ limit: requestLimits.maxRequestBytes, type: "*/*" }));
+
+  app.use(async (request, response, next) => {
+    if (request.path !== "/projects" && !request.path.startsWith("/projects/")) {
+      return next();
+    }
+
+    response.setHeader("cache-control", "no-store");
+
+    try {
+      const query: Record<string, string> = {};
+      for (const [key, value] of Object.entries(request.query)) {
+        if (typeof value !== "string") {
+          throw new ApiRequestError(400, "INVALID_REQUEST", "Query values must be strings.");
+        }
+        query[key] = value;
+      }
+
+      const result = await routeHistory(
+        options.history,
+        {
+          method: request.method,
+          path: request.path,
+          owner: options.localOwner,
+          body: getRawTemplateBody(request),
+          query
+        },
+        requestLimits.maxRequestBytes
+      );
+
+      response.status(result.statusCode).json(result.payload);
+    } catch (error) {
+      writeApiError(response, toApiRequestError(error));
+    }
+  });
 
   app.get("/health", (_request, response) => {
     response.json({
@@ -131,9 +179,13 @@ export function createApiServer(options: CreateApiAppOptions = {}): Server {
 }
 
 export function startApiServer(port = Number(process.env.PORT ?? 3000)): Server {
-  const server = createApiServer({ cloudFormationValidator: configuredCloudFormationValidator() });
+  const server = createApiServer({
+    cloudFormationValidator: configuredCloudFormationValidator(),
+    history: configuredHistory(false),
+    localOwner: localHistoryOwner()
+  });
 
-  server.listen(port, () => {
+  server.listen(port, process.env.INFRALENS_LOCAL_OWNER ? "127.0.0.1" : undefined, () => {
     process.stdout.write(`${apiAppName} listening on http://localhost:${port}\n`);
   });
 

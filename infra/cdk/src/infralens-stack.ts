@@ -6,6 +6,7 @@ import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
@@ -31,6 +32,13 @@ export interface InfraLensRequestLimitConfiguration {
 }
 
 export interface InfraLensStackProps extends cdk.StackProps {
+  historyQuotas?: {
+    projectsPerUser?: number;
+    runsPerProject?: number;
+    runsPerUser?: number;
+    retainedInputBytes?: number;
+    saveKeysPerUser?: number;
+  };
   environmentName?: InfraLensEnvironment;
   frontendOrigin?: string;
   cognitoDomainPrefix?: string;
@@ -54,6 +62,41 @@ export class InfraLensStack extends cdk.Stack {
     const environmentName = props.environmentName ?? "development";
     const isProduction = environmentName === "production";
     validateConfiguration(props, isProduction);
+
+    const persistenceRemovalPolicy = isProduction
+      ? cdk.RemovalPolicy.RETAIN
+      : cdk.RemovalPolicy.DESTROY;
+    const projectsTable = new dynamodb.Table(this, "ProjectsTable", {
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: isProduction },
+      removalPolicy: persistenceRemovalPolicy
+    });
+    const runsTable = new dynamodb.Table(this, "RunsTable", {
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: isProduction },
+      timeToLiveAttribute: "expiresAt",
+      removalPolicy: persistenceRemovalPolicy
+    });
+    const artifactBucket = new s3.Bucket(this, "ArtifactBucket", {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: persistenceRemovalPolicy,
+      lifecycleRules: [
+        {
+          id: "ExpireRetainedInputs",
+          tagFilters: { retention: "input" },
+          expiration: cdk.Duration.days(7)
+        },
+        { id: "AbortIncompleteUploads", abortIncompleteMultipartUploadAfter: cdk.Duration.days(1) }
+      ]
+    });
 
     const frontendBucket = new s3.Bucket(this, "FrontendBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -103,9 +146,25 @@ export class InfraLensStack extends cdk.Stack {
     );
 
     // ValidateTemplate has no resource-level IAM scope; it cannot create or update stacks.
-    analysisFunctionRole.addToPolicy(new iam.PolicyStatement({
-      actions: ["cloudformation:ValidateTemplate"], resources: ["*"]
-    }));
+    analysisFunctionRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["cloudformation:ValidateTemplate"],
+        resources: ["*"]
+      })
+    );
+    // Transactional Put operations authorize against PutItem; no Scan or wildcard grants.
+    analysisFunctionRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem"],
+        resources: [projectsTable.tableArn, runsTable.tableArn]
+      })
+    );
+    analysisFunctionRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:GetObject", "s3:PutObject", "s3:PutObjectTagging", "s3:DeleteObject"],
+        resources: [artifactBucket.arnForObjects("owners/*")]
+      })
+    );
 
     const analysisFunction = new nodejs.NodejsFunction(this, "AnalysisApiFunction", {
       architecture: lambda.Architecture.ARM_64,
@@ -121,6 +180,11 @@ export class InfraLensStack extends cdk.Stack {
         INFRALENS_CORS_ORIGINS: frontendOrigin,
         INFRALENS_ENVIRONMENT: environmentName,
         INFRALENS_CLOUDFORMATION_VALIDATION: "true",
+        INFRALENS_HISTORY_ADAPTER: "aws",
+        INFRALENS_PROJECTS_TABLE: projectsTable.tableName,
+        INFRALENS_RUNS_TABLE: runsTable.tableName,
+        INFRALENS_ARTIFACT_BUCKET: artifactBucket.bucketName,
+        ...toHistoryQuotaEnvironment(props.historyQuotas),
         ...toRequestLimitEnvironment(props.requestLimits)
       },
       handler: "handler",
@@ -144,7 +208,7 @@ export class InfraLensStack extends cdk.Stack {
       cloudWatchRole: true,
       defaultCorsPreflightOptions: {
         allowHeaders: ["Authorization", "Content-Type"],
-        allowMethods: ["GET", "OPTIONS", "POST"],
+        allowMethods: ["GET", "OPTIONS", "POST", "PATCH", "DELETE"],
         allowOrigins: [frontendOrigin]
       },
       deployOptions: {
@@ -201,9 +265,10 @@ export class InfraLensStack extends cdk.Stack {
       }
     );
 
-    const routeOptions = isProduction
-      ? createProductionAuthentication(this, frontendOrigin, props.cognitoDomainPrefix!)
-      : {};
+    const routeOptions =
+      isProduction || props.cognitoDomainPrefix !== undefined
+        ? createProductionAuthentication(this, frontendOrigin, props.cognitoDomainPrefix!)
+        : {};
 
     addAnalysisApiRoutes(api, analysisFunction, routeOptions);
     addAuthenticationGatewayResponses(api, frontendOrigin);
@@ -225,6 +290,9 @@ export class InfraLensStack extends cdk.Stack {
     new cdk.CfnOutput(this, "AnalysisApplyApiUrl", { value: `${api.url}apply` });
     new cdk.CfnOutput(this, "AnalysisApiBaseUrl", { value: api.url });
     new cdk.CfnOutput(this, "DeploymentEnvironment", { value: environmentName });
+    new cdk.CfnOutput(this, "ProjectsTableName", { value: projectsTable.tableName });
+    new cdk.CfnOutput(this, "RunsTableName", { value: runsTable.tableName });
+    new cdk.CfnOutput(this, "ArtifactBucketName", { value: artifactBucket.bucketName });
   }
 }
 
@@ -247,6 +315,29 @@ export function addAnalysisApiRoutes(
       .addResource(path)
       .addMethod("POST", new apigateway.LambdaIntegration(analysisFunction), methodOptions);
   }
+  const projects = api.root.addResource("projects");
+  const integration = new apigateway.LambdaIntegration(analysisFunction);
+  for (const method of ["GET", "POST"]) {
+    projects.addMethod(method, integration, methodOptions);
+  }
+  projects.addResource("cleanup").addMethod("POST", integration, methodOptions);
+  projects.addResource("compare").addMethod("POST", integration, methodOptions);
+  const project = projects.addResource("{projectId}");
+  for (const method of ["PATCH", "DELETE"]) {
+    project.addMethod(method, integration, methodOptions);
+  }
+  const runs = project.addResource("runs");
+  for (const method of ["GET", "POST"]) {
+    runs.addMethod(method, integration, methodOptions);
+  }
+  const run = runs.addResource("{runId}");
+  for (const method of ["GET", "DELETE"]) {
+    run.addMethod(method, integration, methodOptions);
+  }
+  run
+    .addResource("artifacts")
+    .addResource("{artifact}")
+    .addMethod("GET", integration, methodOptions);
 }
 
 function createProductionAuthentication(
@@ -415,11 +506,25 @@ function toRequestLimitEnvironment(
 
   return Object.fromEntries(
     Object.entries(limits)
-      .filter((entry): entry is [keyof InfraLensRequestLimitConfiguration, number] =>
-        entry[1] !== undefined
+      .filter(
+        (entry): entry is [keyof InfraLensRequestLimitConfiguration, number] =>
+          entry[1] !== undefined
       )
       .map(([key, value]) => [environmentKeys[key], String(value)])
   );
+}
+
+function toHistoryQuotaEnvironment(
+  quotas: InfraLensStackProps["historyQuotas"]
+): Record<string, string> {
+  const environment: Record<string, string> = {};
+
+  for (const [quotaName, value] of Object.entries(quotas ?? {})) {
+    const uppercaseName = quotaName.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase();
+    environment[`INFRALENS_QUOTA_${uppercaseName}`] = String(value);
+  }
+
+  return environment;
 }
 
 function quoteForGateway(value: string): string {
@@ -427,9 +532,11 @@ function quoteForGateway(value: string): string {
 }
 
 function validateConfiguration(props: InfraLensStackProps, isProduction: boolean): void {
-  if (props.environmentName !== undefined &&
-      props.environmentName !== "development" &&
-      props.environmentName !== "production") {
+  if (
+    props.environmentName !== undefined &&
+    props.environmentName !== "development" &&
+    props.environmentName !== "production"
+  ) {
     throw new Error("environmentName must be development or production.");
   }
 
@@ -453,6 +560,13 @@ function validateConfiguration(props: InfraLensStackProps, isProduction: boolean
     }
   }
 
+  for (const [key, value] of Object.entries(props.historyQuotas ?? {})) {
+    const maximum = key === "retainedInputBytes" ? 4 * 1024 * 1024 : 100000;
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 1 || value > maximum)) {
+      throw new Error(`Invalid history quota ${key}`);
+    }
+  }
+
   if (props.monthlyBudgetUsd !== undefined && props.alertEmail === undefined) {
     throw new Error("alertEmail is required when monthlyBudgetUsd is configured.");
   }
@@ -466,6 +580,8 @@ function validateCognitoDomainPrefix(prefix: string): void {
   }
 
   if (/(?:aws|amazon|cognito)/.test(prefix)) {
-    throw new Error("cognitoDomainPrefix must not contain the reserved terms aws, amazon, or cognito.");
+    throw new Error(
+      "cognitoDomainPrefix must not contain the reserved terms aws, amazon, or cognito."
+    );
   }
 }

@@ -3,6 +3,7 @@ import * as cdk from "aws-cdk-lib";
 import {
   InfraLensStack,
   type InfraLensEnvironment,
+  type InfraLensStackProps,
   type InfraLensRequestLimitConfiguration
 } from "./infralens-stack";
 
@@ -21,6 +22,7 @@ new InfraLensStack(app, "InfraLensStack", {
     app.node.tryGetContext("lambdaReservedConcurrency")
   ),
   requestLimits: readRequestLimits(app),
+  historyQuotas: readHistoryQuotas(app),
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION
@@ -42,9 +44,7 @@ function readRequestLimits(app: cdk.App): InfraLensRequestLimitConfiguration {
     maxTemplateBytes: readOptionalNumber(app.node.tryGetContext("maxTemplateBytes")),
     maxSourceFiles: readOptionalNumber(app.node.tryGetContext("maxSourceFiles")),
     maxSourceFileBytes: readOptionalNumber(app.node.tryGetContext("maxSourceFileBytes")),
-    maxCombinedSourceBytes: readOptionalNumber(
-      app.node.tryGetContext("maxCombinedSourceBytes")
-    ),
+    maxCombinedSourceBytes: readOptionalNumber(app.node.tryGetContext("maxCombinedSourceBytes")),
     maxSourceMappings: readOptionalNumber(app.node.tryGetContext("maxSourceMappings")),
     maxSourceExclusions: readOptionalNumber(app.node.tryGetContext("maxSourceExclusions")),
     maxDiffTemplateBytes: readOptionalNumber(app.node.tryGetContext("maxDiffTemplateBytes")),
@@ -63,4 +63,24 @@ function readOptionalNumber(value: unknown): number | undefined {
   }
 
   return parsed;
+}
+
+function readHistoryQuotas(app: cdk.App): InfraLensStackProps["historyQuotas"] {
+  const quotaNames = [
+    "projectsPerUser",
+    "runsPerProject",
+    "runsPerUser",
+    "retainedInputBytes",
+    "saveKeysPerUser"
+  ] as const;
+  const quotas: NonNullable<InfraLensStackProps["historyQuotas"]> = {};
+
+  for (const quotaName of quotaNames) {
+    const value = readOptionalNumber(app.node.tryGetContext(quotaName));
+    if (value !== undefined) {
+      quotas[quotaName] = value;
+    }
+  }
+
+  return quotas;
 }
