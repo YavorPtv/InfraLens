@@ -1,8 +1,10 @@
 # InfraLens Portfolio And AWS Engineering Roadmap
 
 Last redesigned: September 23, 2026. This replaces the previous analyzer-focused roadmap.
-Local baseline: `main` at `694ff3d`; analyzer coverage (#52) and template validation (#51) are merged.
-Everything below the baseline is planned, not implemented or deployed.
+Verified repository baseline: `main` at `8896116` includes saved projects/history (#53), analyzer
+coverage (#52) and template validation (#51). Milestone 1 code is merged; hosted verification is
+still pending. Later milestones remain plans. See HANDOFF.md for current uncommitted environment
+separation and user-supplied AWS setup; Git history does not establish live deployment state.
 
 ## Goal And Scope
 
@@ -100,7 +102,7 @@ identity versus authorization, partial failure, retention and testable infrastru
 
 **Done when:** a saved report survives a fresh browser session; a second user cannot list/read/delete
 it or obtain its artifacts; duplicate saves yield one run; failed writes recover safely; CDK and
-storage integration checks pass. Verify against a disposable AWS environment as well as local
+storage integration checks pass. Verify against the persistent AWS test environment as well as local
 adapters before declaring hosted persistence complete.
 
 ## Milestone 2: Make History Useful

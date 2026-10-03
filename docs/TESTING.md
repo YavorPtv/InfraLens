@@ -132,7 +132,35 @@ credential is introduced.
 idempotency, scoped cursors, retention, quotas, failure recovery, deletion races and fresh-client
 report restoration without a browser. These checks are included in normal tests and integration.
 
-The real storage suite is separate: `npm.cmd run test:aws --workspace @infralens/api` requires an
-explicit disposable AWS opt-in and table/bucket names. It is not part of normal tests. See
-[Saved projects verification](SAVED_PROJECTS.md#explicit-disposable-aws-checks) for configuration,
-cleanup and optional two-user Cognito checks. Do not run it against production.
+The legacy real storage suite is separate and retains its explicit `INFRALENS_DISPOSABLE_AWS`
+opt-in and resource-name settings. It never deploys or destroys a stack. Its future workflow should
+use the persistent test stack and disposable data, not provision a new environment per run. See
+[Saved projects verification](SAVED_PROJECTS.md#persistent-aws-test-checks-later-task). Do not run it
+against production. Browser E2E, hosted smoke and live storage were not run for environment separation.
+
+## Deployment separation checks
+
+`infra/cdk/test/deployment-workflow.test.ts` uses mocked process/AWS identity responses to verify
+explicit target validation, account mismatches, region/stack guards, pending production-region
+confirmation, bootstrap failures, output isolation, credential environment isolation, template-only
+diff and deployment command construction. No operational command reaches AWS in these tests.
+
+`infra/cdk/test/infralens-stack.test.ts` synthesizes both real stack definitions and checks account,
+resource isolation, all 14 protected API methods, public preflight, matching origins/Cognito URLs,
+Lambda runtime settings, separate outputs and retention. `apps/api/test/environmentConfiguration.test.ts`
+checks frontend configuration, session isolation, exact CORS and working local Express memory history
+with an explicit fake identity and no AWS configuration. Frontend helpers run under Mocha without a browser.
+
+```powershell
+npm.cmd run typecheck
+npm.cmd run build
+npm.cmd run test
+npm.cmd run test:integration
+npm.cmd run synth --workspace @infralens/cdk -- --target test
+npm.cmd run synth --workspace @infralens/cdk -- --target production
+```
+
+These checks require no AWS credentials or bootstrap. See [deployment commands](PRODUCTION_DEPLOYMENT.md)
+for read-only operational preflight/diff and later deployment. Hosted login, the localhost Gateway
+auth-error CORS limitation, real storage permissions and actual user isolation still require a later
+authorized verification task. Keep the test stack deployed between those runs.

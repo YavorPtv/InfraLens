@@ -1,9 +1,4 @@
-interface AuthConfig {
-  clientId: string;
-  cognitoDomain: string;
-  redirectUri: string;
-  logoutUri: string;
-}
+import { authSessionStorageKey, resolveAuthConfig, type AuthConfig } from "./authConfig";
 
 interface StoredTokens {
   accessToken: string;
@@ -19,9 +14,6 @@ interface CognitoTokenResponse {
   expires_in: number;
 }
 
-const tokenStorageKey = "infralens.auth.tokens";
-const verifierStorageKey = "infralens.auth.pkce_verifier";
-const stateStorageKey = "infralens.auth.oauth_state";
 const authChangedEvent = "infralens-auth-changed";
 let callbackCompletion: Promise<void> | undefined;
 
@@ -32,7 +24,7 @@ export class AuthenticationRequiredError extends Error {
 }
 
 export function isAuthenticationEnabled(): boolean {
-  return import.meta.env.VITE_INFRALENS_AUTH_ENABLED === "true";
+  return resolveAuthConfig(import.meta.env, window.location.origin) !== undefined;
 }
 
 export function subscribeToAuthChanges(listener: () => void): () => void {
@@ -58,8 +50,8 @@ export async function beginSignIn(): Promise<void> {
   const state = createRandomValue(24);
   const challenge = await createCodeChallenge(verifier);
 
-  sessionStorage.setItem(verifierStorageKey, verifier);
-  sessionStorage.setItem(stateStorageKey, state);
+  sessionStorage.setItem(storageKey("pkce_verifier"), verifier);
+  sessionStorage.setItem(storageKey("oauth_state"), state);
 
   const parameters = new URLSearchParams({
     client_id: config.clientId,
@@ -91,8 +83,8 @@ async function completeSignInOnce(callbackUrl: string): Promise<void> {
 
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  const expectedState = sessionStorage.getItem(stateStorageKey);
-  const verifier = sessionStorage.getItem(verifierStorageKey);
+  const expectedState = sessionStorage.getItem(storageKey("oauth_state"));
+  const verifier = sessionStorage.getItem(storageKey("pkce_verifier"));
   if (code === null || state === null || state !== expectedState || verifier === null) {
     clearAuthSession();
     throw new AuthenticationRequiredError("The sign-in response could not be verified.");
@@ -118,8 +110,8 @@ async function completeSignInOnce(callbackUrl: string): Promise<void> {
   }
 
   storeTokens((await response.json()) as CognitoTokenResponse);
-  sessionStorage.removeItem(verifierStorageKey);
-  sessionStorage.removeItem(stateStorageKey);
+  sessionStorage.removeItem(storageKey("pkce_verifier"));
+  sessionStorage.removeItem(storageKey("oauth_state"));
   notifyAuthChanged();
 }
 
@@ -159,28 +151,15 @@ export async function authenticatedFetch(
 }
 
 function getAuthConfig(): AuthConfig {
-  if (!isAuthenticationEnabled()) {
+  const config = resolveAuthConfig(import.meta.env, window.location.origin);
+  if (config === undefined) {
     throw new Error("InfraLens authentication is not enabled.");
   }
+  return config;
+}
 
-  const clientId = import.meta.env.VITE_INFRALENS_COGNITO_CLIENT_ID;
-  const cognitoDomain = import.meta.env.VITE_INFRALENS_COGNITO_DOMAIN;
-  const redirectUri =
-    import.meta.env.VITE_INFRALENS_COGNITO_REDIRECT_URI ??
-    `${window.location.origin}/auth/callback`;
-  const logoutUri =
-    import.meta.env.VITE_INFRALENS_COGNITO_LOGOUT_URI ?? `${window.location.origin}/`;
-
-  if (clientId === undefined || cognitoDomain === undefined) {
-    throw new Error("Cognito client ID and domain are required when authentication is enabled.");
-  }
-
-  return {
-    clientId,
-    cognitoDomain: cognitoDomain.replace(/\/+$/, ""),
-    redirectUri,
-    logoutUri
-  };
+function storageKey(suffix: string): string {
+  return authSessionStorageKey(getAuthConfig(), suffix);
 }
 
 async function getAccessToken(): Promise<string | undefined> {
@@ -231,11 +210,11 @@ function storeTokens(tokens: CognitoTokenResponse): void {
     ...(tokens.id_token === undefined ? {} : { idToken: tokens.id_token }),
     ...(tokens.refresh_token === undefined ? {} : { refreshToken: tokens.refresh_token })
   };
-  sessionStorage.setItem(tokenStorageKey, JSON.stringify(storedTokens));
+  sessionStorage.setItem(storageKey("tokens"), JSON.stringify(storedTokens));
 }
 
 function readTokens(): StoredTokens | undefined {
-  const rawTokens = sessionStorage.getItem(tokenStorageKey);
+  const rawTokens = sessionStorage.getItem(storageKey("tokens"));
   if (rawTokens === null) {
     return undefined;
   }
@@ -251,9 +230,12 @@ function readTokens(): StoredTokens | undefined {
 }
 
 function clearAuthSession(): void {
-  sessionStorage.removeItem(tokenStorageKey);
-  sessionStorage.removeItem(verifierStorageKey);
-  sessionStorage.removeItem(stateStorageKey);
+  if (!isAuthenticationEnabled()) {
+    return;
+  }
+  sessionStorage.removeItem(storageKey("tokens"));
+  sessionStorage.removeItem(storageKey("pkce_verifier"));
+  sessionStorage.removeItem(storageKey("oauth_state"));
   notifyAuthChanged();
 }
 

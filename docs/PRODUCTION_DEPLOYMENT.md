@@ -1,157 +1,265 @@
-# Protected Production Deployment
+# AWS test and production deployment
 
-InfraLens initially uses invited access rather than anonymous public API access.
+InfraLens has three independent modes: local Express/React, persistent AWS test, and AWS production.
+Deployment identity is defined in `infra/cdk/src/deployment-target.ts`, never inferred from
+`NODE_ENV`, `INFRALENS_ENVIRONMENT`, `CDK_DEFAULT_ACCOUNT`, or active credentials.
 
-The production CDK configuration creates a Cognito User Pool with self-registration disabled. The
-React app uses Cognito's hosted sign-in page with OAuth authorization code flow and PKCE. It stores
-the resulting session in browser session storage and sends the access token as a bearer token.
-API Gateway validates that token before invoking `POST /analyze`, `POST /diff`, `POST /apply`, or
-any saved-project/history route under `/projects`.
-`GET /health` remains unauthenticated and performs no analysis.
+## Configuration and known AWS state
 
-The analyzer Lambda receives no Cognito administration permissions, and frontend users receive no
-AWS credentials.
-
-## Production Configuration
-
-Build and synthesize from the repository root. Replace the example domain prefix with a globally
-unique Cognito prefix:
-
-```sh
-npm run build --workspace @infralens/cdk
-npm run synth --workspace @infralens/cdk -- \
-  -c environment=production \
-  -c cognitoDomainPrefix=infralens-your-project
-```
-
-`cognitoDomainPrefix` is required for production and must be globally unique. It can contain only
-lowercase letters, numbers, and internal hyphens, and AWS does not allow the terms `aws`, `amazon`,
-or `cognito` anywhere in the prefix. These settings are optional:
-
-| CDK context value | Default | Purpose |
+| Setting | AWS test | Production |
 | --- | --- | --- |
-| `frontendOrigin` | Created CloudFront origin | Override for a custom frontend domain |
-| `apiThrottleRateLimit` | `2` requests/second | REST API stage steady-state throttle |
-| `apiThrottleBurstLimit` | `5` requests | REST API stage burst throttle |
-| `lambdaReservedConcurrency` | none | Optionally caps concurrent analyzer executions |
-| `alertEmail` | none | Adds an email subscription for operational alarms |
-| `monthlyBudgetUsd` | none | Creates an AWS monthly cost budget; requires `alertEmail` |
+| Target argument | `test` | `production` |
+| Account | `230944684535` | `609124256824` |
+| Region | `eu-central-1` | `eu-central-1`, proposed, pending confirmation |
+| Application stack | `InfraLensTestStack` | `InfraLensProdStack` |
+| Supplied CLI profile | `infralens-test-admin` | `infralens-prod-admin` |
+| Proposed Cognito prefix | `infralens-test-230944684535-euc1` | `infralens-prod-609124256824-euc1` |
+| Frontend origins | Own CloudFront HTTPS origin and `http://localhost:5173` | Own CloudFront HTTPS origin only |
+| DynamoDB point-in-time recovery | Disabled | Enabled |
 
-The email subscription created by `alertEmail` must be confirmed before it receives CloudWatch
-alarm notifications. A budget is deliberately not created by default because its amount and
-recipient must be chosen by the account owner.
+Both profiles currently have **administrator permissions**. They are not restricted deployment
+roles. Narrower permissions and bootstrap trust/execution policies are a later task. Profile names
+are labels; the workflow checks the actual STS caller account every time.
 
-Development is selected by default and uses `http://localhost:5173` for the deployed API's CORS
-origin. It creates Cognito resources when `cognitoDomainPrefix` is explicitly supplied; without
-Cognito, saved-project routes reject missing identity. The local Express API also permits
-`http://127.0.0.1:5173`. A development stack is not the public production configuration.
+User-supplied AWS state, not independently inspected in this task:
 
-## Invite The First User
+- AWS Organizations and IAM Identity Center are configured. No custom organization policies or
+  permission restrictions were added.
+- There is no production application stack. No migration or application stack rename is needed.
+- Production has `CDKToolkit`; leave it unchanged. The user subsequently confirmed test was not
+  bootstrapped and reported preflight's missing-stack error. Successful bootstrap is not yet verified.
+- CloudTrail has not been configured.
+- A $1 management-account budget exists; its scope and coverage are unverified.
+- Neither proposed Cognito prefix's availability has been verified. Region confirmation is still
+  required for production; successful offline synthesis does not confirm that decision.
 
-After deployment, use the `CognitoUserPoolId` stack output to create an invited user. For example:
+Each application stack creates its own Lambda, REST API, two DynamoDB tables, private artifact
+bucket, private frontend bucket, CloudFront distribution, Cognito user pool/client/domain, logs and
+alarms. No resource is imported from the other environment. Both hosted targets use production
+**runtime** safeguards, AWS history storage, and Cognito access tokens; local identity is never set.
+The Lambda IAM action set is unchanged by environment separation.
 
-```sh
-aws cognito-idp admin-create-user \
-  --user-pool-id YOUR_USER_POOL_ID \
-  --username owner@example.com \
-  --user-attributes Name=email,Value=owner@example.com Name=email_verified,Value=true \
-  --desired-delivery-mediums EMAIL
+Edit reviewed target settings in the existing CDK workspace. The created CloudFront origin is always
+allowed. `additionalFrontendOrigins` adds exact origins, with HTTPS required except for the one test
+localhost origin. There are no wildcard origins. Custom-domain DNS/certificates and extra frontend
+build variants are not provisioned by this task. Existing numeric operational/request-limit CDK
+context settings remain available to direct offline app synthesis; the guarded workflow uses their
+defaults. Change reviewed defaults before using the workflow if needed.
+
+## Commands available now: entirely offline
+
+Run from the repository root in PowerShell after installing dependencies with `npm.cmd ci`:
+
+```powershell
+npm.cmd run typecheck
+npm.cmd run build
+npm.cmd run test
+npm.cmd run test:integration
+npm.cmd run synth --workspace @infralens/cdk -- --target test
+npm.cmd run synth --workspace @infralens/cdk -- --target production
 ```
 
-Cognito sends the user a temporary password. There is no public registration route or sign-up UI.
+Normal tests use mocks or local memory and make no live AWS calls. Offline synth directly runs the
+CDK application without the CDK CLI's credential discovery, clears inherited AWS/CDK environment
+settings, and rejects assemblies with unresolved lookups. It writes to `infra/cdk/cdk.out/test` and
+`infra/cdk/cdk.out/production`. No bootstrap or credentials are required. CDK bundling requires
+local esbuild process/filesystem access. Tests and synth are not deployment evidence.
 
-Build the frontend using the deployed stack outputs:
+Missing/invalid `--target` fails. The old `-c environment=development|production` interface is
+rejected by the CDK app. Bare `cdk synth` has no default target. Use the scripts above for offline
+work and the guarded scripts below for operations; direct `cdk deploy` bypasses the wrapper's STS
+check and is not the supported deployment workflow.
 
-```sh
-VITE_INFRALENS_API_BASE_URL=https://API_ID.execute-api.REGION.amazonaws.com/production \
-VITE_INFRALENS_AUTH_ENABLED=true \
-VITE_INFRALENS_COGNITO_CLIENT_ID=COGNITO_WEB_CLIENT_ID \
-VITE_INFRALENS_COGNITO_DOMAIN=https://YOUR_PREFIX.auth.REGION.amazoncognito.com \
-npm run build --workspace @infralens/web
+## Read-only operational checks, after SSO access is available
+
+Preflight, diff, and deploy require explicit region and stack, validate them against the target,
+then call `aws sts get-caller-identity` with the selected profile and region. A wrong account,
+failed/expired login, wrong region, wrong stack, or unconfirmed production region stops the workflow.
+Inherited AWS keys, session tokens, role/endpoint overrides and region settings are removed from
+child processes. Profiles are read from the normal AWS shared files. `--profile <name>` can select
+a future narrower profile, but never changes the expected account.
+
+After STS succeeds, preflight reads `CDKToolkit` in that account/region and requires a stable stack
+status. It does not create, update, rename or repair bootstrap resources. Missing bootstrap is a
+failure requiring a separate setup decision. This check is not a full audit of bootstrap version,
+trust policies or deployment permissions.
+
+These commands are implemented now and are read-only, but require working SSO sessions and existing
+bootstrap stacks/permissions. Test preflight may fail until its unverified bootstrap is inspected.
+They were **not run** in this implementation task:
+
+```powershell
+npm.cmd run preflight --workspace @infralens/cdk -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-admin
+npm.cmd run diff --workspace @infralens/cdk -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-admin
 ```
 
-The default callback and logout URLs use the browser origin. Set
-`VITE_INFRALENS_COGNITO_REDIRECT_URI` and `VITE_INFRALENS_COGNITO_LOGOUT_URI` only when they must
-differ. They must match the callback and logout origins configured through CDK.
+Diff repeats preflight, synthesizes locally, verifies the assembly's account/region/stack, and uses
+`cdk diff --method template`. This avoids change-set creation and asset publication; replacement
+predictions are less precise than change-set diff. See the [AWS CDK diff reference](https://docs.aws.amazon.com/cdk/v2/guide/ref-cli-cmd-diff.html).
 
-## CORS And Limits
+Only **after confirming production's region** use these exact production checks. The confirmation
+flag records the decision for that invocation; it does not mark the proposed region as confirmed
+in source control:
 
-Production preflight and Lambda responses allow only the configured frontend origin,
-`Authorization` and `Content-Type`, and `GET`, `OPTIONS`, `POST`, `PATCH`, and `DELETE`. An unrecognized origin is not
-echoed. Authentication failures generated by API Gateway use the same CORS origin.
+```powershell
+npm.cmd run preflight --workspace @infralens/cdk -- --target production --region eu-central-1 --stack InfraLensProdStack --profile infralens-prod-admin --confirm-production-region eu-central-1
+npm.cmd run diff --workspace @infralens/cdk -- --target production --region eu-central-1 --stack InfraLensProdStack --profile infralens-prod-admin --confirm-production-region eu-central-1
+```
 
-Application validation runs before analyzer work and returns a structured `413
-PAYLOAD_TOO_LARGE` response without truncating input:
+## Test bootstrap: separate manual setup
 
-| Limit | Default |
-| --- | ---: |
-| Entire request | 4 MiB |
-| One CloudFormation template | 1 MiB |
-| Uploaded source files | 100 |
-| One source file | 256 KiB |
-| All source files combined | 2 MiB |
-| Source-to-Lambda mappings | 100 |
-| Source exclusions | 100 |
-| Old and new diff templates combined | 2 MiB |
-| Selected template fixes | 200 |
+The user requested the standard bootstrap command after confirming test has no `CDKToolkit`.
+With an active SSO session, run from the repository root:
 
-Every limit can be overridden with the corresponding camel-case CDK context value, such as
-`-c maxTemplateBytes=524288`. CDK passes configured overrides to the Lambda as
-`INFRALENS_MAX_*` environment variables. The same centralized validator is used by Express and
-Lambda.
+```powershell
+$bootstrapAccount = aws sts get-caller-identity --profile infralens-test-admin --region eu-central-1 --query Account --output text --no-cli-pager
 
-Request limits bound input before parsing. Analyzer safety comes from bounded uploaded source
-graphs plus visited sets that prevent import cycles from recursing forever. The synchronous
-analyzer does not claim a cancellable wall-clock budget. Lambda's 30-second timeout is the final
-hard execution boundary; its 512 MiB memory allocation is intentional.
+if ($LASTEXITCODE -ne 0 -or $bootstrapAccount -ne '230944684535') {
+    throw 'Account verification failed. Bootstrap stopped.'
+}
 
-## Operations And Cost
+npm.cmd exec --workspace @infralens/cdk -- cdk bootstrap aws://230944684535/eu-central-1 --profile infralens-test-admin --region eu-central-1 --context target=test
+```
 
-The REST API stage is configured for 2 requests per second with a burst of 5. Lambda reserved
-concurrency is optional because AWS requires part of the account's regional concurrency quota to
-remain unreserved, and reduced-quota accounts might not be able to reserve any concurrency. On an
-account with enough quota, `lambdaReservedConcurrency` adds a hard function-level cap but can cause
-requests above that cap to be throttled.
+This creates bootstrap resources and IAM roles in the test account/region. Standard bootstrap gives
+the CloudFormation execution role `AdministratorAccess`; it does not establish narrower deployment
+permissions. See the [AWS bootstrap reference](https://docs.aws.amazon.com/cdk/v2/guide/ref-cli-cmd-bootstrap.html).
+The explicit context is necessary because the installed CLI evaluates the configured CDK app during
+bootstrap, even with an explicit environment. Evaluating the app does not deploy `InfraLensTestStack`.
+After bootstrap succeeds, rerun test preflight. Leave production `CDKToolkit` unchanged.
+This command has been supplied for manual execution; it was not executed by the assistant.
 
-Lambda operation logs are structured and include the operation, request ID, outcome, duration,
-resource count, source-file count, finding count, and error category when available. Templates,
-source contents, request bodies, tokens, and secrets are not logged. API Gateway access logs include
-request ID, method, resource path, status, response and integration latency, and integration status
-or error. Request and response bodies are disabled. Both log groups retain data for 30 days.
+## Deployment commands: implemented, for a later authorized task
 
-CloudWatch alarms cover Lambda errors, Lambda throttles, p95 duration at 24 seconds, and API Gateway
-5XX responses. They require two consecutive five-minute periods to reduce noise. The alarms exist
-without an email destination; set `alertEmail` to connect them to an SNS email subscription.
+Do not run these until deployment permissions/bootstrap setup have been reviewed and deployment is
+intended. The supplied administrator profiles technically have broad permissions; these prerequisites
+are remaining operational work, not restrictions already applied to those profiles.
 
-When `monthlyBudgetUsd` and `alertEmail` are supplied, CDK creates a monthly AWS cost budget with an
-actual-cost notification at 80 percent and a forecast notification at 100 percent. AWS Budgets uses
-delayed billing data and is not a real-time hard spending cap. API throttling is the default
-immediate control; reserved concurrency can add another cap when the account quota permits it.
+```powershell
+npm.cmd run deploy --workspace @infralens/cdk -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-admin
+```
 
-The synthesized Lambda role can write its designated log group and call
-`cloudformation:ValidateTemplate` (Resource `*`, because this action has no resource-level scope).
-It also has scoped GetItem/Query/PutItem permissions on the two persistence tables and scoped
-GetObject/PutObject/PutObjectTagging/DeleteObject on the private artifact bucket's `owners/*` prefix.
-See [Saved projects](SAVED_PROJECTS.md) for key design, retention, quotas, deletion and disposable
-verification. Production persistence is retained on stack deletion; do not infer hosted verification
-from successful synthesis or local tests.
-CDK enables `INFRALENS_CLOUDFORMATION_VALIDATION=true` for /analyze and /apply. It grants no stack
-creation/update permissions. API Gateway receives permission to invoke the function.
-No Cognito administration permissions or frontend IAM credentials are added. See
-[Template validation](TEMPLATE_VALIDATION.md) for the 51,200-byte AWS limit, unavailable states and
-the distinction between validation and successful deployment.
+Production, only after region confirmation and a separate production deployment decision:
 
-## Before Deploying InfraLens Publicly
+```powershell
+npm.cmd run deploy --workspace @infralens/cdk -- --target production --region eu-central-1 --stack InfraLensProdStack --profile infralens-prod-admin --confirm-production-region eu-central-1
+```
 
-- Set `environment=production` and a globally unique `cognitoDomainPrefix`.
-- Decide whether the CloudFront origin or a custom `frontendOrigin` will be used.
-- Set `alertEmail` and confirm its SNS subscription if alarm delivery is required.
-- Choose `monthlyBudgetUsd` if account-level cost notifications are required.
-- Review request limits and API throttling for the invited user count. Check the regional Lambda
-  quota before setting `lambdaReservedConcurrency`.
-- Deploy, create the first user with `admin-create-user`, and build the frontend with auth enabled.
-- Confirm the Cognito callback/logout URLs and frontend environment values match stack outputs.
-- Review synthesized IAM policies and alarms before deploying changes.
+The command repeats preflight, synthesizes fresh code, validates the resulting assembly, and deploys
+only the selected application stack. CDK's permission-broadening approval remains enabled. It does
+not run bootstrap, destroy, hotswap, or deploy `CDKToolkit`. These safeguards prevent accidental
+selection errors; they do not replace IAM restrictions against intentionally bypassing the workflow.
 
-WAF can be considered later if traffic patterns justify another edge control; it is not part of the
-invited first release.
+Deployment writes separate, gitignored files:
+
+- `infra/cdk/cdk-outputs.test.json`
+- `infra/cdk/cdk-outputs.production.json`
+
+Each contains deployment identity, API base/route URLs, both table names, artifact bucket, frontend
+bucket/distribution/domain/origin, allowed origins, Cognito user pool/client/domain and callback/logout
+URLs. Keep these with the matching environment. They contain public configuration, not credentials
+or tokens; do not add secrets to them or commit generated environment files.
+
+## Frontends after the first deployment
+
+The user confirmed both test frontend options. Both authenticate against **test Cognito** when
+calling the test API. The localhost port is fixed to 5173; Vite fails instead of silently choosing
+an origin that Cognito does not allow. `127.0.0.1:5173` is supported for the fully local API but is
+not a test Cognito callback origin.
+
+After successful test deployment, generate frontend configuration from validated outputs:
+
+```powershell
+npm.cmd run frontend-config --workspace @infralens/cdk -- --target test
+npm.cmd run dev --workspace @infralens/web -- --mode aws-test-local
+```
+
+The generator validates output identity, API region/stage, Cognito domain and callback/logout URLs.
+It writes ignored `apps/web/.env.aws-test-local.local` and `.env.aws-test-hosted.local`. Local React
+calls the test AWS API directly; do not start the local fake-identity Express API for this mode.
+
+Build the deployed test frontend separately:
+
+```powershell
+npm.cmd run build --workspace @infralens/web -- --mode aws-test-hosted --outDir dist/aws-test
+```
+
+Production has its own output file, Cognito configuration and hosted build:
+
+```powershell
+npm.cmd run frontend-config --workspace @infralens/cdk -- --target production
+npm.cmd run build --workspace @infralens/web -- --mode aws-production-hosted --outDir dist/aws-production
+```
+
+These generation/build commands are offline but require real outputs from the corresponding prior
+deployment. No output files or Cognito identifiers are invented by this task. Clear stale shell
+`VITE_INFRALENS_*` overrides before selecting a build mode. Vite validates hosted configuration;
+an `aws-*` mode fails if its generated settings are missing or its target/frontend variant is wrong.
+The browser additionally rejects an origin different from that build's configured origin. Session
+storage keys include the Cognito domain and client, separating sessions even when using localhost.
+
+CDK creates the frontend infrastructure but does not upload the web build. In the later deployment
+task, upload only the matching `dist/aws-test` or `dist/aws-production` directory to that target's
+`FrontendBucketName`, then invalidate its `FrontendDistributionId`. Repeat the guarded preflight and
+validate the outputs immediately before these AWS writes. First-user invitation through Cognito is
+also a later authorized operation using that target's `CognitoUserPoolId`; it is not part of normal
+tests or the Lambda's permissions. Do not upload a local/fake-identity frontend build.
+
+## Authentication, CORS and operational behavior
+
+Both stacks disable self-sign-up and use invited Cognito users, authorization-code flow with PKCE,
+and `openid email` scopes. All 14 analysis/project/history methods require their own pool's
+API Gateway authorizer and the `openid` access-token scope. Only health and OPTIONS are public.
+History ownership comes from trusted authorizer `sub`, never frontend identity headers.
+
+The same origin list feeds API Gateway preflight, Lambda/Express CORS, Cognito callback URLs
+(`<origin>/auth/callback`), logout URLs (`<origin>/`) and deployment outputs. CDK's preflight template
+selects the exact allowed origin. Lambda echoes only recognized origins with `Vary: Origin`.
+Production contains no localhost origin. Hosted CORS cannot fall back to local defaults.
+
+REST API Gateway-generated 401/403 responses support static response header mappings, not conditional
+VTL origin selection. They use the deployed CloudFront origin, never `*` or unchecked Origin
+reflection. Successful localhost requests and Lambda errors have the correct local CORS header;
+a rejected/expired token at Gateway can appear as a generic CORS/network error in the localhost
+frontend. Sign in again in that case. This limitation needs hosted/manual verification, not a claim
+of browser testing. See [API Gateway mapping variables](https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-mapping-template-reference.html).
+
+Existing defaults remain: 4 MiB request limit, 1 MiB template limit, 100 source files, 256 KiB per
+source file, 2 MiB combined source, 100 mappings/exclusions, 2 MiB combined diff templates, and 200
+fixes. Lambda is 512 MiB with a 30-second timeout. API throttling is 2 requests/second with burst 5;
+reserved concurrency is opt-in after checking regional quota. Structured logs exclude source,
+templates and tokens, retain for 30 days, and alarms cover errors/throttles/duration/API 5XX.
+Optional alert email/SNS and monthly budget settings retain their existing behavior. No application
+budget is enabled by default. A management-account budget is not proof that these accounts are covered.
+
+## Persistent test environment and intentional teardown
+
+Keep `InfraLensTestStack` deployed between test runs. Tests create/delete their own data; they do not
+create or destroy stacks. There is deliberately no teardown command in the guarded workflow.
+
+Both environments retain the two tables, artifact bucket, frontend bucket, Cognito pool and log
+groups on stack deletion/replacement. Production tables additionally enable point-in-time recovery.
+Retained resources can continue to incur costs. Other stack resources follow their CDK lifecycle.
+Artifact input objects expire after seven days; report artifacts persist until explicitly removed.
+DynamoDB TTL is asynchronous and is not a full cleanup strategy.
+
+Teardown must be a separate reviewed operation, including account/region/resource inventory,
+backups where needed, and retained-resource cleanup. S3 buckets must be emptied, including versions,
+delete markers and incomplete uploads if present, before manual bucket deletion. There is no
+auto-delete custom resource or automatic bucket emptying. Retained Cognito domains/pools can affect
+later attempts to reuse a prefix. Leave production `CDKToolkit` unchanged.
+
+## Next deployment checklist
+
+1. Design narrower deployment/lookup/execution permissions and bootstrap trust. Both current
+   profiles remain administrators; no IAM or Organizations changes were made here.
+2. Inspect test bootstrap and decide whether separate bootstrap setup is needed. Review production
+   bootstrap read-only; do not rename, replace or update its `CDKToolkit` in this task.
+3. Confirm production region and check proposed Cognito prefix availability before first deployment.
+4. Plan/configure CloudTrail in a separately authorized task; it is currently unconfigured.
+5. Verify the $1 management budget's scope; configure appropriate member-account coverage,
+   recipients/alerts and cost monitoring. Budgets are not real-time spending caps.
+6. Run test preflight and template diff, review resources/policies/costs, then authorize the first
+   persistent test deployment. Export outputs, invite users, generate/build/upload the test frontend.
+7. In a later task verify both test frontends, token rejection/renewal, two-user isolation and actual
+   storage behavior. Run no browser E2E, hosted smoke or live-storage checks as part of this change.

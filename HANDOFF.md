@@ -1,168 +1,144 @@
 # InfraLens Handoff
 
-Last refreshed: September 26, 2026.
+Last refreshed: October 3, 2026.
 
-## Saved Projects Work In Progress
+## Current work and verified repository state
 
-- Branch `feature/saved-projects-analysis-history` adds milestone 1 persistence within the existing
-  workspaces. Changes are intentionally uncommitted for review.
-- Read [Saved projects](docs/SAVED_PROJECTS.md) for API routes, key design, idempotency, cleanup,
-  quotas, retention, local setup and opt-in disposable AWS tests. `/projects` is the web entry point.
-- API adapters are `apps/api/src/history*.ts`; shared contracts are `packages/shared/src/history.ts`.
-  Stateless analysis/CLI behavior is preserved. No queue or background janitor was added.
-- No disposable AWS environment was configured for this task; no deployment or browser test was
-  performed. Hosted persistence verification remains required. The older baseline below describes
-  the previously merged state, not these uncommitted changes.
-- Local verification: 23 new persistence tests pass; existing API, analyzer, CLI and shared suites
-  pass. CDK's 8 tests pass after rerunning outside the sandbox for esbuild access. Workspace
-  typecheck/build and integration pass. Production synthesis with no lookups passes; persistence
-  IAM, lifecycle/TTL, encryption and RETAIN policies were inspected. Vite reports a >500 kB chunk
-  warning. No CI result is claimed.
+- Branch: `feature/separate-aws-environments`, created from clean `main` at `8896116`
+  (`Add saved projects and analysis history (#53)`). The user requested a local commit of the
+  environment-separation implementation. No push was requested.
+- Saved projects/history is merged, not an uncommitted feature branch. Earlier handoff claims about
+  `main` at `694ff3d`, missing persistence and missing Lambda authorizer claims were stale.
+  `apps/api/src/lambda.ts` already reads trusted Cognito `sub`; saved reports can survive a fresh
+  browser session. Stateless unsaved reports remain in browser state.
+- Read `AGENTS.md` first. Preserve unrelated changes and keep the existing npm workspace layout.
+  Analyzer logic remains independent of React/AWS SDK; no dependencies or workspace changes were added.
+- This task prepares explicit AWS environment separation. The implementation performed no deployment, bootstrap,
+  resource destruction, IAM/Organizations change, live AWS inspection, browser E2E, hosted smoke or
+  live AWS storage test was performed. No CI success is claimed.
 
-## Start Here
+## Environment separation implementation
 
-- Verified local baseline: `main` at `694ff3d` (documentation refresh), following `9c156f9`
-  (PR #52, analyzer coverage), PR #51 (template validation) and PR #50 (source project paths).
-  These features are merged.
-- No implementation is awaiting merge from that work. This refresh changes documentation only.
-- The analyzer coverage task did not deploy anything. Current AWS deployment and CI status
-  have not been verified; do not infer them from the local branch or historical checks.
-- Read `AGENTS.md`, this file, and then only the documentation and code relevant to the task.
-  Use `README.md` for setup and usage; do not reread every document for each new task.
-- Always check live state before editing; preserve unrelated user changes:
+Read [AWS test and production deployment](docs/PRODUCTION_DEPLOYMENT.md) for the exact PowerShell
+commands, prerequisites, authentication behavior, retained resources and later deployment checklist.
 
-```powershell
-git status --short --branch
-git log --oneline --decorate -5
-```
+| Environment | Account / region | Stack / behavior |
+| --- | --- | --- |
+| Local | No AWS needed | React + Express; explicit memory history and fake local identity |
+| AWS test | `230944684535`, `eu-central-1` | `InfraLensTestStack`; persistent between test runs |
+| Production | `609124256824`, proposed `eu-central-1` | `InfraLensProdStack`; no existing application stack |
 
-## Project And Code Map
+- `infra/cdk/src/deployment-target.ts` defines explicit validated identities, Cognito prefixes and
+  frontend origin settings. A target is mandatory. `NODE_ENV`, runtime settings and active AWS
+  credentials cannot select a deployment target. Old `environment` CDK context is rejected.
+- The same `InfraLensStack` defines both environments. Each owns its Lambda/API, two tables,
+  artifact bucket, frontend/CloudFront and Cognito. Both use production runtime safeguards and AWS
+  history storage; all 14 analysis/history methods require Cognito. Health and OPTIONS are public.
+- The user confirmed **both** test frontends: the generated test CloudFront origin and exactly
+  `http://localhost:5173`. Both use test Cognito. Production permits its own CloudFront origin only.
+  Callback paths are `/auth/callback`; logout URLs end in `/`. Vite uses port 5173 with strictPort.
+- `deployment-workflow.ts` implements synth/preflight/diff/deploy/frontend-config. Online commands
+  validate explicit region/stack, verify STS caller account, and inspect bootstrap read-only before
+  proceeding. They use a pinned profile/region with ambient credentials and endpoint/role overrides
+  removed. Profile names alone are never identity evidence. Assembly identity is checked too.
+- Production online commands additionally require `--confirm-production-region eu-central-1` while
+  the region remains proposed in configuration. This is an invocation-level explicit decision.
+- Synth directly runs the CDK app without CLI credential discovery. Assemblies are separated under
+  `infra/cdk/cdk.out/test` and `infra/cdk/cdk.out/production`. No lookups or credentials are needed.
+- Diff uses template comparison, without creating change sets or publishing assets. Deploy retains
+  CDK's permission-broadening approval and can target only the application stack. Neither command
+  bootstraps or destroys anything. Direct CDK CLI operations bypass wrapper safeguards; use scripts.
+- Deploy writes ignored `infra/cdk/cdk-outputs.test.json` / `cdk-outputs.production.json`, including
+  identity, API URL, table names, artifact bucket, frontend details and Cognito identifiers/URLs.
+  `frontend-config` validates those outputs and generates ignored environment-specific Vite files.
+  Hosted API configurations require auth. Browser sessions are scoped by Cognito domain and client.
+- Frontend asset upload and first-user invitation remain later operations. CDK does not upload the
+  web build. There are no actual deployment outputs from this task, and no tracked secrets/tokens.
+- Test and production retain tables, buckets, Cognito pools and log groups on deletion/replacement.
+  Production tables have PITR. Teardown is separate and intentional; nonempty buckets need manual
+  cleanup before deletion. No auto-empty/auto-destroy functionality was added.
 
-The project's primary goal is now portfolio value and learning unfamiliar AWS infrastructure.
-The analyzer is sufficient for this stage: fix serious bugs, but defer broad coverage expansion.
-The replacement roadmap prioritizes saved projects/history, asynchronous analysis, reliable event
-dispatch and operations. The final integrated showcase comes after those features. These are plans,
-not existing capabilities; no persistence or job infrastructure was added in this documentation task.
+## AWS setup: supplied by the user, not independently verified here
 
-InfraLens analyzes CloudFormation JSON/YAML, including synthesized CDK templates, for AWS
-security/reliability risks. It builds resource graphs, compares templates, suggests least-privilege
-IAM policies, and generates modified templates from selected deterministic fixes.
+- Organizations and IAM Identity Center are configured.
+- Test profile `infralens-test-admin` and production profile `infralens-prod-admin` both have
+  administrator permissions. They are **not** restricted deployment access. Narrower deployment
+  permissions are a later task. No custom organization policies/restrictions were added.
+- There is no production application stack, so no migration is needed. Production `CDKToolkit`
+  exists and must remain unchanged. The user subsequently confirmed test was not bootstrapped;
+  preflight reported `CDKToolkit` missing. Bootstrap success has not yet been reported or verified.
+- The bootstrap command supplied for manual execution must include `--context target=test` when
+  run in the CDK workspace: the installed CLI evaluates the configured app even with an explicit
+  account/region. The corrected guarded command is in the deployment guide. It has not been run
+  by the assistant; standard bootstrap uses an administrator CloudFormation execution role.
+- Test Cognito prefix proposal: `infralens-test-230944684535-euc1`. Separate production proposal:
+  `infralens-prod-609124256824-euc1`. Availability has not been checked.
+- Production `eu-central-1` is still a proposal. Do not treat synthesis as region confirmation.
+- CloudTrail has not been configured. A $1 management-account budget exists; its scope/coverage
+  has not been verified. No member-account spending protection is inferred from that budget.
 
-TypeScript, npm workspaces, React/Vite, Node/Express, Mocha/Chai, and AWS CDK. Follow `AGENTS.md`:
-keep the analyzer independent of React and AWS SDK, test every analyzer rule, and ask before
-changing project structure. No Bootstrap unless requested.
+## Verification in this task
 
-| Area | Location |
-| --- | --- |
-| Parsing, rules, graph, IAM, source analysis, fixes and diff | `packages/analyzer/src` |
-| Shared report/API types and exports | `packages/shared/src` |
-| Express and Lambda API adapters | `apps/api/src` |
-| React UI and Cognito authentication | `apps/web/src` |
-| CLI analysis and comparison | `apps/cli/src` |
-| Hosted infrastructure | `infra/cdk` |
-| Templates and uploaded-source fixtures | `examples` |
-
-Analyzer/CLI run offline. Only the API optionally calls AWS CloudFormation ValidateTemplate;
-this is validation, not live account scanning. Hosted routes use REST API Gateway (not HTTP API).
-
-## Current Behavior And Important Contracts
-
-- Analyze -> Review -> Apply -> Compare -> Export is implemented with local integration coverage.
-  API: `GET /health`, `POST /analyze`, `/diff`, `/apply`. Web: `/`, `/analyze`, `/report`, `/compare`.
-- Parsing, local structure validity, analyzer completion and optional AWS validation are separate
-  statuses. Generated templates are revalidated; invalid downloads are blocked but inspectable.
-  AWS ValidateTemplate does not prove deployability.
-- Folder uploads preserve relative paths. Shared normalization lives in
-  `packages/shared/src/sourceFiles.ts`; ordinary file selection can still expose only basenames.
-  Explicit Lambda mappings, handler inference, exclusions and transitive relative imports exist.
-- Source inference uses TypeScript syntax and lexical symbols in a closed in-memory host. It does
-  not execute source or load node_modules. Real SDK imports, aliases and literal CommonJS imports
-  are supported; comments, strings, local mock classes and shadowed names do not infer actions.
-- IAM analysis covers inline identity policies and template-defined attached/managed policies.
-  Conditions, boundaries, unresolved references and relevant Deny paths are evidence, not computed
-  effective permissions. `iamAnalysis.evaluation` is always `partial`; `iamContext` carries context.
-  No boundary intersection, external-policy fetching or complete IAM evaluation is implemented.
-- Uncertain, conditional, bounded or shared-policy replacements require manual review. Shared
-  execution roles cannot be narrowed using only one Lambda's source.
-- S3 bucket/object actions use separate suggested statements. DynamoDB Query/Scan index ARNs
-  require specific source/template evidence; no automatic `/index/*` expansion.
-- `PolicySuggestion.currentActions` renders the original policy; `suggestedActions` is proposed;
-  `actions` is the legacy alias. Use `suggestedStatements` for multi-statement replacements.
-  Do not offer a copyable no-op replacement as action narrowing.
-- Supported service metadata: DynamoDB, S3, SQS, SNS, Lambda invocation, EventBridge, Secrets
-  Manager, SSM and conservative/manual KMS. See `serviceMetadata.ts` and the coverage document.
-- `LAMBDA_SERVICE_PERMISSION_UNSCOPED` checks supported service invocation permissions.
-  Lambda failure-handling checks distinguish `$LATEST` from versions/aliases; known SQS failure
-  targets are not required to have an endless chain of dead-letter queues.
-- Report UI shows aggregate IAM/source limitations. The Source Inference panel shows commands,
-  actions, confidence, handler roots and import chains, but does not directly render
-  `importedSymbol`, `localSymbol`, `useLocation`, `sdkPackage`, `indexAccess` or per-action `limitations`.
-  See `apps/web/src/components/report/LeastPrivilegeSuggestions.tsx`.
-
-## Read More Only As Needed
-
-| Task | Reference |
-| --- | --- |
-| Priorities and unfinished work | [Roadmap](docs/ROADMAP.md) |
-| Setup, API inputs and CLI usage | [README](README.md) |
-| Current API size/count limits | `apps/api/src/requestLimits.ts` |
-| IAM semantics, source evidence, service mappings and limitations | [Analyzer coverage](docs/ANALYZER_COVERAGE.md) |
-| Parse/structure/AWS validation and generated artifacts | [Template validation](docs/TEMPLATE_VALIDATION.md) |
-| Folder uploads, paths, mappings and exclusions | [Source uploads](docs/SOURCE_UPLOADS.md) |
-| Integration tests and opt-in hosted smoke checks | [Testing](docs/TESTING.md) |
-| Authentication and deployment configuration | [Production deployment](docs/PRODUCTION_DEPLOYMENT.md) |
-
-Use `examples/analyzer-coverage` for realistic IAM/source cases, `examples/nested-source-project`
-for preserved paths, and `examples/shared-source-import-graph` for shared imports. The original
-`examples/order-handler-source.ts` uses mock command classes and correctly infers no SDK actions.
-`examples/compare` demonstrates template comparison.
-
-## Verification
-
-The analyzer coverage task recorded 435 passing tests (analyzer 284, API 106, CLI 17, shared 20,
-CDK 8), workspace typecheck/build, and production CDK synthesis with no lookups. These are historical
-local results, not newly rerun checks or proof of CI success. PR #52 was merged without waiting for CI.
-No browser/E2E checks, live AWS calls or deployment were performed for that task.
+- Workspace typecheck and full build passed. Vite retains the existing >500 kB chunk warning.
+- Workspace suites passed: 485 tests total (API 137, CLI 17, analyzer 284, shared 20, CDK 27).
+  The API suite was rerun after the final frontend build-mode guards; the targeted deployment
+  workflow tests were rerun after the assembly verifier correction.
+  Integration cases are included by the normal test command. New coverage checks explicit targets,
+  mocked STS mismatches/failures, region/stack/assembly safeguards, bootstrap gating, separate outputs,
+  hosted authentication/origins/URLs, session isolation and credential-free local memory history.
+- Offline synthesis passed for both `test` and `production`. CDK's sandboxed esbuild initially could
+  not read the repository; tests/synth passed with filesystem access outside that sandbox.
+- Real synthesis revealed that CDK omits `stackName` when it equals the assembly artifact ID. The
+  verifier handles that default, still rejects an explicit wrong name, and has regression coverage.
+- Default local, test-local, test-hosted and production-hosted frontend builds passed using offline
+  public-configuration fixtures. Temporary fixture builds were removed. AWS build modes fail if
+  generated configuration is absent or belongs to the wrong target/local-versus-hosted variant.
+- Local success does not establish live deployment, IAM effectiveness, prefix availability or actual
+  browser authentication. Hosted/manual checks remain outstanding.
 
 ```powershell
 npm.cmd run typecheck
-npm.cmd run test
 npm.cmd run build
-npm.cmd run test:integration
+npm.cmd run test
+npm.cmd run synth --workspace @infralens/cdk -- --target test
+npm.cmd run synth --workspace @infralens/cdk -- --target production
 ```
 
-API/CLI tests can resolve stale workspace `dist` output; rebuild shared and analyzer first when
-needed. `test:integration` already builds these dependencies. CDK tests/synth use esbuild, which
-can need sandbox access or a separate output directory. Production synthesis:
+Local memory setup and additional integration command: [Saved projects](docs/SAVED_PROJECTS.md).
+Deployment safeguards and testing boundaries: [Testing](docs/TESTING.md).
 
-```powershell
-npm.cmd run build --workspace @infralens/cdk
-npm.cmd exec --workspace @infralens/cdk -- cdk synth --no-lookups --context environment=production --context cognitoDomainPrefix=infralens-login-synth-review
-```
+## Known limitations and next actions
 
-## Deployment And Remaining Work
+- REST API Gateway-generated auth errors use the deployed frontend's static CORS origin. Valid local
+  test requests and Lambda errors have exact localhost CORS, but rejected Gateway tokens can appear
+  as generic CORS/network errors from localhost. Sign in again; verify this later with hosted checks.
+- The legacy opt-in `test:aws` suite still accepts manual resource names and ambient SDK credentials.
+  Before enabling it, connect it to validated test outputs and account/region checks. Its old
+  `INFRALENS_DISPOSABLE_AWS` flag is about disposable data, not per-run stack deployment/destruction.
+  It needs scoped test cleanup permissions separately; do not broaden the application Lambda role.
+- Next: design narrower deployment policies; inspect/setup test bootstrap separately; confirm the
+  production region; verify Cognito prefix availability; configure CloudTrail; verify budget scope
+  and member-account cost alerts. Then preflight/diff and authorize the first persistent test deploy,
+  invite users, generate/upload the test frontend, and verify both frontend options and ownership.
+- Production `CDKToolkit` remains outside application lifecycle operations. No application migration
+  is planned because no production application stack exists.
 
-Production uses invited Cognito access, authorization-code flow with PKCE, protected POST routes,
-restricted CORS, request limits, throttling, logs and alarms. Health is public. Do not log submitted
-source/templates or tokens. Read the deployment guide before infrastructure changes.
+## Project/code map and continuing product work
 
-Keep these deployment lessons: reserved concurrency is opt-in for reduced-quota accounts; Cognito
-prefixes must be valid and unique; retained pools/buckets/logs can survive stack deletion; CDK does
-not upload the web build (S3 sync and CloudFront invalidation are separate). There is no root deploy
-script. PowerShell does not support backslash line continuation.
+| Area | Location |
+| --- | --- |
+| Parsing, rules, graph, IAM/source inference, fixes and diff | `packages/analyzer/src` |
+| Shared report/API and history contracts | `packages/shared/src` |
+| Express/Lambda API, history service and storage adapters | `apps/api/src` |
+| React, saved reports and Cognito PKCE | `apps/web/src` |
+| CLI | `apps/cli/src` |
+| Target configuration, operational scripts and reusable stack | `infra/cdk/src` |
 
-Next work: milestone 1 of [the replacement roadmap](docs/ROADMAP.md). Build owner-scoped projects
-and saved analysis runs using DynamoDB metadata and private S3 artifacts. Derive ownership from
-trusted Cognito claims; the current Lambda event contract still needs those claims exposed. Keep
-AWS adapters outside the analyzer and preserve credential-free local tests/CLI behavior.
+The priority remains portfolio value and learning AWS architecture; avoid broad analyzer expansion.
+[Roadmap](docs/ROADMAP.md) describes later asynchronous analysis/reliable dispatch/operations work.
+Saved history code is merged; hosted verification is still required before declaring it complete.
 
-Start with create project -> server-side analyze/save -> list/reopen report -> cross-user denial.
-Complete pagination, idempotency, deletion and retention before asynchronous processing. Later
-milestones add SQS workers, DynamoDB Streams dispatch, scheduled recovery, and operational evidence.
-Container workers/Step Functions/EventBridge fan-out are optional, justified scale experiments;
-do not implement all by default. No project-structure change is authorized by the roadmap alone.
-
-Browser interactions and hosted authenticated workflows still need verification. Compare accepts
-templates only; reports are not persisted across browser sessions. Source analysis has no full data
-flow or runtime-completeness guarantee. PDF export, live scanning and broad multi-IaC parsing are
-not near-term priorities.
+Preserve evidence limits: IAM evaluation is partial, uncertain/shared replacements require review,
+source inference is static in-memory syntax/import analysis, and ValidateTemplate does not prove
+successful deployment. See [Analyzer coverage](docs/ANALYZER_COVERAGE.md),
+[Template validation](docs/TEMPLATE_VALIDATION.md), and [Source uploads](docs/SOURCE_UPLOADS.md).
