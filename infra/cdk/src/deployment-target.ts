@@ -11,6 +11,7 @@ export interface DeploymentTarget {
   additionalFrontendOrigins: readonly string[];
   runtimeEnvironment: "production";
   pointInTimeRecovery: boolean;
+  applicationPermissionsBoundaryArn?: string;
 }
 
 // Deployment identity is deliberately independent of process.env and application runtime mode.
@@ -25,7 +26,8 @@ const targets: Record<DeploymentTargetName, DeploymentTarget> = {
     cognitoDomainPrefix: "infralens-test-230944684535-euc1",
     additionalFrontendOrigins: ["http://localhost:5173"],
     runtimeEnvironment: "production",
-    pointInTimeRecovery: false
+    pointInTimeRecovery: false,
+    applicationPermissionsBoundaryArn: "arn:aws:iam::230944684535:policy/InfraLensTestApplicationBoundary"
   },
   production: {
     name: "production",
@@ -58,6 +60,9 @@ export function validateDeploymentTarget(target: DeploymentTarget): void {
   }
   if (target.runtimeEnvironment !== "production") {
     throw new Error("Hosted targets require production runtime safeguards.");
+  }
+  if (target.applicationPermissionsBoundaryArn !== expected.applicationPermissionsBoundaryArn) {
+    throw new Error("Application permissions boundary must match the configured deployment target.");
   }
   if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(target.cognitoDomainPrefix) ||
       /aws|amazon|cognito/.test(target.cognitoDomainPrefix)) {

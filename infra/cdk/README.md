@@ -25,3 +25,8 @@ Read [AWS test and production deployment](../../docs/PRODUCTION_DEPLOYMENT.md) f
 preflight/diff/deploy commands, account safeguards, existing administrator access, pending bootstrap
 and region decisions, frontend generation, authentication, retention and the deployment checklist.
 Deployment commands are implemented but were not executed by the environment-separation task.
+
+The [test deployment permission package](../../docs/TEST_DEPLOYMENT_PERMISSIONS.md) contains eight
+reviewable policy documents, an offline bootstrap-template preparer, and an optional read-only AWS
+validation script. Test application roles require its administrator-owned permissions boundary.
+The package has not been applied. No production policies or bootstrap changes are included.

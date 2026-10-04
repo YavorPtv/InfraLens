@@ -1,0 +1,101 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ApplicationLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:DescribeLogStreams",
+        "logs:PutLogEvents",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:eu-central-1:230944684535:log-group:InfraLensTestStack-*",
+        "arn:aws:logs:eu-central-1:230944684535:log-group:API-Gateway-Execution-Logs_*/test",
+        "arn:aws:logs:eu-central-1:230944684535:log-group:API-Gateway-Execution-Logs_*/test:*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "DiscoverLogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "ValidateTemplatesOnly",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:ValidateTemplate"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "HistoryRows",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:Query",
+        "dynamodb:PutItem"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:eu-central-1:230944684535:table/InfraLensTestStack-ProjectsTable*",
+        "arn:aws:dynamodb:eu-central-1:230944684535:table/InfraLensTestStack-RunsTable*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "OwnerArtifacts",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:PutObjectTagging",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::infralensteststack-artifactbucket*/owners/*",
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "230944684535"
+        }
+      }
+    },
+    {
+      "Sid": "NoIdentityAdministrationOrRoleChaining",
+      "Effect": "Deny",
+      "Action": [
+        "iam:*",
+        "sts:AssumeRole",
+        "sts:AssumeRoleWithSAML",
+        "sts:AssumeRoleWithWebIdentity",
+        "organizations:*",
+        "account:*",
+        "sso:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

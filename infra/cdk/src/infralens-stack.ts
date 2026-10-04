@@ -70,6 +70,14 @@ export class InfraLensStack extends cdk.Stack {
     const environmentName = target.name;
     validateConfiguration(props);
 
+    if (target.applicationPermissionsBoundaryArn) {
+      // An administrator owns this policy outside the application stack.
+      const boundary = iam.ManagedPolicy.fromManagedPolicyArn(
+        this, "ApplicationPermissionsBoundary", target.applicationPermissionsBoundaryArn
+      );
+      iam.PermissionsBoundary.of(this).apply(boundary);
+    }
+
     // Test is a persistent environment too. Teardown is a separate operator decision.
     const persistenceRemovalPolicy = cdk.RemovalPolicy.RETAIN;
     const projectsTable = new dynamodb.Table(this, "ProjectsTable", {
@@ -177,7 +185,7 @@ export class InfraLensStack extends cdk.Stack {
         minify: false,
         bundleAwsSDK: true,
         sourceMap: true,
-        target: "node20"
+        target: "node22"
       },
       depsLockFilePath: join(__dirname, "../../../package-lock.json"),
       entry: join(__dirname, "../../../apps/api/src/lambda.ts"),
@@ -200,7 +208,7 @@ export class InfraLensStack extends cdk.Stack {
         ? {}
         : { reservedConcurrentExecutions: props.lambdaReservedConcurrency }),
       role: analysisFunctionRole,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       timeout: cdk.Duration.seconds(30)
     });
 

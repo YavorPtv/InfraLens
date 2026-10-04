@@ -9,6 +9,7 @@
     "preflight": "npm run build && node dist/deployment-workflow.js preflight",
     "deploy": "npm run build && node dist/deployment-workflow.js deploy",
     "frontend-config": "npm run build && node dist/deployment-workflow.js frontend-config",
+    "prepare-test-permissions": "npm run build && node dist/test-permissions.js",
     "test": "mocha --timeout 15000 -r ts-node/register \"test/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
   },

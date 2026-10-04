@@ -21,13 +21,19 @@ Both profiles currently have **administrator permissions**. They are not restric
 roles. Narrower permissions and bootstrap trust/execution policies are a later task. Profile names
 are labels; the workflow checks the actual STS caller account every time.
 
-User-supplied AWS state, not independently inspected in this task:
+AWS state (user-supplied except for the read-only test audit below):
 
 - AWS Organizations and IAM Identity Center are configured. No custom organization policies or
   permission restrictions were added.
 - There is no production application stack. No migration or application stack rename is needed.
-- Production has `CDKToolkit`; leave it unchanged. The user subsequently confirmed test was not
-  bootstrapped and reported preflight's missing-stack error. Successful bootstrap is not yet verified.
+- Production has `CDKToolkit` according to the user; leave it unchanged. Test initially had no
+  bootstrap stack. The user subsequently reported passing preflight and supplied the first
+  application diff; a successful application deployment has not been reported.
+- Read-only test audit on October 3, 2026: STS confirmed account `230944684535`; `CDKToolkit` in
+  `eu-central-1` is `CREATE_COMPLETE`, version 32, qualifier `hnb659fds`. Both the active SSO role
+  and bootstrap CloudFormation execution role have `AdministratorAccess` without a permissions
+  boundary. The deployment role permits stack mutations on `*`, including deletion. No AWS changes
+  were made and production was not inspected. Full audit notes are in `HANDOFF.md`.
 - CloudTrail has not been configured.
 - A $1 management-account budget exists; its scope and coverage are unverified.
 - Neither proposed Cognito prefix's availability has been verified. Region confirmation is still
@@ -38,6 +44,11 @@ bucket, private frontend bucket, CloudFront distribution, Cognito user pool/clie
 alarms. No resource is imported from the other environment. Both hosted targets use production
 **runtime** safeguards, AWS history storage, and Cognito access tokens; local identity is never set.
 The Lambda IAM action set is unchanged by environment separation.
+Both application Lambdas use Node.js 22 with esbuild targeting `node22`. GitHub workflows also use
+Node.js 22; use that version locally for consistent builds and tests.
+Test application roles now reference the administrator-owned `InfraLensTestApplicationBoundary`.
+The [test permission package](TEST_DEPLOYMENT_PERMISSIONS.md) prepares its policy and a reviewed
+bootstrap update. It must be applied separately before the first test application deployment.
 
 Edit reviewed target settings in the existing CDK workspace. The created CloudFront origin is always
 allowed. `additionalFrontendOrigins` adds exact origins, with HTTPS required except for the one test
@@ -85,8 +96,8 @@ failure requiring a separate setup decision. This check is not a full audit of b
 trust policies or deployment permissions.
 
 These commands are implemented now and are read-only, but require working SSO sessions and existing
-bootstrap stacks/permissions. Test preflight may fail until its unverified bootstrap is inspected.
-They were **not run** in this implementation task:
+bootstrap stacks/permissions. The user reports test preflight passes; rerun it when preparing a
+deployment. These commands were **not run by the assistant**:
 
 ```powershell
 npm.cmd run preflight --workspace @infralens/cdk -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-admin
@@ -108,8 +119,9 @@ npm.cmd run diff --workspace @infralens/cdk -- --target production --region eu-c
 
 ## Test bootstrap: separate manual setup
 
-The user requested the standard bootstrap command after confirming test has no `CDKToolkit`.
-With an active SSO session, run from the repository root:
+The following command was supplied when test had no `CDKToolkit`. Since test preflight now passes,
+do not rerun bootstrap as part of the application deployment. For reference, the guarded setup
+command runs from the repository root with an active SSO session:
 
 ```powershell
 $bootstrapAccount = aws sts get-caller-identity --profile infralens-test-admin --region eu-central-1 --query Account --output text --no-cli-pager
@@ -135,8 +147,15 @@ Do not run these until deployment permissions/bootstrap setup have been reviewed
 intended. The supplied administrator profiles technically have broad permissions; these prerequisites
 are remaining operational work, not restrictions already applied to those profiles.
 
+The [test permission package and setup guide](TEST_DEPLOYMENT_PERMISSIONS.md) is prepared but not
+applied. Review it before creating the custom Identity Center deployment permission set and updating
+test bootstrap permissions. It scopes deployment, execution and application roles together. Keep
+bootstrap administration and intentional teardown separate from routine deployment. Application of
+the policies is a separately authorized AWS change; production `CDKToolkit` remains unchanged.
+See [AWS CDK deployment security guidance](https://docs.aws.amazon.com/cdk/v2/guide/best-practices-security.html).
+
 ```powershell
-npm.cmd run deploy --workspace @infralens/cdk -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-admin
+npm.cmd run deploy --workspace @infralens/cdk -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-deploy
 ```
 
 Production, only after region confirmation and a separate production deployment decision:
@@ -251,9 +270,10 @@ later attempts to reuse a prefix. Leave production `CDKToolkit` unchanged.
 
 ## Next deployment checklist
 
-1. Design narrower deployment/lookup/execution permissions and bootstrap trust. Both current
-   profiles remain administrators; no IAM or Organizations changes were made here.
-2. Inspect test bootstrap and decide whether separate bootstrap setup is needed. Review production
+1. Review and apply the prepared [test permission package](TEST_DEPLOYMENT_PERMISSIONS.md) in a
+   separately authorized setup task. Both current administrator profiles remain broad; no IAM or
+   Organizations changes were made here.
+2. Verify the applied test bootstrap permissions and new deployment profile. Review production
    bootstrap read-only; do not rename, replace or update its `CDKToolkit` in this task.
 3. Confirm production region and check proposed Cognito prefix availability before first deployment.
 4. Plan/configure CloudTrail in a separately authorized task; it is currently unconfigured.

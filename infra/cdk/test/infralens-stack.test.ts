@@ -254,6 +254,15 @@ describe("InfraLensStack", () => {
       template.resourceCountIs("AWS::Cognito::UserPool", 1);
       template.resourceCountIs("AWS::DynamoDB::Table", 2);
       template.resourceCountIs("AWS::S3::Bucket", 2);
+      const applicationRoles = Object.values(template.findResources("AWS::IAM::Role"));
+      expect(applicationRoles).to.have.length(2);
+      for (const role of applicationRoles) {
+        expect(role.Properties.PermissionsBoundary).to.equal(target.applicationPermissionsBoundaryArn);
+      }
+      template.resourceCountIs("AWS::IAM::ManagedPolicy", 0);
+      template.hasResourceProperties("AWS::Lambda::Function", {
+        Runtime: "nodejs22.x"
+      });
       template.hasResourceProperties("AWS::Cognito::UserPoolDomain", { Domain: target.cognitoDomainPrefix });
       const resources = json.Resources as Record<string, SynthesizedResource>;
       const distributionId = Object.entries(resources).find(([, resource]) => resource.Type === "AWS::CloudFront::Distribution")![0];
@@ -326,7 +335,7 @@ function synthesizeTemplate(): Record<string, SynthesizedResource> {
   const analysisFunction = new lambda.Function(stack, "AnalysisApiFunction", {
     code: lambda.Code.fromInline("exports.handler = async () => ({ statusCode: 200 });"),
     handler: "index.handler",
-    runtime: lambda.Runtime.NODEJS_20_X
+    runtime: lambda.Runtime.NODEJS_22_X
   });
   const api = new apigateway.RestApi(stack, "AnalysisApi", {
     defaultCorsPreflightOptions: {

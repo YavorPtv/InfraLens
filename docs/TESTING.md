@@ -160,7 +160,13 @@ npm.cmd run synth --workspace @infralens/cdk -- --target test
 npm.cmd run synth --workspace @infralens/cdk -- --target production
 ```
 
-These checks require no AWS credentials or bootstrap. See [deployment commands](PRODUCTION_DEPLOYMENT.md)
+`infra/cdk/test/test-permissions.test.ts` checks the test policy package and offline bootstrap
+preparation. These are structural assertions, not an IAM evaluator. The normal test command never
+calls AWS. The separate `infra/cdk/verify-test-policies.ps1` performs optional read-only Access
+Analyzer validation and IAM simulations with a verified test account; see the
+[policy setup guide](TEST_DEPLOYMENT_PERMISSIONS.md) for its scope and API Gateway simulation limit.
+
+The npm tests and offline synthesis require no AWS credentials or bootstrap. See [deployment commands](PRODUCTION_DEPLOYMENT.md)
 for read-only operational preflight/diff and later deployment. Hosted login, the localhost Gateway
 auth-error CORS limitation, real storage permissions and actual user isolation still require a later
 authorized verification task. Keep the test stack deployed between those runs.
