@@ -2,6 +2,14 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "ReadTestBootstrapVersion",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameters"
+      ],
+      "Resource": "arn:aws:ssm:eu-central-1:230944684535:parameter/cdk-bootstrap/hnb659fds/version"
+    },
+    {
       "Sid": "CreateApplicationBuckets",
       "Effect": "Allow",
       "Action": [

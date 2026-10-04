@@ -192,7 +192,6 @@
       "Resource": "arn:aws:apigateway:eu-central-1::/tags/*",
       "Sid": "KeepApiOwnershipTagsImmutable",
       "Action": [
-        "apigateway:PUT",
         "apigateway:DELETE"
       ],
       "Effect": "Deny"
@@ -228,6 +227,7 @@
       "Resource": "*",
       "Sid": "KeepProjectTagValue",
       "Action": [
+        "apigateway:PUT",
         "cognito-idp:TagResource",
         "cloudfront:TagResource"
       ],
@@ -247,6 +247,7 @@
       "Resource": "*",
       "Sid": "KeepEnvironmentTagValue",
       "Action": [
+        "apigateway:PUT",
         "cognito-idp:TagResource",
         "cloudfront:TagResource"
       ],

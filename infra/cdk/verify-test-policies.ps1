@@ -23,9 +23,16 @@ foreach ($file in Get-ChildItem -LiteralPath $PSScriptRoot -Filter 'test-*.polic
 }
 
 $cases = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'test-policy-simulations.json') | ConvertFrom-Json
+$passedCases = 0
+$skippedCases = 0
 $requestPath = [System.IO.Path]::GetTempFileName()
 try {
     foreach ($case in $cases) {
+        if ($case.SimulatorLimitation) {
+            Write-Warning "NOT VERIFIED: $($case.Name). $($case.SimulatorLimitation)"
+            $skippedCases++
+            continue
+        }
         $inputPolicies = @()
         foreach ($name in $case.Policies) {
             if (-not $policyDocuments.ContainsKey($name)) { throw "Unknown policy: $name" }
@@ -38,10 +45,12 @@ try {
         }
         $contextEntries = @()
         foreach ($property in $case.Context.PSObject.Properties) {
+            $contextType = 'string'
+            if ($property.Value -is [array]) { $contextType = 'stringList' }
             $contextEntries += @{
                 ContextKeyName = $property.Name
                 ContextKeyValues = @($property.Value)
-                ContextKeyType = 'string'
+                ContextKeyType = $contextType
             }
         }
         if ($contextEntries.Count -gt 0) { $request.ContextEntries = $contextEntries }
@@ -56,8 +65,9 @@ try {
             throw "Unexpected IAM decision: $($case.Name); expected $($case.ExpectedDecision)"
         }
         Write-Output "Passed: $($case.Name)"
+        $passedCases++
     }
 } finally {
     Remove-Item -LiteralPath $requestPath -ErrorAction SilentlyContinue
 }
-Write-Output "$($policyDocuments.Count) policies validated; $($cases.Count) IAM simulations passed. No AWS changes made."
+Write-Output "$($policyDocuments.Count) policies validated; $passedCases IAM simulations passed; $skippedCases cases not verified because of documented simulator limitations. No AWS changes made."

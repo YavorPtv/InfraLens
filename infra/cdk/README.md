@@ -29,4 +29,17 @@ Deployment commands are implemented but were not executed by the environment-sep
 The [test deployment permission package](../../docs/TEST_DEPLOYMENT_PERMISSIONS.md) contains eight
 reviewable policy documents, an offline bootstrap-template preparer, and an optional read-only AWS
 validation script. Test application roles require its administrator-owned permissions boundary.
-The package has not been applied. No production policies or bootstrap changes are included.
+The user applied the initial package. A read-only readiness audit found that its separate default
+file-publishing policy remained; the guide now contains a two-resource correction and the preparer
+supports `--repair-file-publishing-policy`. The user applied that correction; read-only inspection
+confirmed the publisher has exactly the intended policy and no managed-policy attachments.
+The first application attempt then failed because the CloudFormation execution role lacked
+`ssm:GetParameters` on the test bootstrap version. The corrected policy and offline
+`--repair-bootstrap-version-read` mode prepare a one-policy bootstrap change; see the guide for
+review/application instructions. The applied bootstrap template now contains this version-read fix.
+The following deployment failed because the API ownership-tag deny also blocked initial tagging.
+The prepared `--repair-api-ownership-tags` correction allows the required values while preserving
+wrong-value/removal denials. It is not applied. The application is `ROLLBACK_COMPLETE` with retained
+resources; deploy now stops before CDK's automatic failed-stack deletion/recreation. Review the guide's
+inventory and separate recovery decision before retrying; no cleanup is performed by the workflow.
+No production policies or bootstrap changes are included.

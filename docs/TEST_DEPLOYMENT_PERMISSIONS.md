@@ -1,6 +1,6 @@
 # Test deployment permission package
 
-Status: **test SSO login created; bootstrap update prepared, not applied**. This package targets only account `230944684535`,
+Status: **test SSO login, bootstrap update and publishing-policy correction applied by the user and inspected read-only**. This package targets only account `230944684535`,
 region `eu-central-1`, application stack `InfraLensTestStack`, and the existing version 32
 `CDKToolkit` with qualifier `hnb659fds`. Production's bootstrap is outside this package.
 
@@ -8,8 +8,230 @@ On October 4, 2026, the user configured `InfraLensTestDeploy` and the `infralens
 profile. Their STS result identifies the expected test account and SSO role. Read-only IAM
 inspection confirmed that role's inline policy matches `test-deployer.policy.json`, with no
 attached managed policies or boundary. User/group assignments have not been independently
-inspected. The remaining bootstrap update must be reviewed and applied before routine deployment;
-the bootstrap roles still have their previous broad permissions.
+inspected. The user subsequently applied the bootstrap update. Read-only inspection confirmed
+`UPDATE_COMPLETE`, the three scoped execution policies instead of `AdministratorAccess`, and the
+application boundary. A deeper readiness audit found one leftover publishing policy, described below.
+The user applied its correction on October 4. Subsequent read-only inspection confirmed
+`UPDATE_COMPLETE`, no managed policies on the file-publishing role, and exactly one inline policy
+(the existing default-named policy) whose document matches `test-file-publishing-role.policy.json`.
+The publishing-policy procedure below is retained for reference; this account does not need that
+repair applied again. The first deployment subsequently exposed a separate missing bootstrap-version
+read on the CloudFormation execution role. That correction is now present in the deployed bootstrap
+template. The next attempt exposed the API tagging deny below; this latest correction is not applied.
+
+## API ownership-tag correction and failed-stack recovery
+
+The next deployment failed on `AnalysisApi6763914B`: `KeepApiOwnershipTagsImmutable` denied
+`apigateway:PUT` whenever `Project` or `Environment` appeared in `aws:TagKeys`. This also denied the
+required initial tag write. Adding another Allow cannot override an explicit Deny.
+
+The corrected `test-execution-edge-auth.policy.json` changes three deny statements:
+
+- Keep denying deletion of `Project` and `Environment` through `apigateway:DELETE`.
+- Allow writing/reapplying `Project=InfraLens` and `Environment=test` through the existing tag grant.
+- Include `apigateway:PUT` in the value protections, denying a requested ownership tag with a
+  different value. Requests concerning only unrelated keys are unaffected.
+
+No Allow statement, SSO policy, role trust, application boundary or production resource changes.
+AWS's read-only IAM simulator reproduced the original explicit deny and allowed the corrected
+request using an encoded API tagging ARN and `aws:TagKeys` as a string list. PUT tagging cases work.
+DELETE tagging simulation returned `implicitDeny` with no matched statements even under unconditional
+wildcard Allow and Deny controls. The three DELETE cases are explicitly marked unverified in the
+simulation fixtures/script, not counted as passes. The unchanged removal deny has structural tests;
+its live enforcement remains unverified. Earlier API operation simulation limitations also remain.
+
+The proposal comes from the current applied bootstrap, retaining the previous fixes:
+
+```powershell
+npm.cmd run prepare-test-permissions --workspace @infralens/cdk -- cdk.out/test-bootstrap-before-api-tags-fix.snapshot.json cdk.out/test-bootstrap-api-tags-fix.template.json --repair-api-ownership-tags
+```
+
+This is offline. The preparer validates the test bootstrap and refuses unexpected policy changes.
+The actual snapshot comparison changes only `InfraLensTestExecutionEdgeAuth.PolicyDocument`.
+CDK typechecks/build and all 52 tests passed, including both target synthesis assertions and mocked
+failed-stack safeguards. CloudFormation syntax validation passed; these checks do not deploy anything.
+The final read-only policy check validated all eight documents without findings: 38 simulations
+passed and three DELETE tagging cases were explicitly reported as unverified.
+To apply it manually, use the test administrator session in account `230944684535`, region
+`eu-central-1`: CloudFormation > `CDKToolkit` > Create a change set. Upload
+`infra/cdk/cdk.out/test-bootstrap-api-tags-fix.template.json.compact.json`, preserve **all** current
+parameters including `BootstrapVariant=InfraLensTestScopedV1`, name the change set
+`infralens-test-api-tags-fix`, and acknowledge named IAM resources. Expect one **Modify** for
+`InfraLensTestExecutionEdgeAuth`, no replacement, and only the three deny-rule changes above.
+Execute only after reviewing that preview, then wait for `UPDATE_COMPLETE`.
+
+Do not immediately retry the application: read-only inspection found `InfraLensTestStack` in
+`ROLLBACK_COMPLETE`. The installed CDK CLI attempts to delete/recreate failed-creation stacks;
+the routine role denies `DeleteStack`. The wrapper now checks application identity/status before
+synthesis and blocks failed or active stacks, even when invoked with an administrator profile.
+Only an explicit AWS missing-stack error permits a fresh create. No deletion or recovery is automatic.
+
+The failed stack has these eight resources marked `DELETE_SKIPPED` with `DeletionPolicy: Retain`:
+
+| Resource | Physical ID |
+| --- | --- |
+| API access logs | `InfraLensTestStack-AnalysisApiAccessLogGroup47F74889-jxk4TzEjl3MI` |
+| API logging role | `InfraLensTestStack-AnalysisApiCloudWatchRole9101699-44gw5AnXS02r` |
+| Lambda logs | `InfraLensTestStack-AnalysisFunctionLogGroup860A7F87-AOI3Yh16iwVK` |
+| Artifacts | `infralensteststack-artifactbucket7410c9ef-fjcegyfgoblp` |
+| Frontend assets | `infralensteststack-frontendbucketefe2e19c-ur3xyfc7hd7e` |
+| Projects | `InfraLensTestStack-ProjectsTableAA0A2089-17UBQANX3CX4Y` |
+| Runs | `InfraLensTestStack-RunsTable9D121A51-18M3UAGWVRXF4` |
+| Cognito pool | `eu-central-1_P4u9SrKJc` |
+
+Inventory and template evidence are in ignored `cdk.out/test-failed-deployment-resources.json` and
+`cdk.out/test-failed-deployment-template.json`. Retained status is not proof of empty resources;
+their contents have not been inspected. Buckets must not be automatically emptied.
+
+Recovery is a separate decision: after applying the policy correction, an administrator must
+intentionally remove the failed stack record before a fresh creation, or plan resource import into
+a replacement stack. Deleting the record does not clean up retained resources. Preserve/export this
+inventory first, decide whether to retain/import or separately remove each resource, and recheck
+the account/region/stack status before any deletion. A fresh create uses new generated names and
+does not automatically adopt the retained resources. This task does not authorize or perform cleanup.
+Do not delete `CDKToolkit`, the CloudTrail trail or its bucket. Do not rerun deploy until recovery
+is explicitly reviewed; no deletion command is embedded in the deployment workflow.
+
+Sources: [API Gateway tagging condition support](https://docs.aws.amazon.com/service-authorization/latest/reference/list_apigateway.html),
+[CloudFormation stack status and retained resources](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/view-stack-events.html).
+
+## Bootstrap version read correction after the first deployment attempt
+
+Historical procedure: the deployed bootstrap template now contains this correction. Do not apply
+an older proposal over the newer API tagging correction or retry the failed application using the
+historical command below before completing the recovery review above.
+
+The first deployment failed during change-set preparation: CloudFormation's execution role
+`cdk-hnb659fds-cfn-exec-role-230944684535-eu-central-1` lacked `ssm:GetParameters` on
+`arn:aws:ssm:eu-central-1:230944684535:parameter/cdk-bootstrap/hnb659fds/version`.
+The deployment and lookup roles already had version reads, but their permissions are not inherited
+by the separate execution role. This was an omission in the prepared execution policy.
+
+`test-execution-storage-compute.policy.json` now permits only that action on that exact parameter.
+It grants no parameter writes or reads of other parameters. The SSO permission set, role trust and
+application permissions boundary do not change. The correction belongs in the CloudFormation-owned
+managed policy, rather than a manual extra inline policy that would diverge from the template.
+
+Read-only inspection after the failure returned `Stack with id InfraLensTestStack does not exist`.
+No application stack deletion is needed for that observed state. This does not imply that asset
+publishing made no writes to the bootstrap bucket before the failure.
+
+The ignored local proposal was prepared from a fresh test `CDKToolkit` snapshot:
+
+```powershell
+npm.cmd run prepare-test-permissions --workspace @infralens/cdk -- cdk.out/test-bootstrap-before-ssm-fix.snapshot.json cdk.out/test-bootstrap-ssm-read-fix.template.json --repair-bootstrap-version-read
+```
+
+This command is offline. It validates the test account, region, bootstrap identity/version/variant,
+policy name and execution-role attachment; it refuses to overwrite unexpected policy changes or an
+already corrected policy. The resulting template modifies only
+`InfraLensTestExecutionStorageCompute.Properties.PolicyDocument`. All other template fields,
+parameters, roles, resource names and the previous publishing correction are preserved.
+For a later refresh, use the read-only snapshot export procedure in this guide with the new filename.
+
+Validation: CDK build/typechecks and all 47 tests passed, including both target synthesis assertions.
+AWS Access Analyzer reported no findings for eight policy documents; 33 IAM simulations passed,
+including the new allow/deny cases. The actual template comparison changed only the expected policy
+document, and CloudFormation syntax validation passed. This does not apply the correction or prove
+all later provisioning permissions.
+
+Apply the prepared correction manually in the AWS console:
+
+1. Use the test administrator session. Confirm account `230944684535` and region `eu-central-1`.
+2. Open CloudFormation > `CDKToolkit` > Stack actions > Create a change set. Replace the current
+   template by uploading `infra/cdk/cdk.out/test-bootstrap-ssm-read-fix.template.json.compact.json`.
+3. Keep **all current parameter values**, including `BootstrapVariant=InfraLensTestScopedV1`.
+   Name the change set `infralens-test-bootstrap-version-read`; acknowledge named IAM resources.
+4. Review the preview. Expect exactly one **Modify**, logical ID
+   `InfraLensTestExecutionStorageCompute`, type `AWS::IAM::ManagedPolicy`, with no replacement.
+   Its document adds only `ReadTestBootstrapVersion`. Stop if the preview differs.
+5. Execute that reviewed change set and wait for `CDKToolkit` to reach `UPDATE_COMPLETE`.
+
+Steps 2–5 are administrator AWS operations for the user to perform; the assistant has not executed
+them. Do not rerun the default bootstrap or edit production's `CDKToolkit` for this correction.
+After successful application, retry the application with the routine profile from the repository root:
+
+```powershell
+npm.cmd run deploy --workspace @infralens/cdk -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-deploy
+```
+
+If a later attempt reports a different denial or leaves a failed stack, inspect that exact error
+and stack state before retrying. Do not automatically delete the stack or switch the application
+deployment to administrator access. The initial preflight/diff did not exercise CloudFormation's
+parameter resolution; a passing template diff cannot prove all provisioning permissions.
+
+References: [AWS Systems Manager actions and parameter resource scope](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ssm.html),
+[CDK bootstrap version parameter](https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping-env.html).
+
+## Publishing-policy correction before first deployment
+
+The original preparer missed `FilePublishingRoleDefaultPolicy`, a separate `AWS::IAM::Policy`
+resource owned by the bootstrap stack. Adding `FilePublishingRole.Properties.Policies` did not
+replace it. The file-publishing role therefore had both the scoped inline policy and the old
+bootstrap policy, including `s3:DeleteObject*` on the test bootstrap bucket. Its KMS statement also
+remained, targeting the `AWS_MANAGED_KEY` placeholder. The execution role's administrator policy
+was removed correctly; the issue was confined to the file-publishing role among the four inspected
+roles. Their other policies and trust documents match the intended configuration.
+
+The preparer now updates the separately owned policy and avoids adding a duplicate. The dedicated
+repair mode accepts the known applied `InfraLensTestScopedV1` setup and changes only:
+
+1. `FilePublishingRoleDefaultPolicy`: replace its document with `test-file-publishing-role.policy.json`.
+2. `FilePublishingRole`: remove the redundant `InfraLensTestScopedAccess` inline policy.
+
+It preserves resource IDs/names, trust, all other policies, bucket/repository configuration and all
+parameters. No resources are added or removed. The original initial-setup command still rejects
+an already customized bootstrap; use the explicit repair flag for this correction.
+
+The latest applied snapshot and repair are ignored local artifacts under `infra/cdk/cdk.out`.
+For a fresh export, use the read-only export/conversion procedure below with the filenames
+`test-bootstrap-applied-state.json`, `test-bootstrap-applied-template.json` and
+`test-bootstrap-applied-snapshot.json`. Then generate the correction offline:
+
+```powershell
+npm.cmd run prepare-test-permissions --workspace @infralens/cdk -- cdk.out/test-bootstrap-applied-snapshot.json cdk.out/test-bootstrap-file-publishing-fix.template.json --repair-file-publishing-policy
+```
+
+The October 4 repair passed CloudFormation syntax validation and 42 credential-free CDK tests.
+The user has now applied the repair; the assistant only inspected it read-only. For reference, to create the
+preview in the console, use the test administrator session in account `230944684535`, region
+`eu-central-1`: CloudFormation > CDKToolkit > Stack actions > Create a change set. Upload
+`test-bootstrap-file-publishing-fix.template.json.compact.json`, preserve **all** current parameters
+(including `BootstrapVariant=InfraLensTestScopedV1`), and acknowledge named IAM resources. Expect
+only the two modifications above and no replacements. Execute only after that review, then inspect
+the role to confirm only its existing default-named inline policy remains and its document matches
+`test-file-publishing-role.policy.json`. Do not manually delete the CloudFormation-owned policy.
+
+PowerShell alternative for creating the preview, using the prepared compact template:
+
+```powershell
+$repairAccount = aws sts get-caller-identity --profile infralens-test-admin --region eu-central-1 --query Account --output text --no-cli-pager
+if ($LASTEXITCODE -ne 0 -or $repairAccount -ne '230944684535') { throw 'Expected test account 230944684535.' }
+$repairStateJson = aws cloudformation describe-stacks --stack-name CDKToolkit --profile infralens-test-admin --region eu-central-1 --output json --no-cli-pager
+if ($LASTEXITCODE -ne 0) { throw 'Could not read test bootstrap state.' }
+$repairState = ($repairStateJson | ConvertFrom-Json).Stacks[0]
+if (-not $repairState.StackId.StartsWith('arn:aws:cloudformation:eu-central-1:230944684535:stack/CDKToolkit/') -or $repairState.StackStatus -ne 'UPDATE_COMPLETE') { throw 'Unexpected bootstrap identity or status.' }
+if (($repairState.Parameters | Where-Object ParameterKey -eq 'BootstrapVariant').ParameterValue -ne 'InfraLensTestScopedV1') { throw 'Unexpected bootstrap variant.' }
+$repairParameters = @($repairState.Parameters | ForEach-Object { @{ ParameterKey = $_.ParameterKey; UsePreviousValue = $true } })
+$repairParameterPath = Join-Path (Get-Location) 'infra/cdk/cdk.out/test-bootstrap-repair-parameters.json'
+[IO.File]::WriteAllText($repairParameterPath, ($repairParameters | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+aws cloudformation create-change-set --stack-name CDKToolkit --change-set-name infralens-test-file-publishing-fix --change-set-type UPDATE --template-body file://infra/cdk/cdk.out/test-bootstrap-file-publishing-fix.template.json.compact.json --parameters file://infra/cdk/cdk.out/test-bootstrap-repair-parameters.json --capabilities CAPABILITY_NAMED_IAM --profile infralens-test-admin --region eu-central-1 --no-cli-pager
+if ($LASTEXITCODE -ne 0) { throw 'Repair change-set creation failed.' }
+aws cloudformation wait change-set-create-complete --stack-name CDKToolkit --change-set-name infralens-test-file-publishing-fix --profile infralens-test-admin --region eu-central-1
+if ($LASTEXITCODE -ne 0) { throw 'Repair change set is not ready.' }
+aws cloudformation describe-change-set --stack-name CDKToolkit --change-set-name infralens-test-file-publishing-fix --profile infralens-test-admin --region eu-central-1 --no-cli-pager
+```
+
+After reviewing the two-resource preview, execution is a separate AWS write:
+
+```powershell
+$repairAccount = aws sts get-caller-identity --profile infralens-test-admin --region eu-central-1 --query Account --output text --no-cli-pager
+if ($LASTEXITCODE -ne 0 -or $repairAccount -ne '230944684535') { throw 'Expected test account 230944684535.' }
+aws cloudformation execute-change-set --stack-name CDKToolkit --change-set-name infralens-test-file-publishing-fix --profile infralens-test-admin --region eu-central-1 --no-cli-pager
+if ($LASTEXITCODE -ne 0) { throw 'Repair execution failed.' }
+aws cloudformation wait stack-update-complete --stack-name CDKToolkit --profile infralens-test-admin --region eu-central-1
+if ($LASTEXITCODE -ne 0) { throw 'Inspect bootstrap events before continuing.' }
+```
 
 Both existing administrator profiles remain administrators. The new permission set/profile below
 is for routine test deployment. Retaining administrator access for setup means its holder can still
@@ -24,7 +246,7 @@ All policy files are in the existing `infra/cdk` directory. They contain no cred
 | `test-deployer.policy.json` | Inline policy of the new Identity Center permission set `InfraLensTestDeploy` |
 | `test-deployment-role.policy.json` | Replaces the inline and managed grants on the existing test `DeploymentActionRole` |
 | `test-lookup-role.policy.json` | Replaces the inline and managed grants on the existing test `LookupRole` |
-| `test-file-publishing-role.policy.json` | Replaces the existing test `FilePublishingRole` grants |
+| `test-file-publishing-role.policy.json` | Replaces the document of `FilePublishingRoleDefaultPolicy`, attached to `FilePublishingRole` |
 | `test-execution-iam.policy.json` | Managed policy `InfraLensTestExecutionIam` on the test CloudFormation execution role |
 | `test-execution-storage-compute.policy.json` | Managed policy `InfraLensTestExecutionStorageCompute` on that execution role |
 | `test-execution-edge-auth.policy.json` | Managed policy `InfraLensTestExecutionEdgeAuth` on that execution role |
@@ -64,8 +286,12 @@ not acquire this test boundary.
   require a new review; their permissions are not added speculatively.
 - API Gateway, Cognito and CloudFront resources with generated IDs use `Project=InfraLens` and
   `Environment=test` tags where supported. API child resources inherit their REST API's tags for
-  authorization. Ownership tags are protected against removal/change. API ownership tags must be
-  supplied during REST API creation; a later `/tags` request cannot add or rewrite them.
+  authorization. Ownership tags are protected against removal or writes of other values. The API
+  tag endpoint must allow the correct values both during creation and on later idempotent writes.
+  API Gateway's `Tags` authorization supports request tags and tag keys, not resource-tag conditions.
+  Consequently the encoded REST API tag ARN wildcard can also label other APIs in this test region
+  with InfraLens ownership. This is not a strict isolation boundary between apps in the same account;
+  do not broaden these roles to other apps without reviewing separate deployment permissions.
 - CloudFront's separate tag-on-create authorization can also tag a distribution with neither
   ownership tag in this test account. This is a limitation for unrelated **untagged** distributions;
   do not describe the tag controls as an absolute stack-membership boundary.
@@ -115,9 +341,12 @@ IAM's simulator. It never attaches a policy, assumes a deployment role or invoke
 operations. `test-policy-simulations.json` contains the expected decisions. Boundary cases test the
 boundary's ceiling as a standalone policy, not the complete effective permissions of a live role.
 
-During preparation, API Gateway simulation returned `implicitDeny` even for a diagnostic wildcard
-allow. The runnable simulation cases exclude API Gateway; its documented conditions remain in the
-policy and structural tests. This discrepancy is unresolved. API Gateway authorization, provider
+During initial preparation, some API Gateway simulations returned `implicitDeny` even for a diagnostic
+wildcard allow. Those earlier cases remain excluded. The new encoded-ARN PUT tagging cases work and
+are included, with string-list context for `aws:TagKeys`. DELETE tagging cases are marked unverified
+after contradictory wildcard Allow/Deny controls; the script reports them separately from passes.
+The simulator discrepancy remains unresolved.
+API Gateway authorization, provider
 tagging behavior and complete deployment compatibility need confirmation during the first approved
 test deployment. Do not broaden permissions automatically to work around a failure. Access Analyzer
 validation and simulation are not evidence of successful live deployment or effective role trust.
@@ -175,8 +404,9 @@ It writes a readable review template and an equivalent compact `.json.compact.js
 CloudFormation's `--template-body` limit. Review the readable copy. Expected changes:
 
 1. Modify the deployment, lookup, file publishing and execution roles without changing their names.
-2. Add the application boundary and three execution managed policies.
-3. Set the `BootstrapVariant` default to `InfraLensTestScopedV1`.
+2. Replace the separately owned `FilePublishingRoleDefaultPolicy` document.
+3. Add the application boundary and three execution managed policies.
+4. Set the `BootstrapVariant` default to `InfraLensTestScopedV1`.
 
 All other bootstrap resources, IDs, bucket/repository configuration, outputs and version remain
 unchanged. The bootstrap variant must also be set as a parameter when applying the update; this
@@ -199,8 +429,8 @@ Keep existing administrator access available throughout setup.
    Attach no administrator/PowerUser managed policies. Assign your intended user/group to this
    permission set in **test account 230944684535 only**. Identity Center creates the SSO role;
    do not create or edit an `AWSReservedSSO_*` role manually.
-2. Refresh the snapshot and generated template immediately before application. Review the four-role
-   and four-policy change described above. Bootstrap updates use the existing test administrator
+2. Refresh the snapshot and generated template immediately before application. Review the four-role,
+   existing publishing-policy and four-new-policy changes described above. Bootstrap updates use the existing test administrator
    profile, not the new deployment login.
 3. Create and inspect a bootstrap change set with all current parameters preserved except the
    explicitly changed variant. These are **future AWS write commands**, not verification commands:
@@ -270,7 +500,9 @@ Preparation results: 38 CDK tests, CDK typechecks/build and test/production offl
 Access Analyzer returned zero findings for all eight policy documents; 29 supported IAM simulation
 cases passed. The generated compact bootstrap template passed CloudFormation `ValidateTemplate`.
 No change set or bootstrap update was performed by the assistant. The user subsequently applied
-the SSO permission set as recorded above; the remaining bootstrap policies are still proposals.
+the SSO permission set and initial bootstrap update. The readiness audit identified the leftover
+publishing policy described at the top of this guide; the user subsequently applied the repair,
+and read-only inspection confirmed that the leftover grants and duplicate inline policy are gone.
 
 Preparation checked the actual test bootstrap role grants and public CloudFormation resource
 handler permission schemas. The schemas include optional features not used here; those broad

@@ -1,5 +1,53 @@
 [
   {
+    "Name": "CloudFormation reads the exact test bootstrap version",
+    "Policies": [
+      "execution-iam",
+      "execution-storage-compute",
+      "execution-edge-auth"
+    ],
+    "Action": "ssm:GetParameters",
+    "Resource": "arn:aws:ssm:eu-central-1:230944684535:parameter/cdk-bootstrap/hnb659fds/version",
+    "ExpectedDecision": "allowed",
+    "Context": {}
+  },
+  {
+    "Name": "CloudFormation cannot read production bootstrap parameters",
+    "Policies": [
+      "execution-iam",
+      "execution-storage-compute",
+      "execution-edge-auth"
+    ],
+    "Action": "ssm:GetParameters",
+    "Resource": "arn:aws:ssm:eu-central-1:609124256824:parameter/cdk-bootstrap/hnb659fds/version",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "CloudFormation cannot read unrelated parameters",
+    "Policies": [
+      "execution-iam",
+      "execution-storage-compute",
+      "execution-edge-auth"
+    ],
+    "Action": "ssm:GetParameters",
+    "Resource": "arn:aws:ssm:eu-central-1:230944684535:parameter/other-app/config",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "CloudFormation cannot modify the bootstrap version",
+    "Policies": [
+      "execution-iam",
+      "execution-storage-compute",
+      "execution-edge-auth"
+    ],
+    "Action": "ssm:PutParameter",
+    "Resource": "arn:aws:ssm:eu-central-1:230944684535:parameter/cdk-bootstrap/hnb659fds/version",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {}
+  },
+  {
     "Name": "Deployment login assumes its deployment role",
     "Policies": [
       "deployer"
@@ -339,5 +387,127 @@
       "aws:ResourceTag/Project": "AnotherProject",
       "aws:ResourceTag/Environment": "test"
     }
+  },
+  {
+    "Name": "API accepts initial ownership tags",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:PUT",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:TagKeys": [
+        "Project",
+        "Environment"
+      ],
+      "aws:RequestTag/Project": "InfraLens",
+      "aws:RequestTag/Environment": "test"
+    }
+  },
+  {
+    "Name": "API accepts reapplying the same project tag",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:PUT",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:TagKeys": [
+        "Project"
+      ],
+      "aws:RequestTag/Project": "InfraLens"
+    }
+  },
+  {
+    "Name": "API refuses another project value",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:PUT",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {
+      "aws:TagKeys": [
+        "Project"
+      ],
+      "aws:RequestTag/Project": "OtherApp"
+    }
+  },
+  {
+    "Name": "API refuses production environment tag",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:PUT",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {
+      "aws:TagKeys": [
+        "Environment"
+      ],
+      "aws:RequestTag/Environment": "production"
+    }
+  },
+  {
+    "Name": "API refuses removing project ownership",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:DELETE",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {
+      "aws:TagKeys": [
+        "Project"
+      ]
+    },
+    "SimulatorLimitation": "API Gateway tag DELETE returned implicitDeny with no matched statements even under both unconditional wildcard Allow and Deny controls on October 4, 2026. Structural removal-protection tests remain; this is not an authorization pass."
+  },
+  {
+    "Name": "API refuses removing environment ownership",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:DELETE",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {
+      "aws:TagKeys": [
+        "Environment"
+      ]
+    },
+    "SimulatorLimitation": "API Gateway tag DELETE returned implicitDeny with no matched statements even under both unconditional wildcard Allow and Deny controls on October 4, 2026. Structural removal-protection tests remain; this is not an authorization pass."
+  },
+  {
+    "Name": "API accepts an unrelated tag update",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:PUT",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:TagKeys": [
+        "Purpose"
+      ],
+      "aws:RequestTag/Purpose": "analysis"
+    }
+  },
+  {
+    "Name": "API accepts removing an unrelated tag",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:DELETE",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:TagKeys": [
+        "Purpose"
+      ]
+    },
+    "SimulatorLimitation": "API Gateway tag DELETE returned implicitDeny with no matched statements even under both unconditional wildcard Allow and Deny controls on October 4, 2026. Structural removal-protection tests remain; this is not an authorization pass."
   }
 ]

@@ -17,9 +17,10 @@ Deployment identity is defined in `infra/cdk/src/deployment-target.ts`, never in
 | Frontend origins | Own CloudFront HTTPS origin and `http://localhost:5173` | Own CloudFront HTTPS origin only |
 | DynamoDB point-in-time recovery | Disabled | Enabled |
 
-Both profiles currently have **administrator permissions**. They are not restricted deployment
-roles. Narrower permissions and bootstrap trust/execution policies are a later task. Profile names
-are labels; the workflow checks the actual STS caller account every time.
+Both supplied administrator profiles still have **administrator permissions**. The additional
+`infralens-test-deploy` profile selects `InfraLensTestDeploy`. The user applied scoped bootstrap
+permissions and the publishing-policy correction; both have been inspected read-only.
+Profile names are labels; the workflow checks the actual STS caller account every time.
 
 AWS state (user-supplied except for the read-only test audit below):
 
@@ -34,10 +35,31 @@ AWS state (user-supplied except for the read-only test audit below):
   and bootstrap CloudFormation execution role have `AdministratorAccess` without a permissions
   boundary. The deployment role permits stack mutations on `*`, including deletion. No AWS changes
   were made and production was not inspected. Full audit notes are in `HANDOFF.md`.
-- CloudTrail has not been configured.
+- October 4 readiness audit: test `CDKToolkit` is `UPDATE_COMPLETE` with variant
+  `InfraLensTestScopedV1`. Execution policies and the application boundary match the prepared
+  documents; the three routine-role trusts match the intended SSO role. The first audit found the
+  original publishing policy alongside the new policy. The user then applied the two-resource
+  [publishing-policy correction](TEST_DEPLOYMENT_PERMISSIONS.md#publishing-policy-correction-before-first-deployment).
+  A follow-up audit confirmed `UPDATE_COMPLETE`, no managed policy attachments and exactly one
+  publisher inline policy, matching the intended scoped document with no delete-object grant.
+- The guarded preflight and template-only diff passed again after CloudTrail setup using
+  `infralens-test-deploy`; the application is still an initial create. These checks do not prove all
+  provisioning/update/rollback permissions.
+- The user's first deployment then failed resolving the bootstrap version: the CloudFormation
+  execution role lacked `ssm:GetParameters` on the exact test version parameter. Read-only inspection
+  found no application stack afterward. The [one-policy correction](TEST_DEPLOYMENT_PERMISSIONS.md#bootstrap-version-read-correction-after-the-first-deployment-attempt)
+  was subsequently applied and is present in the current `UPDATE_COMPLETE` bootstrap template.
+- The next deployment hit an explicit API tagging deny. `InfraLensTestStack` is `ROLLBACK_COMPLETE`
+  with eight retained resources. The [API tagging correction and recovery inventory](TEST_DEPLOYMENT_PERMISSIONS.md#api-ownership-tag-correction-and-failed-stack-recovery)
+  are prepared; that correction is not yet applied. Deploy now blocks failed application stacks
+  before CDK can attempt deletion/recreation. Do not retry until separate recovery is reviewed.
+- The user created `infralens-test-audit`. October 4 read-only inspection confirmed active logging,
+  successful S3 delivery, multi-region/global-event coverage, log validation and both read/write
+  management events without exclusions. The dedicated bucket has all public-access blocks enabled,
+  a nonpublic policy and default SSE-S3 encryption. The assistant made no AWS changes.
 - A $1 management-account budget exists; its scope and coverage are unverified.
-- Neither proposed Cognito prefix's availability has been verified. Region confirmation is still
-  required for production; successful offline synthesis does not confirm that decision.
+- The test Cognito prefix returned an empty `DomainDescription` on October 4, so it was unclaimed
+  at that check; availability is not reserved. Production prefix and region remain unverified.
 
 Each application stack creates its own Lambda, REST API, two DynamoDB tables, private artifact
 bucket, private frontend bucket, CloudFront distribution, Cognito user pool/client/domain, logs and
@@ -47,8 +69,8 @@ The Lambda IAM action set is unchanged by environment separation.
 Both application Lambdas use Node.js 22 with esbuild targeting `node22`. GitHub workflows also use
 Node.js 22; use that version locally for consistent builds and tests.
 Test application roles now reference the administrator-owned `InfraLensTestApplicationBoundary`.
-The [test permission package](TEST_DEPLOYMENT_PERMISSIONS.md) prepares its policy and a reviewed
-bootstrap update. It must be applied separately before the first test application deployment.
+The [test permission package](TEST_DEPLOYMENT_PERMISSIONS.md) created that policy in the bootstrap
+update applied by the user. Its publishing-policy correction has also been applied and inspected.
 
 Edit reviewed target settings in the existing CDK workspace. The created CloudFront origin is always
 allowed. `additionalFrontendOrigins` adds exact origins, with HTTPS required except for the one test
@@ -268,15 +290,108 @@ delete markers and incomplete uploads if present, before manual bucket deletion.
 auto-delete custom resource or automatic bucket emptying. Retained Cognito domains/pools can affect
 later attempts to reuse a prefix. Leave production `CDKToolkit` unchanged.
 
+## CloudTrail setup
+
+Completed by the user and inspected read-only on October 4, 2026: `infralens-test-audit` is logging
+to `infralens-test-audit-230944684535-euc1`. The latest successful delivery at inspection was
+`2026-10-04T16:51:49Z`, with no delivery error reported. Coverage, management-event selectors,
+validation, bucket public-access blocks and SSE-S3 encryption match the baseline below. The trail
+is account-only, with no Insights or CloudWatch Logs/SNS integration. The walkthrough is retained
+for reference; do not create a duplicate trail. Budget coverage remains unverified.
+
+This is an account-level audit trail administered separately from the application and bootstrap.
+The test deployment role should not gain permission to stop it or delete its audit bucket. It can
+record other applications in the same account too. No trail, bucket or policy has been created by
+the assistant, and no organization-wide logging change is proposed here.
+
+For a low-cost initial test setup, use the test administrator session in account `230944684535`,
+home region `eu-central-1`, and open CloudTrail > Trails > Create trail. Review these settings:
+
+| Setting | Proposed value |
+| --- | --- |
+| Trail name | `infralens-test-audit` |
+| Coverage | This account, all enabled regions, including global service events |
+| Events | Management events, both read and write; no KMS/RDS exclusions |
+| Log storage | New dedicated private S3 bucket in `eu-central-1`; keep all public access blocked |
+| Bucket name | `infralens-test-audit-230944684535-euc1`, now created and inspected |
+| Encryption | SSE-S3 for this initial cost-conscious setup; uncheck the console's default SSE-KMS option |
+| Log file validation | Enabled |
+| Data/network events, Insights, CloudTrail Lake | Not enabled in this baseline |
+| CloudWatch Logs / SNS integration | Not enabled in this baseline |
+| Retention | Keep logs; no automatic expiration or bucket emptying is configured |
+
+SSE-S3 still encrypts logs; a customer-managed KMS key with a reviewed key policy is a later option
+for additional access control and charges. CloudTrail's first copy of management-event delivery
+to S3 has no CloudTrail delivery charge, but S3 storage/requests still cost money. Additional copies,
+data events and Insights have separate charges. This baseline records management operations, not
+application HTTP traffic, S3 object access or DynamoDB item access; it does not set up security alerts.
+Existing Event history covers the last 90 days of regional management events without a trail.
+
+Creating the trail in the console makes AWS changes and starts logging. Review the generated bucket
+policy for the CloudTrail service principal, exact trail `aws:SourceArn`, and this account's log
+prefix. After creation, verify that logging is active and files are delivered without errors.
+Retain the trail independently of application teardown. Do not add it to `InfraLensTestStack` or
+grant the routine deployment role access to the audit bucket. Test administrators still retain
+the ability to change logging; stronger organization/log-archive controls are a later decision.
+
+Console walkthrough for the first setup:
+
+1. Use the AWS access portal to open account `230944684535` with `AdministratorAccess`. Check the
+   account ID in the console and select Frankfurt (`eu-central-1`). CloudTrail is account auditing;
+   its trail stays outside `InfraLensTestStack` and `CDKToolkit`.
+2. Open CloudTrail > Trails > Create trail. Use the table above. Console-created trails are
+   multi-region; Frankfurt is the home region, not a restriction on which regions are recorded.
+3. Choose a new S3 bucket, leave its optional prefix blank, disable SSE-KMS for the chosen SSE-S3
+   baseline, and enable log file validation. Leave SNS and CloudWatch Logs integration off. Optional
+   tags can identify `Environment=test` and `Purpose=audit` without restricting which apps are logged.
+4. On Choose log events, select Management events with both Read and Write. Leave exclusions
+   unchecked. Leave Data, Network activity and Insights events off. Do not create a Lake event store.
+   Management events record infrastructure/configuration activity; this baseline does not record
+   each application HTTP request, S3 object operation or DynamoDB item operation.
+5. Review the account, storage, encryption and event settings, then choose Create trail. This
+   creates AWS resources and starts logging. The console prepares the bucket's CloudTrail access
+   policy; it is separate from the application's deployment/runtime policies.
+6. Open the resulting trail and confirm Logging is on, multi-region coverage, log validation,
+   and the chosen event selectors. In S3, check that all Block Public Access settings are on,
+   default encryption is SSE-S3, and log files arrive under
+   `AWSLogs/230944684535/CloudTrail/<region>/<year>/<month>/<day>/`. Delivery often takes several
+   minutes and is not immediate. Event history alone does not prove delivery to this bucket.
+
+Optional read-only verification after creation (these commands do not create or start a trail):
+
+```powershell
+$trailAccount = aws sts get-caller-identity --profile infralens-test-admin --region eu-central-1 --query Account --output text --no-cli-pager
+if ($LASTEXITCODE -ne 0 -or $trailAccount -ne '230944684535') { throw 'Expected test account 230944684535.' }
+aws cloudtrail get-trail --name arn:aws:cloudtrail:eu-central-1:230944684535:trail/infralens-test-audit --profile infralens-test-admin --region eu-central-1 --no-cli-pager
+if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the test trail.' }
+aws cloudtrail get-trail-status --name arn:aws:cloudtrail:eu-central-1:230944684535:trail/infralens-test-audit --profile infralens-test-admin --region eu-central-1 --no-cli-pager
+if ($LASTEXITCODE -ne 0) { throw 'Could not inspect trail logging/delivery.' }
+aws cloudtrail get-event-selectors --trail-name arn:aws:cloudtrail:eu-central-1:230944684535:trail/infralens-test-audit --profile infralens-test-admin --region eu-central-1 --no-cli-pager
+if ($LASTEXITCODE -ne 0) { throw 'Could not inspect trail event selectors.' }
+```
+
+Expect the correct account/home region, multi-region/global-event coverage, validation enabled,
+`IsLogging=true`, both read and write management events, a recent delivery time after activity,
+and no delivery error. Keep audit logs independently of application teardown; retention can be
+reviewed later without configuring automatic deletion as part of this setup.
+
+Sources: [AWS trail setup](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-create-a-trail-using-the-console-first-time.html),
+[CloudTrail security guidance](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/best-practices-security.html),
+[CloudTrail pricing](https://aws.amazon.com/cloudtrail/pricing/).
+
 ## Next deployment checklist
 
-1. Review and apply the prepared [test permission package](TEST_DEPLOYMENT_PERMISSIONS.md) in a
-   separately authorized setup task. Both current administrator profiles remain broad; no IAM or
-   Organizations changes were made here.
-2. Verify the applied test bootstrap permissions and new deployment profile. Review production
-   bootstrap read-only; do not rename, replace or update its `CDKToolkit` in this task.
-3. Confirm production region and check proposed Cognito prefix availability before first deployment.
-4. Plan/configure CloudTrail in a separately authorized task; it is currently unconfigured.
+1. Completed: test SSO login, scoped bootstrap update and publishing-policy correction. Read-only
+   IAM inspection confirmed the intended publisher policy and removal of its extra old grants.
+   The execution-role bootstrap-version read correction is also applied. Pending: apply the API
+   tagging correction and separately review recovery of `InfraLensTestStack` (`ROLLBACK_COMPLETE`)
+   and its retained resources before another deployment attempt.
+2. Use `infralens-test-deploy` for routine test deployment. Keep production bootstrap unchanged;
+   its account/region preparation is independent of the first test deployment.
+3. Recheck the test Cognito prefix when deploying. Confirm production region/prefix before a later
+   production deployment; they are not prerequisites for the test environment.
+4. Completed: account-level `infralens-test-audit` logging and S3 delivery verified; retain it
+   independently of the application and bootstrap.
 5. Verify the $1 management budget's scope; configure appropriate member-account coverage,
    recipients/alerts and cost monitoring. Budgets are not real-time spending caps.
 6. Run test preflight and template diff, review resources/policies/costs, then authorize the first

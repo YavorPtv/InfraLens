@@ -123,6 +123,47 @@ describe("explicit deployment targets and operational safeguards", () => {
     expect(deploymentProcessEnvironment({ ...request, command: "synth" }, {})).to.deep.equal({ AWS_EC2_METADATA_DISABLED: "true" });
   });
 
+  it("blocks failed or active application stacks before synthesis or CDK recovery", () => {
+    for (const status of ["ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "CREATE_FAILED", "UPDATE_FAILED", "UPDATE_ROLLBACK_FAILED", "CREATE_IN_PROGRESS", "DELETE_IN_PROGRESS"]) {
+      const calls: ProcessCall[] = [];
+      expect(() => runDeploymentWorkflow(["deploy", ...testOptions], call => {
+        calls.push(call);
+        if (call.args[0] === "sts") return JSON.stringify({ Account: testTarget.account });
+        const name = call.args[3];
+        return JSON.stringify({ Stacks: [{
+          StackId: `arn:aws:cloudformation:eu-central-1:230944684535:stack/${name}/example`,
+          StackStatus: name === "CDKToolkit" ? "UPDATE_COMPLETE" : status
+        }] });
+      })).to.throw("does not delete or recreate failed stacks");
+      expect(calls).to.have.length(3);
+      expect(calls.every(call => call.executable === "aws")).to.equal(true);
+    }
+  });
+
+  it("does not treat application inspection failures or wrong identities as a missing stack", () => {
+    for (const response of [
+      new Error("AccessDenied"),
+      new Error("(ValidationError) Stack with id OtherStack does not exist"),
+      "{}", "not json", JSON.stringify({ Stacks: [{
+        StackId: "arn:aws:cloudformation:eu-central-1:609124256824:stack/InfraLensTestStack/example",
+        StackStatus: "CREATE_COMPLETE"
+      }] })
+    ]) {
+      const calls: ProcessCall[] = [];
+      expect(() => runDeploymentWorkflow(["deploy", ...testOptions], call => {
+        calls.push(call);
+        if (call.args[0] === "sts") return JSON.stringify({ Account: testTarget.account });
+        if (call.args[3] === "CDKToolkit") return JSON.stringify({ Stacks: [{
+          StackId: "arn:aws:cloudformation:eu-central-1:230944684535:stack/CDKToolkit/example",
+          StackStatus: "UPDATE_COMPLETE"
+        }] });
+        if (response instanceof Error) throw response;
+        return response;
+      })).to.throw();
+      expect(calls).to.have.length(3);
+    }
+  });
+
   it("rejects a substituted stack, account, region, extra stack or unresolved lookup in the assembly", () => {
     expect(() => verifyAssembly(assembly(), testTarget)).not.to.throw();
     const defaultStackName = assembly();
@@ -148,6 +189,9 @@ describe("explicit deployment targets and operational safeguards", () => {
         runDeploymentWorkflow([command, ...testOptions], (call) => {
           calls.push(call);
           if (call.args[0] === "sts") return JSON.stringify({ Account: testTarget.account });
+          if (call.args[0] === "cloudformation" && call.args[3] === testTarget.stackName) {
+            throw new Error(`(ValidationError) Stack with id ${testTarget.stackName} does not exist`);
+          }
           if (call.args[0] === "cloudformation") return JSON.stringify({ Stacks: [{
             StackId: "arn:aws:cloudformation:eu-central-1:230944684535:stack/CDKToolkit/example",
             StackStatus: "CREATE_COMPLETE"
@@ -164,8 +208,8 @@ describe("explicit deployment targets and operational safeguards", () => {
         } else if (command === "preflight") {
           expect(calls).to.have.length(2);
         } else {
-          expect(calls).to.have.length(4);
-          const operational = calls[3];
+          expect(calls).to.have.length(command === "deploy" ? 5 : 4);
+          const operational = calls[calls.length - 1];
           expect(operational.args.slice(1, 3)).to.deep.equal([command, "InfraLensTestStack"]);
           expect(operational.env.AWS_REGION).to.equal(testTarget.region);
           expect(operational.env.AWS_PROFILE).to.equal(testTarget.profile);

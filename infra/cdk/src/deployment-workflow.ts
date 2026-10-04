@@ -143,6 +143,9 @@ export function runDeploymentWorkflow(
     if (request.command === "preflight") {
       return;
     }
+    if (request.command === "deploy") {
+      verifyApplicationStackBeforeDeploy(request, runner, cdkDirectory, environment, awsArgs);
+    }
   }
 
   mkdirSync(paths.assembly, { recursive: true });
@@ -174,6 +177,38 @@ export function runDeploymentWorkflow(
     cdkArgs.push("--outputs-file", paths.outputs, "--require-approval", "broadening");
   }
   runner({ executable: process.execPath, args: cdkArgs, cwd: cdkDirectory, env: environment });
+}
+
+function verifyApplicationStackBeforeDeploy(
+  request: DeploymentRequest, runner: ProcessRunner, cdkDirectory: string,
+  environment: NodeJS.ProcessEnv, awsArgs: string[]
+): void {
+  const target = request.target;
+  let response: string;
+  try {
+    response = runner({
+      executable: "aws",
+      args: ["cloudformation", "describe-stacks", "--stack-name", target.stackName, ...awsArgs],
+      cwd: cdkDirectory, env: environment, capture: true
+    });
+  } catch (error) {
+    // Only an explicit missing selected stack permits an initial create. Other AWS errors fail closed.
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("(ValidationError)") &&
+        message.includes(`Stack with id ${target.stackName} does not exist`)) {
+      return;
+    }
+    throw error;
+  }
+  const document = JSON.parse(response) as { Stacks?: Array<{ StackId?: string; StackStatus?: string }> };
+  const stack = document.Stacks?.[0];
+  const expectedArn = `arn:aws:cloudformation:${target.region}:${target.account}:stack/${target.stackName}/`;
+  if (document.Stacks?.length !== 1 || !stack?.StackId?.startsWith(expectedArn)) {
+    throw new Error("Application stack inspection returned an unexpected identity. No CDK operation was started.");
+  }
+  if (!["CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE", "REVIEW_IN_PROGRESS"].includes(stack.StackStatus ?? "")) {
+    throw new Error(`${target.stackName} is ${stack.StackStatus ?? "in an unknown state"}. Review failed-stack recovery and retained resources separately. This workflow does not delete or recreate failed stacks. No CDK operation was started.`);
+  }
 }
 
 export function verifyAssembly(document: unknown, target: DeploymentTarget): void {

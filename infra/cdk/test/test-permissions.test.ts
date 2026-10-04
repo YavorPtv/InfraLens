@@ -3,7 +3,8 @@ import { describe, it } from "mocha";
 import { join } from "node:path";
 import { resolveDeploymentTarget, validateDeploymentTarget } from "../src/deployment-target";
 import {
-  prepareTestBootstrapTemplate, readTestPolicies, testPolicyNames,
+  prepareTestBootstrapTemplate, prepareTestFilePublishingPolicyRepair, prepareTestBootstrapVersionReadRepair,
+  prepareTestApiTagPolicyRepair, readTestPolicies, testPolicyNames,
   type BootstrapSnapshot, type PolicyDocument
 } from "../src/test-permissions";
 
@@ -91,6 +92,21 @@ describe("test deployment policy package", () => {
     expect(resolveDeploymentTarget("production").applicationPermissionsBoundaryArn).to.equal(undefined);
   });
 
+  it("lets CloudFormation resolve only the test bootstrap version without granting runtime SSM access", () => {
+    const executionPolicies = ["execution-iam", "execution-storage-compute", "execution-edge-auth"] as const;
+    const ssmGrants = executionPolicies.flatMap(name => policies[name].Statement).filter(item =>
+      item.Effect === "Allow" && item.Action.some(action => action.startsWith("ssm:"))
+    );
+    expect(ssmGrants).to.deep.equal([{
+      Sid: "ReadTestBootstrapVersion",
+      Effect: "Allow",
+      Action: ["ssm:GetParameters"],
+      Resource: `arn:aws:ssm:${region}:${account}:parameter/cdk-bootstrap/hnb659fds/version`
+    }]);
+    expect(policies["application-boundary"].Statement.flatMap(item => item.Action))
+      .not.to.include("ssm:GetParameters");
+  });
+
   it("restricts application role passing by role prefix and AWS service", () => {
     const iamPolicy = policies["execution-iam"];
     const lambda = statement(iamPolicy, "PassApplicationRoleToLambda");
@@ -135,6 +151,28 @@ describe("test deployment policy package", () => {
       "aws:ResourceTag/Project": "true", "aws:ResourceTag/Environment": "true"
     });
   });
+
+  it("allows initial API ownership tags and protects their required values and removal", () => {
+    const edge = policies["execution-edge-auth"];
+    const removal = statement(edge, "KeepApiOwnershipTagsImmutable");
+    expect(removal.Action).to.deep.equal(["apigateway:DELETE"]);
+    expect(removal.Condition).to.deep.equal({
+      "ForAnyValue:StringEquals": { "aws:TagKeys": ["Project", "Environment"] }
+    });
+    expect(statement(edge, "ManageApiTags").Action).to.include("apigateway:PUT");
+    for (const [sid, key, value] of [
+      ["KeepProjectTagValue", "Project", "InfraLens"],
+      ["KeepEnvironmentTagValue", "Environment", "test"]
+    ]) {
+      const deny = statement(edge, sid);
+      expect(deny.Effect).to.equal("Deny");
+      expect(deny.Action).to.include("apigateway:PUT");
+      expect(deny.Condition).to.deep.equal({
+        StringNotEquals: { [`aws:RequestTag/${key}`]: value },
+        "ForAnyValue:StringEquals": { "aws:TagKeys": [key] }
+      });
+    }
+  });
 });
 
 describe("offline test bootstrap policy preparation", () => {
@@ -159,6 +197,9 @@ describe("offline test bootstrap policy preparation", () => {
     expect(template.Resources.DeploymentActionRole.Properties.ManagedPolicyArns).to.equal(undefined);
     expect(template.Resources.LookupRole.Properties.ManagedPolicyArns).to.equal(undefined);
     expect(template.Resources.DeploymentActionRole.Properties.Policies[0].PolicyDocument).to.deep.equal(policies["deployment-role"]);
+    expect(template.Resources.FilePublishingRole.Properties.Policies).to.equal(undefined);
+    expect(template.Resources.FilePublishingRoleDefaultPolicy.Properties.PolicyDocument)
+      .to.deep.equal(policies["file-publishing-role"]);
   });
 
   it("trusts only the dedicated test Identity Center permission set for routine CDK roles", () => {
@@ -198,7 +239,163 @@ describe("offline test bootstrap policy preparation", () => {
     renamed.TemplateBody.Resources.DeploymentActionRole.Properties.RoleName = "custom";
     expect(() => prepareTestBootstrapTemplate(renamed, policies)).to.throw("Unexpected bootstrap role");
   });
+
+  it("replaces the separately owned publishing policy so old delete grants do not survive", () => {
+    const template = prepareTestBootstrapTemplate(exampleSnapshot(), policies);
+    const attachedPolicies = Object.values(template.Resources).filter(resource =>
+      resource.Type === "AWS::IAM::Policy" &&
+      resource.Properties.Roles?.some((role: { Ref?: string }) => role.Ref === "FilePublishingRole")
+    );
+    expect(attachedPolicies).to.have.length(1);
+    expect(attachedPolicies[0].Properties.PolicyDocument).to.deep.equal(policies["file-publishing-role"]);
+    expect(JSON.stringify(attachedPolicies)).not.to.include("s3:DeleteObject");
+    expect(JSON.stringify(attachedPolicies)).not.to.include("kms:");
+  });
+
+  it("rejects missing, renamed or shared publishing-policy resources", () => {
+    const missing = exampleSnapshot();
+    delete missing.TemplateBody.Resources.FilePublishingRoleDefaultPolicy;
+    expect(() => prepareTestBootstrapTemplate(missing, policies)).to.throw("Unexpected FilePublishingRoleDefaultPolicy");
+    const renamed = exampleSnapshot();
+    renamed.TemplateBody.Resources.FilePublishingRoleDefaultPolicy.Properties.PolicyName = "custom";
+    expect(() => prepareTestBootstrapTemplate(renamed, policies)).to.throw("Unexpected FilePublishingRoleDefaultPolicy");
+    const shared = exampleSnapshot();
+    shared.TemplateBody.Resources.FilePublishingRoleDefaultPolicy.Properties.Roles.push({ Ref: "ImagePublishingRole" });
+    expect(() => prepareTestBootstrapTemplate(shared, policies)).to.throw("Unexpected FilePublishingRoleDefaultPolicy");
+  });
+
+  it("repairs the applied V1 omission with only two existing resource changes", () => {
+    const snapshot = appliedV1Snapshot();
+    const original = structuredClone(snapshot);
+    const template = prepareTestFilePublishingPolicyRepair(snapshot, policies);
+    const expected = structuredClone(original.TemplateBody);
+    delete expected.Resources.FilePublishingRole.Properties.Policies;
+    expected.Resources.FilePublishingRoleDefaultPolicy.Properties.PolicyDocument = policies["file-publishing-role"];
+    expect(template).to.deep.equal(expected);
+    expect(snapshot).to.deep.equal(original);
+    expect(Object.keys(template.Resources)).to.deep.equal(Object.keys(original.TemplateBody.Resources));
+  });
+
+  it("rejects repairs for the wrong variant, account or customized role policies", () => {
+    expect(() => prepareTestFilePublishingPolicyRepair(exampleSnapshot(), policies)).to.throw("BootstrapVariant");
+    const wrongAccount = appliedV1Snapshot();
+    wrongAccount.Stacks[0].StackId = wrongAccount.Stacks[0].StackId.replace(account, "609124256824");
+    expect(() => prepareTestFilePublishingPolicyRepair(wrongAccount, policies)).to.throw("healthy CDKToolkit snapshot");
+    const extraPolicy = appliedV1Snapshot();
+    extraPolicy.TemplateBody.Resources.FilePublishingRole.Properties.Policies.push({ PolicyName: "custom" });
+    expect(() => prepareTestFilePublishingPolicyRepair(extraPolicy, policies)).to.throw("original scoped V1");
+    const managedPolicy = appliedV1Snapshot();
+    managedPolicy.TemplateBody.Resources.FilePublishingRole.Properties.ManagedPolicyArns = ["arn:aws:iam::aws:policy/AdministratorAccess"];
+    expect(() => prepareTestFilePublishingPolicyRepair(managedPolicy, policies)).to.throw("original scoped V1");
+  });
+
+  it("repairs the missing version read by changing only the execution storage/compute policy", () => {
+    const snapshot = snapshotWithoutExecutionVersionRead();
+    const original = structuredClone(snapshot);
+    const template = prepareTestBootstrapVersionReadRepair(snapshot, policies);
+    const expected = structuredClone(original.TemplateBody);
+    expected.Resources.InfraLensTestExecutionStorageCompute.Properties.PolicyDocument = policies["execution-storage-compute"];
+    expect(template).to.deep.equal(expected);
+    expect(snapshot).to.deep.equal(original);
+  });
+
+  it("rejects version-read repairs for another account, region, stack or bootstrap variant", () => {
+    for (const stackId of [
+      `arn:aws:cloudformation:${region}:609124256824:stack/CDKToolkit/id`,
+      `arn:aws:cloudformation:us-east-1:${account}:stack/CDKToolkit/id`,
+      `arn:aws:cloudformation:${region}:${account}:stack/InfraLensTestStack/id`
+    ]) {
+      const snapshot = snapshotWithoutExecutionVersionRead();
+      snapshot.Stacks[0].StackId = stackId;
+      expect(() => prepareTestBootstrapVersionReadRepair(snapshot, policies)).to.throw("healthy CDKToolkit snapshot");
+    }
+    expect(() => prepareTestBootstrapVersionReadRepair(exampleSnapshot(), policies)).to.throw("BootstrapVariant");
+  });
+
+  it("refuses to overwrite customized, detached or already corrected execution policies", () => {
+    const customized = snapshotWithoutExecutionVersionRead();
+    customized.TemplateBody.Resources.InfraLensTestExecutionStorageCompute.Properties.PolicyDocument.Statement.pop();
+    expect(() => prepareTestBootstrapVersionReadRepair(customized, policies)).to.throw("differs from the known");
+    const detached = snapshotWithoutExecutionVersionRead();
+    detached.TemplateBody.Resources.CloudFormationExecutionRole.Properties.ManagedPolicyArns = [];
+    expect(() => prepareTestBootstrapVersionReadRepair(detached, policies)).to.throw("attached to the CloudFormation");
+    const corrected = snapshotWithoutExecutionVersionRead();
+    corrected.TemplateBody = prepareTestBootstrapVersionReadRepair(corrected, policies);
+    expect(() => prepareTestBootstrapVersionReadRepair(corrected, policies)).to.throw("already corrected");
+  });
+
+  it("rejects a broader parameter grant in the repair input", () => {
+    const broaderPolicies = structuredClone(policies);
+    statement(broaderPolicies["execution-storage-compute"], "ReadTestBootstrapVersion").Resource = "*";
+    expect(() => prepareTestBootstrapVersionReadRepair(snapshotWithoutExecutionVersionRead(), broaderPolicies))
+      .to.throw("exact test bootstrap version");
+  });
+
+  it("repairs only the API tagging deny rules while preserving the applied version-read fix", () => {
+    const snapshot = snapshotWithApiTaggingDefect();
+    const original = structuredClone(snapshot);
+    const template = prepareTestApiTagPolicyRepair(snapshot, policies);
+    const expected = structuredClone(original.TemplateBody);
+    expected.Resources.InfraLensTestExecutionEdgeAuth.Properties.PolicyDocument = policies["execution-edge-auth"];
+    expect(template).to.deep.equal(expected);
+    expect(snapshot).to.deep.equal(original);
+    expect(template.Resources.InfraLensTestExecutionStorageCompute.Properties.PolicyDocument)
+      .to.deep.equal(policies["execution-storage-compute"]);
+  });
+
+  it("rejects API tagging repairs for the wrong account or unexpected existing policy changes", () => {
+    const wrongAccount = snapshotWithApiTaggingDefect();
+    wrongAccount.Stacks[0].StackId = wrongAccount.Stacks[0].StackId.replace(account, "609124256824");
+    expect(() => prepareTestApiTagPolicyRepair(wrongAccount, policies)).to.throw("healthy CDKToolkit snapshot");
+    const customized = snapshotWithApiTaggingDefect();
+    customized.TemplateBody.Resources.InfraLensTestExecutionEdgeAuth.Properties.PolicyDocument.Statement.pop();
+    expect(() => prepareTestApiTagPolicyRepair(customized, policies)).to.throw("differs from the known tagging defect");
+    const corrected = snapshotWithApiTaggingDefect();
+    corrected.TemplateBody = prepareTestApiTagPolicyRepair(corrected, policies);
+    expect(() => prepareTestApiTagPolicyRepair(corrected, policies)).to.throw("already corrected");
+    const detached = snapshotWithApiTaggingDefect();
+    detached.TemplateBody.Resources.CloudFormationExecutionRole.Properties.ManagedPolicyArns = [];
+    expect(() => prepareTestApiTagPolicyRepair(detached, policies)).to.throw("attached to the CloudFormation");
+  });
 });
+
+function snapshotWithApiTaggingDefect(): BootstrapSnapshot {
+  const snapshot = exampleSnapshot();
+  const previousPolicies = structuredClone(policies);
+  const edge = previousPolicies["execution-edge-auth"];
+  statement(edge, "KeepApiOwnershipTagsImmutable").Action = ["apigateway:PUT", "apigateway:DELETE"];
+  for (const sid of ["KeepProjectTagValue", "KeepEnvironmentTagValue"]) {
+    statement(edge, sid).Action = ["cognito-idp:TagResource", "cloudfront:TagResource"];
+  }
+  snapshot.TemplateBody = prepareTestBootstrapTemplate(snapshot, previousPolicies);
+  snapshot.Stacks[0].StackStatus = "UPDATE_COMPLETE";
+  snapshot.Stacks[0].Parameters.find(item => item.ParameterKey === "BootstrapVariant")!.ParameterValue = "InfraLensTestScopedV1";
+  return snapshot;
+}
+
+function snapshotWithoutExecutionVersionRead(): BootstrapSnapshot {
+  const snapshot = exampleSnapshot();
+  const previousPolicies = structuredClone(policies);
+  previousPolicies["execution-storage-compute"].Statement = previousPolicies["execution-storage-compute"].Statement
+    .filter(item => item.Sid !== "ReadTestBootstrapVersion");
+  snapshot.TemplateBody = prepareTestBootstrapTemplate(snapshot, previousPolicies);
+  snapshot.Stacks[0].StackStatus = "UPDATE_COMPLETE";
+  snapshot.Stacks[0].Parameters.find(item => item.ParameterKey === "BootstrapVariant")!.ParameterValue = "InfraLensTestScopedV1";
+  return snapshot;
+}
+
+function appliedV1Snapshot(): BootstrapSnapshot {
+  const snapshot = exampleSnapshot();
+  const oldPublishingPolicy = structuredClone(snapshot.TemplateBody.Resources.FilePublishingRoleDefaultPolicy);
+  snapshot.TemplateBody = prepareTestBootstrapTemplate(snapshot, policies);
+  snapshot.TemplateBody.Resources.FilePublishingRoleDefaultPolicy = oldPublishingPolicy;
+  snapshot.TemplateBody.Resources.FilePublishingRole.Properties.Policies = [{
+    PolicyName: "InfraLensTestScopedAccess", PolicyDocument: policies["file-publishing-role"]
+  }];
+  snapshot.Stacks[0].StackStatus = "UPDATE_COMPLETE";
+  snapshot.Stacks[0].Parameters.find(item => item.ParameterKey === "BootstrapVariant")!.ParameterValue = "InfraLensTestScopedV1";
+  return snapshot;
+}
 
 function statement(policy: PolicyDocument, sid: string) {
   const result = policy.Statement.find(item => item.Sid === sid);
@@ -210,7 +407,18 @@ function exampleSnapshot(): BootstrapSnapshot {
   const resources: BootstrapSnapshot["TemplateBody"]["Resources"] = {
     CdkBootstrapVersion: { Type: "AWS::SSM::Parameter", Properties: { Value: "32" } },
     StagingBucket: { Type: "AWS::S3::Bucket", Properties: { VersioningConfiguration: { Status: "Enabled" } } },
-    ImagePublishingRole: { Type: "AWS::IAM::Role", Properties: { RoleName: "unchanged-image-role" } }
+    ImagePublishingRole: { Type: "AWS::IAM::Role", Properties: { RoleName: "unchanged-image-role" } },
+    FilePublishingRoleDefaultPolicy: {
+      Type: "AWS::IAM::Policy",
+      Properties: {
+        PolicyName: { "Fn::Sub": "cdk-${Qualifier}-file-publishing-role-default-policy-${AWS::AccountId}-${AWS::Region}" },
+        Roles: [{ Ref: "FilePublishingRole" }],
+        PolicyDocument: {
+          Version: "2012-10-17",
+          Statement: [{ Effect: "Allow", Action: ["s3:DeleteObject*", "s3:PutObject*"], Resource: { "Fn::Sub": "${StagingBucket.Arn}/*" } }]
+        }
+      }
+    }
   };
   for (const [id, description] of Object.entries({
     DeploymentActionRole: "deploy", FilePublishingRole: "file-publishing", LookupRole: "lookup", CloudFormationExecutionRole: "cfn-exec"
