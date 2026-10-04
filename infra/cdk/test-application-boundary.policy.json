@@ -2,6 +2,28 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "ApiGatewayAccountLogging",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:PutLogEvents",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        },
+        "ArnLike": {
+          "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole*"
+        }
+      }
+    },
+    {
       "Sid": "ApplicationLogs",
       "Effect": "Allow",
       "Action": [

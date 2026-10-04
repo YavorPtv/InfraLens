@@ -49,14 +49,20 @@ AWS state (user-supplied except for the read-only test audit below):
   execution role lacked `ssm:GetParameters` on the exact test version parameter. Read-only inspection
   found no application stack afterward. The [one-policy correction](TEST_DEPLOYMENT_PERMISSIONS.md#bootstrap-version-read-correction-after-the-first-deployment-attempt)
   was subsequently applied and is present in the current `UPDATE_COMPLETE` bootstrap template.
-- The next deployment hit an explicit API tagging deny. `InfraLensTestStack` is `ROLLBACK_COMPLETE`
-  with eight retained resources. The [API tagging correction and recovery inventory](TEST_DEPLOYMENT_PERMISSIONS.md#api-ownership-tag-correction-and-failed-stack-recovery)
-  are prepared; that correction is not yet applied. Deploy now blocks failed application stacks
+- The next deployment hit an explicit API tagging deny and rolled back, leaving eight resources
+  marked retained in that attempt. The [API tagging correction and historical recovery inventory](TEST_DEPLOYMENT_PERMISSIONS.md#api-ownership-tag-correction-and-failed-stack-recovery)
+  are recorded; the October 5 bootstrap template confirms that correction is applied. Deploy blocks failed application stacks
   before CDK can attempt deletion/recreation. Do not retry until separate recovery is reviewed.
 - The user created `infralens-test-audit`. October 4 read-only inspection confirmed active logging,
   successful S3 delivery, multi-region/global-event coverage, log validation and both read/write
   management events without exclusions. The dedicated bucket has all public-access blocks enabled,
   a nonpublic policy and default SSE-S3 encryption. The assistant made no AWS changes.
+- October 5: the bootstrap now contains the API tagging correction. The next deployment failed
+  configuring the regional API Gateway logging account because its role's boundary restricted the
+  required logging scope. Correct trust/managed policy were confirmed read-only. The
+  [logging boundary correction](TEST_DEPLOYMENT_PERMISSIONS.md#api-gateway-logging-boundary-correction)
+  is prepared, not applied; it affects only the test API logging role's maximum logging permissions.
+  The current application is `ROLLBACK_COMPLETE`; earlier inventories are from a different attempt.
 - A $1 management-account budget exists; its scope and coverage are unverified.
 - The test Cognito prefix returned an empty `DomainDescription` on October 4, so it was unclaimed
   at that check; availability is not reserved. Production prefix and region remain unverified.
@@ -383,8 +389,8 @@ Sources: [AWS trail setup](https://docs.aws.amazon.com/awscloudtrail/latest/user
 
 1. Completed: test SSO login, scoped bootstrap update and publishing-policy correction. Read-only
    IAM inspection confirmed the intended publisher policy and removal of its extra old grants.
-   The execution-role bootstrap-version read correction is also applied. Pending: apply the API
-   tagging correction and separately review recovery of `InfraLensTestStack` (`ROLLBACK_COMPLETE`)
+   The execution-role bootstrap-version read and API tagging corrections are also applied. Pending:
+   apply the logging boundary correction and separately review recovery of `InfraLensTestStack` (`ROLLBACK_COMPLETE`)
    and its retained resources before another deployment attempt.
 2. Use `infralens-test-deploy` for routine test deployment. Keep production bootstrap unchanged;
    its account/region preparation is independent of the first test deployment.

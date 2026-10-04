@@ -509,5 +509,148 @@
       ]
     },
     "SimulatorLimitation": "API Gateway tag DELETE returned implicitDeny with no matched statements even under both unconditional wildcard Allow and Deny controls on October 4, 2026. Structural removal-protection tests remain; this is not an authorization pass."
+  },
+  {
+    "Name": "API logging boundary permits logs:CreateLogGroup",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:CreateLogGroup",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:CreateLogStream",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:CreateLogStream",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:DescribeLogGroups",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:DescribeLogGroups",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:DescribeLogStreams",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:DescribeLogStreams",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:PutLogEvents",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:PutLogEvents",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:GetLogEvents",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:GetLogEvents",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:FilterLogEvents",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:FilterLogEvents",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "Lambda boundary cannot write unrelated logs",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:PutLogEvents",
+    "Resource": "arn:aws:logs:eu-central-1:230944684535:log-group:unrelated-app:log-stream:example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisFunctionRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary excludes another region",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:PutLogEvents",
+    "Resource": "arn:aws:logs:eu-central-1:230944684535:log-group:unrelated-app:log-stream:example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "us-east-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary excludes production roles",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:PutLogEvents",
+    "Resource": "arn:aws:logs:eu-central-1:230944684535:log-group:unrelated-app:log-stream:example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::609124256824:role/InfraLensProdStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary excludes unrelated roles",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:PutLogEvents",
+    "Resource": "arn:aws:logs:eu-central-1:230944684535:log-group:unrelated-app:log-stream:example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/OtherAppLoggingRole"
+    }
   }
 ]

@@ -1,23 +1,41 @@
 # InfraLens Handoff
 
-Last refreshed: October 4, 2026.
+Last refreshed: October 5, 2026.
 
-## Latest checkpoint and unresolved failure
+## Latest API Gateway logging correction
 
 - The user subsequently reported another deployment failure at 20:46:04 on
   `AnalysisApiAccount6CD7A6DE` (`AWS::ApiGateway::Account`): API Gateway rejected the logging role ARN
   because its required trust or role permissions were not configured (`InvalidRequest`, HTTP 400).
-  The exact cause has not been investigated; trust, attached grants and the application boundary
-  are possibilities, not established findings.
+  On October 5, the user authorized resuming investigation and a local correction.
 - The user explicitly requested no fix or further investigation yet, then requested a commit of
-  the current work. Preserve this stop instruction until they ask to resume. No AWS inspection,
-  permission change, deployment or cleanup was performed for this latest failure.
+  the current work; checkpoint commit `07681e7` contains the preceding work. The stop request is now
+  revoked. No further commit or push is authorized by the new fix request.
 - The earlier rollback status and retained-resource inventory below describe a previous attempt.
-  Current stack state, resource inventory, cleanup actions and application of the latest tag repair
-  have not been independently rechecked. Do not use the old inventory as authority for deletion.
+  The current application was inspected read-only: `ROLLBACK_COMPLETE`, stack ID ending
+  `5f5ff451-c01b-11f1-abb5-066020afc539`. Its logging role ends `coXyuXB7hbGF`, trusts API Gateway,
+  has `AmazonAPIGatewayPushToCloudWatchLogs`, no inline policies and the expected boundary.
+  The current bootstrap template contains the earlier SSM and tagging corrections. Do not use
+  the older retained-resource inventory as authority for deletion.
 - This checkpoint includes the earlier policy corrections, regression tests, failed-stack safeguard
   and deployment/CloudTrail documentation. Their passing checks do not establish that the complete
   test deployment succeeds. Production permissions still need separate review and validation.
+- The logging boundary restricted six required actions to app/execution log prefixes; actual-role
+  IAM simulation confirmed broader access was denied by the boundary. The new `ApiGatewayAccountLogging`
+  statement permits the seven documented logging actions on `*` only for the test API logging role
+  prefix and `eu-central-1`. This allows broader regional logs for that role; Lambda restrictions,
+  data limits and identity/role-chaining denies remain. No production configuration changes.
+- New offline `--repair-api-logging-boundary` preparation changes only
+  `InfraLensTestApplicationBoundary.PolicyDocument`, refuses unexpected current policy edits and
+  preserves all other bootstrap resources/settings and prior fixes. Ignored snapshot/proposal files:
+  `cdk.out/test-bootstrap-before-logging-fix.snapshot.json` and
+  `cdk.out/test-bootstrap-api-logging-fix.template.json` (plus compact copy).
+- CDK build/typechecks and 55 tests passed, including both environment synthesis assertions. The
+  actual logging role with the proposed boundary override simulated all seven actions as allowed;
+  CloudFormation syntax validation and exact one-policy proposal comparison passed. Live account
+  configuration/deployment success remain unverified. The assistant made no AWS writes or cleanup.
+  Final read-only verification: eight policy documents validated with no findings; 49 simulations
+  passed and the existing three API tag-deletion cases remained explicitly unverified.
 
 ## Current work and verified repository state
 
@@ -287,10 +305,8 @@ Deployment safeguards and testing boundaries: [Testing](docs/TESTING.md).
   Before enabling it, connect it to validated test outputs and account/region checks. Its old
   `INFRALENS_DISPOSABLE_AWS` flag is about disposable data, not per-run stack deployment/destruction.
   It needs scoped test cleanup permissions separately; do not broaden the application Lambda role.
-- Work is stopped at the user's request after the later API Gateway logging-role failure described
-  at the top. When the user resumes, inspect current state before following this earlier plan:
-  review/apply the one-policy API tagging correction using the test administrator session and
-  wait for `CDKToolkit` `UPDATE_COMPLETE`. Then explicitly decide recovery for the failed application
+- Next: review/apply the one-policy logging boundary correction using the test administrator session
+  and wait for `CDKToolkit` `UPDATE_COMPLETE`. Then explicitly decide recovery for the failed application
   stack record and its retained resources before retrying with `infralens-test-deploy`. No automatic
   cleanup or deletion is authorized. The prior publishing/version-read corrections are applied;
   CloudTrail logging/delivery passed read-only checks.

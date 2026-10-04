@@ -246,10 +246,42 @@ export function prepareTestApiTagPolicyRepair(snapshot: BootstrapSnapshot, polic
   return template;
 }
 
+// Permit account-level logging checks only for the API Gateway logging role, preserving Lambda limits.
+export function prepareTestApiLoggingBoundaryRepair(snapshot: BootstrapSnapshot, policies: TestPolicies): BootstrapTemplate {
+  const template = validatedBootstrapTemplate(snapshot, "InfraLensTestScopedV1");
+  const policyId = "InfraLensTestApplicationBoundary";
+  const resource = template.Resources[policyId];
+  const properties = resource?.Properties;
+  if (resource?.Type !== "AWS::IAM::ManagedPolicy" || properties?.ManagedPolicyName !== policyId || properties.Path !== "/") {
+    throw new Error("Expected the administrator-owned test application boundary.");
+  }
+  const correctedPolicy = policies["application-boundary"];
+  const loggingGrants = correctedPolicy.Statement.filter(item => item.Sid === "ApiGatewayAccountLogging");
+  if (!isDeepStrictEqual(loggingGrants, [{
+    Sid: "ApiGatewayAccountLogging", Effect: "Allow",
+    Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:DescribeLogGroups", "logs:DescribeLogStreams",
+      "logs:PutLogEvents", "logs:GetLogEvents", "logs:FilterLogEvents"],
+    Resource: "*",
+    Condition: {
+      StringEquals: { "aws:RequestedRegion": "eu-central-1" },
+      ArnLike: { "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole*" }
+    }
+  }])) {
+    throw new Error("Expected the seven logging actions restricted to the test API Gateway role and region.");
+  }
+  const previousPolicy = structuredClone(correctedPolicy);
+  previousPolicy.Statement = previousPolicy.Statement.filter(item => item.Sid !== "ApiGatewayAccountLogging");
+  if (!isDeepStrictEqual(properties.PolicyDocument, previousPolicy)) {
+    throw new Error("Application boundary differs from the known logging restriction or is already corrected; review it separately.");
+  }
+  properties.PolicyDocument = structuredClone(correctedPolicy);
+  return template;
+}
+
 if (require.main === module) {
   try {
     const [snapshotPath, outputPath, mode, ...extra] = process.argv.slice(2);
-    const repairModes = ["--repair-file-publishing-policy", "--repair-bootstrap-version-read", "--repair-api-ownership-tags"];
+    const repairModes = ["--repair-file-publishing-policy", "--repair-bootstrap-version-read", "--repair-api-ownership-tags", "--repair-api-logging-boundary"];
     if (!snapshotPath || !outputPath || extra.length || (mode && !repairModes.includes(mode))) {
       throw new Error(`Usage: prepare-test-permissions <parsed-snapshot.json> <review-template.json> [${repairModes.join(" | ")}] (offline, test only).`);
     }
@@ -266,6 +298,8 @@ if (require.main === module) {
       template = prepareTestBootstrapVersionReadRepair(snapshot, policies);
     } else if (mode === "--repair-api-ownership-tags") {
       template = prepareTestApiTagPolicyRepair(snapshot, policies);
+    } else if (mode === "--repair-api-logging-boundary") {
+      template = prepareTestApiLoggingBoundaryRepair(snapshot, policies);
     } else {
       template = prepareTestBootstrapTemplate(snapshot, policies);
     }

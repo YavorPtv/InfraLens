@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { resolveDeploymentTarget, validateDeploymentTarget } from "../src/deployment-target";
 import {
   prepareTestBootstrapTemplate, prepareTestFilePublishingPolicyRepair, prepareTestBootstrapVersionReadRepair,
-  prepareTestApiTagPolicyRepair, readTestPolicies, testPolicyNames,
+  prepareTestApiTagPolicyRepair, prepareTestApiLoggingBoundaryRepair, readTestPolicies, testPolicyNames,
   type BootstrapSnapshot, type PolicyDocument
 } from "../src/test-permissions";
 
@@ -172,6 +172,21 @@ describe("test deployment policy package", () => {
         "ForAnyValue:StringEquals": { "aws:TagKeys": [key] }
       });
     }
+  });
+
+  it("limits account-level logging in the boundary to the test API Gateway logging role", () => {
+    const grant = statement(policies["application-boundary"], "ApiGatewayAccountLogging");
+    expect(grant.Effect).to.equal("Allow");
+    expect(grant.Action).to.have.members([
+      "logs:CreateLogGroup", "logs:CreateLogStream", "logs:DescribeLogGroups", "logs:DescribeLogStreams",
+      "logs:PutLogEvents", "logs:GetLogEvents", "logs:FilterLogEvents"
+    ]);
+    expect(grant.Resource).to.equal("*");
+    expect(grant.Condition).to.deep.equal({
+      StringEquals: { "aws:RequestedRegion": region },
+      ArnLike: { "aws:PrincipalArn": `arn:aws:iam::${account}:role/InfraLensTestStack-AnalysisApiCloudWatchRole*` }
+    });
+    expect(JSON.stringify(grant)).not.to.include("AnalysisFunctionRole");
   });
 });
 
@@ -357,7 +372,44 @@ describe("offline test bootstrap policy preparation", () => {
     detached.TemplateBody.Resources.CloudFormationExecutionRole.Properties.ManagedPolicyArns = [];
     expect(() => prepareTestApiTagPolicyRepair(detached, policies)).to.throw("attached to the CloudFormation");
   });
+
+  it("repairs only the application boundary and preserves all bootstrap role and resource settings", () => {
+    const snapshot = snapshotWithApiLoggingRestriction();
+    const original = structuredClone(snapshot);
+    const template = prepareTestApiLoggingBoundaryRepair(snapshot, policies);
+    const expected = structuredClone(original.TemplateBody);
+    expected.Resources.InfraLensTestApplicationBoundary.Properties.PolicyDocument = policies["application-boundary"];
+    expect(template).to.deep.equal(expected);
+    expect(snapshot).to.deep.equal(original);
+  });
+
+  it("rejects logging-boundary repairs for production, customization or an already applied correction", () => {
+    const wrongAccount = snapshotWithApiLoggingRestriction();
+    wrongAccount.Stacks[0].StackId = wrongAccount.Stacks[0].StackId.replace(account, "609124256824");
+    expect(() => prepareTestApiLoggingBoundaryRepair(wrongAccount, policies)).to.throw("healthy CDKToolkit snapshot");
+    const customized = snapshotWithApiLoggingRestriction();
+    customized.TemplateBody.Resources.InfraLensTestApplicationBoundary.Properties.PolicyDocument.Statement.pop();
+    expect(() => prepareTestApiLoggingBoundaryRepair(customized, policies)).to.throw("differs from the known logging restriction");
+    const corrected = snapshotWithApiLoggingRestriction();
+    corrected.TemplateBody = prepareTestApiLoggingBoundaryRepair(corrected, policies);
+    expect(() => prepareTestApiLoggingBoundaryRepair(corrected, policies)).to.throw("already corrected");
+    const broaderPolicies = structuredClone(policies);
+    statement(broaderPolicies["application-boundary"], "ApiGatewayAccountLogging").Condition!.ArnLike["aws:PrincipalArn"] = "*";
+    expect(() => prepareTestApiLoggingBoundaryRepair(snapshotWithApiLoggingRestriction(), broaderPolicies))
+      .to.throw("restricted to the test API Gateway role and region");
+  });
 });
+
+function snapshotWithApiLoggingRestriction(): BootstrapSnapshot {
+  const snapshot = exampleSnapshot();
+  const previousPolicies = structuredClone(policies);
+  previousPolicies["application-boundary"].Statement = previousPolicies["application-boundary"].Statement
+    .filter(item => item.Sid !== "ApiGatewayAccountLogging");
+  snapshot.TemplateBody = prepareTestBootstrapTemplate(snapshot, previousPolicies);
+  snapshot.Stacks[0].StackStatus = "UPDATE_COMPLETE";
+  snapshot.Stacks[0].Parameters.find(item => item.ParameterKey === "BootstrapVariant")!.ParameterValue = "InfraLensTestScopedV1";
+  return snapshot;
+}
 
 function snapshotWithApiTaggingDefect(): BootstrapSnapshot {
   const snapshot = exampleSnapshot();

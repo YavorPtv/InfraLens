@@ -39,7 +39,11 @@ The first application attempt then failed because the CloudFormation execution r
 review/application instructions. The applied bootstrap template now contains this version-read fix.
 The following deployment failed because the API ownership-tag deny also blocked initial tagging.
 The prepared `--repair-api-ownership-tags` correction allows the required values while preserving
-wrong-value/removal denials. It is not applied. The application is `ROLLBACK_COMPLETE` with retained
+wrong-value/removal denials. The current bootstrap contains that correction. The latest failure was
+the API Gateway logging role's boundary excluding required account-level logging permissions.
+The prepared `--repair-api-logging-boundary` mode adds the documented logging actions only for the
+test API logging role in `eu-central-1`, preserving Lambda limits; it has not been applied to AWS.
+The application is `ROLLBACK_COMPLETE` with retained
 resources; deploy now stops before CDK's automatic failed-stack deletion/recreation. Review the guide's
 inventory and separate recovery decision before retrying; no cleanup is performed by the workflow.
 No production policies or bootstrap changes are included.

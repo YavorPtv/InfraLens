@@ -17,9 +17,69 @@ The user applied its correction on October 4. Subsequent read-only inspection co
 The publishing-policy procedure below is retained for reference; this account does not need that
 repair applied again. The first deployment subsequently exposed a separate missing bootstrap-version
 read on the CloudFormation execution role. That correction is now present in the deployed bootstrap
-template. The next attempt exposed the API tagging deny below; this latest correction is not applied.
+template. The API tagging correction is also present in the October 5 bootstrap snapshot. The latest
+failure concerns the API Gateway logging role's permissions boundary; its correction below is prepared
+locally and has not been applied to AWS.
+
+## API Gateway logging boundary correction
+
+October 5 read-only inspection found the current application in `ROLLBACK_COMPLETE`, stack ARN
+`arn:aws:cloudformation:eu-central-1:230944684535:stack/InfraLensTestStack/5f5ff451-c01b-11f1-abb5-066020afc539`.
+The retained logging role is
+`InfraLensTestStack-AnalysisApiCloudWatchRole9101699-coXyuXB7hbGF`. It correctly trusts
+`apigateway.amazonaws.com`, has `AmazonAPIGatewayPushToCloudWatchLogs` attached, no inline policies,
+and uses `InfraLensTestApplicationBoundary`. The role's managed policy permits the seven required
+logging actions on `*`; the boundary instead limited six of them to application/execution log prefixes.
+Actual-role IAM simulation confirmed those six broader operations were blocked by the boundary.
+
+`ApiGatewayAccountLogging` now permits the seven documented logging actions on `*` **only** when
+`aws:PrincipalArn` matches the test `InfraLensTestStack-AnalysisApiCloudWatchRole*` roles and
+`aws:RequestedRegion` is `eu-central-1`. This reflects the regional, account-level logging role used
+by REST API Gateway. It allows that role broader regional log access, including unrelated log groups;
+it does not give the Lambda role that exception. Existing Lambda log/data restrictions and explicit
+identity-administration/role-chaining denies are preserved. Boundaries limit grants; this statement
+does not attach new identity permissions to other roles or create a production boundary.
+
+The prepared proposal changes only `InfraLensTestApplicationBoundary.Properties.PolicyDocument`:
+
+```powershell
+npm.cmd run prepare-test-permissions --workspace @infralens/cdk -- cdk.out/test-bootstrap-before-logging-fix.snapshot.json cdk.out/test-bootstrap-api-logging-fix.template.json --repair-api-logging-boundary
+```
+
+The command is offline, validates the known test bootstrap, refuses unexpected boundary edits or an
+already applied correction, and preserves all other template fields and previous fixes. The snapshot
+and both readable/compact proposals are ignored local files in `infra/cdk/cdk.out`.
+
+Apply the correction manually using the test administrator session, account `230944684535`, region
+`eu-central-1`: CloudFormation > `CDKToolkit` > Create a change set. Upload
+`infra/cdk/cdk.out/test-bootstrap-api-logging-fix.template.json.compact.json`, preserve **all** current
+parameters including `BootstrapVariant=InfraLensTestScopedV1`, name it
+`infralens-test-api-logging-fix`, and acknowledge named IAM resources. Expect exactly one **Modify**,
+`InfraLensTestApplicationBoundary`, with no replacement and only the new logging statement. Review
+that preview, execute it, and wait for `UPDATE_COMPLETE`. The existing retained logging role already
+uses this boundary, so its maximum permissions change with the managed policy; no trust edit or
+manual policy attachment is needed.
+
+The current application remains `ROLLBACK_COMPLETE`; the wrapper will block deployment until a
+separate failed-stack recovery is completed. The older retained-resource inventory below belongs to
+a different stack attempt and must not be used for current cleanup. Recheck current resources before
+any separately authorized deletion/import. Do not delete `CDKToolkit` or CloudTrail.
+
+Verification: CDK build/typechecks and all 55 tests passed, including both environment synthesis
+assertions. The actual role simulated with the proposed boundary override permits all seven required
+logging actions. CloudFormation template syntax and the one-policy snapshot comparison passed.
+AWS policy validation returned no findings for all eight documents; 49 IAM simulations passed,
+including the role/region exclusions, with the existing three API tag-deletion limitations reported
+as unverified rather than counted as passes.
+These checks do not execute API Gateway account configuration or prove the complete deployment.
+No AWS writes, deployment, cleanup, commit or push were performed for this correction.
+
+Reference: [AWS API Gateway logging policy and required actions](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonAPIGatewayPushToCloudWatchLogs.html).
 
 ## API ownership-tag correction and failed-stack recovery
+
+Historical October 4 procedure: the current bootstrap now includes this tagging correction. Its
+failed-stack inventory below is historical; use the latest logging failure/status above for planning.
 
 The next deployment failed on `AnalysisApi6763914B`: `KeepApiOwnershipTagsImmutable` denied
 `apigateway:PUT` whenever `Project` or `Environment` appeared in `aws:TagKeys`. This also denied the
@@ -301,6 +361,9 @@ not acquire this test boundary.
 - `apigateway:PATCH` on `/account` is required by the existing regional logging-account resource.
   It affects API Gateway's shared logging configuration in the test region. Role passing remains
   restricted to the bounded application logging role.
+- The boundary allows the API Gateway logging role the seven required regional account-level logging
+  actions on `*`, guarded by its test role ARN prefix and region. This role can access broader regional
+  logs; the Lambda role does not receive this exception. See the logging correction above.
 - API reads with no resource-level authorization (for example domain-status, log-group discovery,
   template validation and hook-result reads) use `Resource: "*"` with a regional condition where
   applicable. Global CloudFront and IAM operations cannot use an `eu-central-1` blanket deny.
