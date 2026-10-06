@@ -1,30 +1,45 @@
 import { expect } from "chai";
+import { hostedTestRequest, readHostedTestConfiguration, testAccessTokenSubject,
+  type HostedTestConfiguration } from "./hostedTestHelpers";
 
 // Deliberately outside *.test.ts: ordinary tests never contact a deployment.
 describe("existing deployed InfraLens API (HTTP smoke only)", function () {
   this.timeout(15_000);
-  let baseUrl: URL;
-  const configuredUrl = process.env.INFRALENS_SMOKE_API_BASE_URL;
+  let configuration: HostedTestConfiguration;
   const token = process.env.INFRALENS_SMOKE_ACCESS_TOKEN;
   const template = JSON.stringify({ Resources: { SmokeQueue: { Type: "AWS::SQS::Queue" } } });
 
   before(function () {
-    if (!configuredUrl) {
-      process.stdout.write("Smoke tests skipped: set INFRALENS_SMOKE_API_BASE_URL to an existing deployment.\n");
-      this.skip();
-      return;
+    configuration = readHostedTestConfiguration();
+    if (token) {
+      testAccessTokenSubject(token, configuration, "INFRALENS_SMOKE_ACCESS_TOKEN");
+    } else {
+      process.stdout.write("Authenticated smoke coverage skipped: no short-lived test access token supplied.\n");
     }
-    baseUrl = new URL(configuredUrl.endsWith("/") ? configuredUrl : `${configuredUrl}/`);
-    expect(baseUrl.protocol, "Use an HTTPS deployment URL").to.equal("https:");
-    expect(baseUrl.username).to.equal("");
-    expect(baseUrl.password).to.equal("");
-    expect(baseUrl.search).to.equal("");
-    expect(baseUrl.hash).to.equal("");
   });
 
   function request(path: string, options: RequestInit = {}): Promise<Response> {
-    return fetch(new URL(path, baseUrl), {
-      ...options, redirect: "error", signal: AbortSignal.timeout(10_000)
+    return hostedTestRequest(configuration, path, options);
+  }
+
+  it("rejects an invalid bearer token", async () => {
+    const response = await request("analyze", {
+      method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer invalid-test-token" },
+      body: JSON.stringify({ template })
+    });
+    expect(response.status).to.be.oneOf([401, 403]);
+  });
+
+  for (const [method, path] of [
+    ["GET", "projects"], ["POST", "projects"], ["POST", "projects/cleanup"], ["POST", "projects/compare"],
+    ["PATCH", "projects/test-project"], ["DELETE", "projects/test-project"],
+    ["GET", "projects/test-project/runs"], ["POST", "projects/test-project/runs"],
+    ["GET", "projects/test-project/runs/test-run"], ["DELETE", "projects/test-project/runs/test-run"],
+    ["GET", "projects/test-project/runs/test-run/artifacts/report"]
+  ]) {
+    it(`rejects ${method} /${path} without authentication`, async () => {
+      const response = await request(path, { method });
+      expect(response.status).to.be.oneOf([401, 403]);
     });
   }
 

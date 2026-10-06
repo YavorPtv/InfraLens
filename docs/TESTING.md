@@ -68,33 +68,91 @@ Tests use injected validators; normal Express/Lambda factory calls stay offline 
 configuration. CDK assertions check only ValidateTemplate is added and log permissions remain scoped.
 See [Template validation](TEMPLATE_VALIDATION.md) for the stage contract and limits.
 
-## Deployed HTTP smoke tests
+## Persistent AWS test workflows
 
-Smoke tests validate an existing deployment; CI does not deploy InfraLens.
+Live checks use the existing InfraLensTestStack in test account 230944684535, eu-central-1.
+They stay outside normal *.test.ts discovery and never deploy, bootstrap or destroy infrastructure.
+Resource details come from ignored infra/cdk/cdk-outputs.test.json, which must contain only the test
+stack's current outputs. Copy the full output file when moving to another machine; credentials and
+access tokens do not belong in it. Do not use historical failed-stack inventories for configuration.
 
-`apps/api/test/deployedRoutes.smoke.ts` is excluded from normal `*.test.ts` discovery. It only makes
-HTTP calls to an explicitly configured existing HTTPS API, preserving any API Gateway stage path.
-It checks public `GET /health` and unauthenticated rejection of `POST /analyze`, `/diff` and `/apply`.
-Requests use a tiny synthetic queue template, no uploaded source, finite timeouts and no redirects.
-No configuration means a clearly reported skipped suite, with no network calls.
+From the repository root, commands available after the test deployment:
 
 ```powershell
-$env:INFRALENS_SMOKE_API_BASE_URL = 'https://YOUR_EXISTING_API_HOST/YOUR_STAGE'
-npm.cmd run test:smoke
+# Public HTTP smoke: no AWS credentials or user token required.
+npm.cmd run test:smoke -- --target test
+
+# Hosted save/restore/two-user isolation: requires test users and current tokens first.
+aws sso login --profile infralens-test-deploy
+npm.cmd run test:hosted -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-deploy --allow-test-data true
 ```
 
-| Configuration | Local environment / GitHub Actions |
-| --- | --- |
-| `INFRALENS_SMOKE_API_BASE_URL` | Required for HTTP tests; set locally or as a repository Actions variable. No hardcoded deployment URL. |
-| `INFRALENS_SMOKE_ACCESS_TOKEN` | Optional valid, short-lived Cognito **access** token with the deployed route's `openid` scope. Set locally through your secure environment or as an Actions secret. Enables one authenticated synthetic `/analyze` test. Expired tokens cause that opt-in test to fail. Never commit tokens. |
+Hosted tests require INFRALENS_TEST_USER_A_TOKEN and INFRALENS_TEST_USER_B_TOKEN in the process
+environment. Obtain short-lived access tokens by signing in as two dedicated test Cognito users;
+never paste them into chat, print them, commit them or store them in deployment outputs. There is
+no automatic login/refresh or user creation in this refactor. Tokens must use the selected test pool,
+client and openid scope; different token strings from the same user are rejected.
 
-The dedicated **Smoke tests (existing deployment required)** workflow runs only via manual
-`workflow_dispatch`, and skips its job when the URL variable is absent. Configure the repository
-variable and optional secret, then run it from GitHub Actions. It installs npm dependencies and runs
-the HTTP suite; it has no AWS credentials, deploy commands, CloudFormation updates, or asset uploads.
-Normal pull-request CI continues typechecking, building and testing locally without needing a
-deployed environment. No token acquisition, user invitation, refresh process, or long-lived test
-credential is introduced.
+The guarded workflow accepts only --target test. For data-writing hosted/storage modes, it verifies
+STS caller account, intended region/stack, stable application state and every local output against
+CloudFormation before starting tests. A named profile and --allow-test-data true are mandatory.
+Ambient AWS credentials, role overrides and endpoints are cleared before pinning that profile/region.
+Profile names are not evidence of account identity. Missing/invalid mandatory configuration fails;
+explicit commands do not silently skip an entire suite. Normal tests remain credential-free.
+
+Smoke checks public health, unauthenticated rejection for all 14 analysis/history methods, an invalid
+bearer token, and optionally authenticated analysis. It reads validated local outputs and performs
+HTTP calls only; it does not contact STS or independently establish live account ownership. A stale
+URL fails its HTTP assertions. Set INFRALENS_SMOKE_ACCESS_TOKEN through your secure process environment
+for authenticated analysis; without it, that one test reports a skip. Authentication/user workflows
+remain separate from public readiness checks. Supply --outputs PATH to use another public output file.
+
+apps/api/test/hostedHistory.hosted.ts checks authenticated save/restore and cross-user read/delete/
+download isolation. Cleanup deletes only the project created by that test. API deletion can retain
+metadata tombstones; pending artifact cleanup fails visibly and preserves recovery metadata. No stack
+or bucket is emptied. Every API request preserves the /test/ stage, rejects redirects and has a timeout.
+Local JWT claim checks detect configuration mistakes; API Gateway verifies signatures/authorization.
+
+## Direct storage checks: separate permission setup required
+
+apps/api/test/history.aws.ts checks real DynamoDB transactions, idempotency, pagination, owner isolation
+and private S3 signed downloads. Each test creates its own random owner namespaces in the persistent
+stack; tests no longer depend on an earlier test having run. Cleanup removes only its namespaces,
+including metadata tombstones, and retains metadata if artifact cleanup is pending.
+
+This suite needs its own scoped storage-test identity: STS caller identity and DescribeStacks on the
+test app, adapter access to only its tables/bucket, plus DynamoDB DeleteItem for test cleanup.
+The existing infralens-test-deploy profile lacks this direct data access. Establish and review those
+permissions separately; do not use the Lambda role or broaden it for test cleanup. No IAM changes
+or new profile were created here. The following command requires that later setup:
+
+```powershell
+# Proposed profile name; configure it only after reviewed storage-test permissions exist.
+aws sso login --profile infralens-test-storage
+npm.cmd run test:aws -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-storage --allow-test-data true
+```
+
+INFRALENS_DISPOSABLE_AWS and manual smoke/API URL, table and bucket variables are retired. Remove
+INFRALENS_SMOKE_API_BASE_URL, INFRALENS_TEST_API_URL, INFRALENS_TEST_PROJECTS_TABLE,
+INFRALENS_TEST_RUNS_TABLE and INFRALENS_TEST_ARTIFACT_BUCKET from the process environment before using
+the new commands. The workflow rejects legacy overrides; resource names are derived from outputs.
+The data opt-in authorizes temporary test records/artifacts and cleanup, not stack teardown.
+Direct Mocha invocation of live files is unsupported; use guarded npm commands.
+
+## Manual smoke workflow in GitHub Actions
+
+Long-term authentication design: provision two persistent test-only Cognito users in an idempotent
+setup step and obtain fresh tokens automatically during each authenticated run. Keep user credentials
+in protected secrets, not pre-generated access tokens. Automate the app's OAuth authorization-code/PKCE
+flow so the tokens include its required scopes, then refresh or re-authenticate before expiry.
+This acquisition helper is future work; the current refactor validates supplied tokens only.
+
+The manual deployed-smoke.yml workflow remains HTTP-only and uses no AWS credentials. Set the repository
+Actions variable INFRALENS_TEST_DEPLOYMENT_OUTPUTS to the full public JSON from the test output file;
+replace the old URL variable. An optional INFRALENS_SMOKE_ACCESS_TOKEN Actions secret enables authenticated
+analysis while valid. The job materializes an ignored output file and calls the same guarded smoke
+command. Missing/malformed outputs fail the manually requested job. It does not deploy, upload assets,
+create users or acquire/refresh tokens. Standard push/PR CI still builds and runs offline tests only.
 
 ## What passing tests guarantee—and what they do not check
 
@@ -132,11 +190,9 @@ credential is introduced.
 idempotency, scoped cursors, retention, quotas, failure recovery, deletion races and fresh-client
 report restoration without a browser. These checks are included in normal tests and integration.
 
-The legacy real storage suite is separate and retains its explicit `INFRALENS_DISPOSABLE_AWS`
-opt-in and resource-name settings. It never deploys or destroys a stack. Its future workflow should
-use the persistent test stack and disposable data, not provision a new environment per run. See
-[Saved projects verification](SAVED_PROJECTS.md#persistent-aws-test-checks-later-task). Do not run it
-against production. Browser E2E, hosted smoke and live storage were not run for environment separation.
+Live storage and hosted Cognito checks use the guarded persistent-test workflows described above.
+See [Saved projects verification](SAVED_PROJECTS.md#persistent-aws-test-checks). Production is prohibited.
+No browser E2E, hosted smoke or live storage tests were run for this refactor.
 
 ## Deployment separation checks
 

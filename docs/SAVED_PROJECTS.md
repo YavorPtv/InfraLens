@@ -187,33 +187,27 @@ npm.cmd run synth --workspace @infralens/cdk -- --target production
 No browser/frontend server is needed for these checks. The non-browser workflow suite uses the
 actual shared frontend client/restoration helper against the Lambda API contract with empty state.
 
-### Persistent AWS test checks (later task)
+### Persistent AWS test checks
 
-Do not run live checks during the environment-separation implementation. Future checks use
-`InfraLensTestStack` in account `230944684535`, `eu-central-1`, with separate test Cognito and the
-outputs in `infra/cdk/cdk-outputs.test.json`. Never point these checks at production. Provision the
-stack once after policy/bootstrap review, then leave it deployed between runs.
+The user reports successful deployment of InfraLensTestStack in account 230944684535, eu-central-1.
+The ignored infra/cdk/cdk-outputs.test.json contains its resource identifiers and Cognito configuration.
+The stack stays deployed between runs; tests use temporary data and never create/destroy infrastructure.
 
-The existing `test:aws` script and `history.aws.ts` suite are opt-in and still use the legacy
-`INFRALENS_DISPOSABLE_AWS=true` flag plus `INFRALENS_TEST_PROJECTS_TABLE`,
-`INFRALENS_TEST_RUNS_TABLE`, and `INFRALENS_TEST_ARTIFACT_BUCKET`. Here disposable means its randomly
-namespaced test records, not the stack. It tests real transactions, S3 access and owner isolation,
-then removes its own records/artifacts; it neither creates nor destroys infrastructure.
+The live suites now use the guarded root commands documented in [Testing](TESTING.md#persistent-aws-test-workflows).
+They derive API URL/table/bucket names from validated outputs. Data-writing modes require a named profile,
+matching region/stack, --allow-test-data true, verified STS account and fresh CloudFormation outputs.
+The old INFRALENS_DISPOSABLE_AWS and manual resource variables are no longer accepted.
 
-Before enabling that suite in the next hosted-testing task, wire it to validated test outputs and
-caller-account/region checks. The deployment wrapper guards preflight/diff/deploy, but the legacy
-live storage script itself still accepts manually supplied storage names and ambient SDK credentials.
-Do not treat that legacy opt-in alone as proof of environment isolation. Its cleanup requires
-DynamoDB DeleteItem on only the test tables in addition to adapter access; establish a suitable test
-role separately. The application Lambda is not granted DeleteItem. Failed cleanup retains manifests
-for recovery. Do not broaden application permissions to accommodate tests.
+Hosted tests are separate from direct storage tests. They need two distinct dedicated Cognito users'
+current access tokens through INFRALENS_TEST_USER_A_TOKEN and INFRALENS_TEST_USER_B_TOKEN. API Gateway
+verifies authentication; local token checks only validate configuration. Project deletion is limited to
+the project created by the test and preserves pending cleanup metadata. Tombstones may remain.
 
-Optional two-user checks also accept `INFRALENS_TEST_API_URL`, `INFRALENS_TEST_USER_A_TOKEN`, and
-`INFRALENS_TEST_USER_B_TOKEN`. Keep access tokens only in secure local/CI environments; never track,
-print or paste them into documentation. Supply the selected test outputs, not production values.
-Run these only after the identity/output safeguards and test users are ready. Hosted smoke and
-browser checks are also separate opt-ins, not part of normal tests.
+Direct SDK tests require a later scoped storage-test identity, including test-table DeleteItem for
+metadata cleanup and artifact access limited to the test bucket/owner namespaces. The deployment profile
+does not grant those rights; the Lambda role must not be broadened to satisfy tests. Independent fixtures
+make tests individually runnable. Failed artifact cleanup must preserve its manifests and metadata.
 
-Current status: local verification only. Real authorizer claims, conditional transactions, S3/IAM,
-both test frontend logins and cross-user isolation still need authorized hosted verification.
-See [deployment/testing commands and prerequisites](PRODUCTION_DEPLOYMENT.md).
+Current verification is offline code/configuration testing plus the user's reported deployment.
+No live suite or browser test ran during this refactor. Actual storage permissions, both frontend
+logins and hosted cross-user isolation require a later explicitly authorized run after user/profile setup.

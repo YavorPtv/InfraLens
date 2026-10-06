@@ -1,5 +1,12 @@
 # Test deployment permission package
 
+Current application status: the user reports the first test deployment succeeded. Public test outputs
+are available locally. The failure/repair procedures and old resource inventories below are retained
+as historical evidence; they are not current cleanup instructions. Export/review fresh state before
+any future bootstrap change or recovery. Live-test configuration now uses validated deployment outputs
+and explicit account/region checks; see [Testing](TESTING.md#persistent-aws-test-workflows).
+
+
 Status: **test SSO login, bootstrap update and publishing-policy correction applied by the user and inspected read-only**. This package targets only account `230944684535`,
 region `eu-central-1`, application stack `InfraLensTestStack`, and the existing version 32
 `CDKToolkit` with qualifier `hnb659fds`. Production's bootstrap is outside this package.

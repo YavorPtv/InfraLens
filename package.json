@@ -14,7 +14,9 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:integration": "npm run build --workspace @infralens/shared && npm run build --workspace @infralens/analyzer && npm run test:integration --workspace @infralens/api",
-    "test:smoke": "npm run test:smoke --workspace @infralens/api",
+    "test:smoke": "npm run build --workspace @infralens/cdk && node infra/cdk/dist/hosted-test-workflow.js smoke",
+    "test:hosted": "npm run build --workspace @infralens/cdk && node infra/cdk/dist/hosted-test-workflow.js hosted",
+    "test:aws": "npm run build --workspace @infralens/cdk && node infra/cdk/dist/hosted-test-workflow.js storage",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {

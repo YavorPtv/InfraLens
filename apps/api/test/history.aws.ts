@@ -1,46 +1,66 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "chai";
-import { after, before, describe, it } from "mocha";
+import { afterEach, before, beforeEach, describe, it } from "mocha";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { S3Client } from "@aws-sdk/client-s3";
 import { DeleteCommand, DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { AwsHistoryStore, S3ArtifactStore } from "../src/historyAws";
 import { HistoryService } from "../src/historyService";
 import type { OpenSavedRun, SavedProject } from "@infralens/shared";
+import { readHostedTestConfiguration, requireTestDataWrites, type HostedTestConfiguration } from "./hostedTestHelpers";
 
-// Never included by the ordinary *.test.ts glob. Explicit resources + opt-in are mandatory.
-describe("disposable AWS DynamoDB/S3 persistence", function () {
-  const enabled = process.env.INFRALENS_DISPOSABLE_AWS === "true";
-  const projects = process.env.INFRALENS_TEST_PROJECTS_TABLE;
-  const runs = process.env.INFRALENS_TEST_RUNS_TABLE;
-  const bucket = process.env.INFRALENS_TEST_ARTIFACT_BUCKET;
-  const owner = `test-${randomUUID()}`;
-  const otherOwner = `test-${randomUUID()}`;
+// Never included by ordinary *.test.ts discovery. Use the guarded storage workflow.
+describe("persistent test stack AWS DynamoDB/S3 persistence", function () {
+  let configuration: HostedTestConfiguration;
+  let projects: string;
+  let runs: string;
+  let bucket: string;
+  let owner: string;
+  let otherOwner: string;
+  let client: DynamoDBDocumentClient;
+  let artifacts: S3ArtifactStore;
   let service: HistoryService;
-  let project: SavedProject;
-  let otherProject: SavedProject;
-  let saved: OpenSavedRun;
+  let project: SavedProject | undefined;
+  let otherProject: SavedProject | undefined;
+  let saved: OpenSavedRun | undefined;
   const input = {
     template: JSON.stringify({ Resources: { Bucket: { Type: "AWS::S3::Bucket" } } })
   };
+  function fixture() {
+    if (!project || !otherProject || !saved) throw new Error("AWS test fixture setup did not complete.");
+    return { project, otherProject, saved };
+  }
   before(function () {
-    if (!enabled) {
-      return this.skip();
+    configuration = readHostedTestConfiguration();
+    requireTestDataWrites(configuration);
+    if (process.env.AWS_PROFILE !== configuration.profile || process.env.AWS_REGION !== configuration.region ||
+        process.env.AWS_ACCESS_KEY_ID || process.env.AWS_SECRET_ACCESS_KEY || process.env.AWS_SESSION_TOKEN) {
+      throw new Error("Storage tests require the guarded workflow's pinned AWS profile and region.");
     }
-    if (!projects || !runs || !bucket) {
-      throw new Error("Explicit disposable test table and bucket names are required.");
-    }
-    service = new HistoryService(
-      new AwsHistoryStore({
-        projects,
-        runs
-      }),
-      new S3ArtifactStore(bucket)
-    );
+    projects = configuration.projectsTable;
+    runs = configuration.runsTable;
+    bucket = configuration.artifactBucket;
+    client = DynamoDBDocumentClient.from(new DynamoDBClient({ region: configuration.region }), {
+      marshallOptions: { removeUndefinedValues: true }
+    });
+    artifacts = new S3ArtifactStore(bucket, new S3Client({ region: configuration.region }));
+  });
+
+  beforeEach(async function () {
+    owner = `test-${randomUUID()}`;
+    otherOwner = `test-${randomUUID()}`;
+    // Fresh fixtures let each test run independently, including with Mocha --grep.
+    project = undefined;
+    otherProject = undefined;
+    saved = undefined;
+    service = new HistoryService(new AwsHistoryStore({ projects, runs }, client), artifacts);
+    project = await service.createProject(owner, "AWS integration");
+    otherProject = await service.createProject(otherOwner, "Other owner");
+    saved = await service.save(owner, project.projectId, { input, idempotencyKey: "aws-save-key" });
   });
 
   it("uses real transactions for project CRUD and duplicate saves", async () => {
-    project = await service.createProject(owner, "AWS integration");
-    otherProject = await service.createProject(otherOwner, "Other owner");
+    const { project } = fixture();
     expect((await service.renameProject(owner, project.projectId, "Renamed")).name).to.equal(
       "Renamed"
     );
@@ -59,6 +79,7 @@ describe("disposable AWS DynamoDB/S3 persistence", function () {
   });
 
   it("uses opaque pagination and owner isolation with the real tables", async () => {
+    const { project, otherProject, saved } = fixture();
     await service.save(owner, project.projectId, {
       input,
       idempotencyKey: "aws-save-key-two"
@@ -84,14 +105,16 @@ describe("disposable AWS DynamoDB/S3 persistence", function () {
   });
 
   it("issues a short-lived working S3 download only after authorization", async () => {
+    const { project, saved } = fixture();
     const download = await service.download(owner, project.projectId, saved.run.runId, "report");
-    expect(download).to.have.property("expiresIn", 60);
-    const response = await fetch((download as { url: string }).url);
+    // Assert the duration alone so a failure does not print a signed URL or temporary credentials.
+    expect((download as { expiresIn: number }).expiresIn).to.equal(60);
+    const response = await fetch((download as { url: string }).url, { redirect: "error", signal: AbortSignal.timeout(10_000) });
     expect(response.status).to.equal(200);
     expect(await response.json()).to.deep.equal(saved.report);
     const unsigned = new URL((download as { url: string }).url);
     unsigned.search = "";
-    expect((await fetch(unsigned)).status).to.equal(403);
+    expect((await fetch(unsigned, { redirect: "error", signal: AbortSignal.timeout(10_000) })).status).to.equal(403);
     await service.deleteRun(owner, project.projectId, saved.run.runId);
     try {
       await service.download(owner, project.projectId, saved.run.runId, "report");
@@ -100,12 +123,11 @@ describe("disposable AWS DynamoDB/S3 persistence", function () {
       expect((error as { statusCode?: number }).statusCode).to.equal(404);
     }
   });
-  after(async function () {
-    if (!enabled || !service || !projects || !runs) {
+  afterEach(async function () {
+    if (!service || !projects || !runs) {
       return;
     }
     // Clean only this suite's random owner namespaces, including metadata tombstones.
-    const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
     for (const [user, projectToClean] of [
       [owner, project],
       [otherOwner, otherProject]
@@ -116,8 +138,8 @@ describe("disposable AWS DynamoDB/S3 persistence", function () {
           new AwsHistoryStore({
             projects,
             runs
-          }),
-          new S3ArtifactStore(bucket!),
+          }, client),
+          artifacts,
           { now: () => Date.now() + 121000 }
         );
         const result = await cleanup.deleteProject(user, projectToClean.projectId);
@@ -157,69 +179,6 @@ describe("disposable AWS DynamoDB/S3 persistence", function () {
           afterKey = page.LastEvaluatedKey;
         } while (afterKey);
       }
-    }
-  });
-});
-
-describe("optional disposable hosted Cognito isolation", () => {
-  it("checks two independently authenticated users through API Gateway", async function () {
-    const base = process.env.INFRALENS_TEST_API_URL?.replace(/\/+$/, "");
-    const firstUserToken = process.env.INFRALENS_TEST_USER_A_TOKEN;
-    const secondUserToken = process.env.INFRALENS_TEST_USER_B_TOKEN;
-    if (
-      process.env.INFRALENS_DISPOSABLE_AWS !== "true" ||
-      !base ||
-      !firstUserToken ||
-      !secondUserToken
-    ) {
-      return this.skip();
-    }
-    if (firstUserToken === secondUserToken || !base.startsWith("https://")) {
-      throw new Error(
-        "Two distinct test user tokens and an HTTPS disposable API URL are required."
-      );
-    }
-    const call = (token: string, path: string, method = "GET", body?: unknown) =>
-      fetch(`${base}${path}`, {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      });
-    const created = await call(firstUserToken, "/projects", "POST", {
-      name: `Isolation ${randomUUID()}`
-    });
-    expect(created.status).to.equal(201);
-    const project = (await created.json()) as SavedProject;
-    try {
-      const savedResponse = await call(
-        firstUserToken,
-        `/projects/${project.projectId}/runs`,
-        "POST",
-        {
-          input: { template: '{"Resources":{"Bucket":{"Type":"AWS::S3::Bucket"}}}' },
-          idempotencyKey: randomUUID()
-        }
-      );
-      expect(savedResponse.status).to.equal(201);
-      const saved = (await savedResponse.json()) as OpenSavedRun;
-      const path = `/projects/${project.projectId}/runs/${saved.run.runId}`;
-      expect((await call(firstUserToken, path)).status).to.equal(200);
-      for (const [method, route] of [
-        ["GET", path],
-        ["DELETE", path],
-        ["GET", `${path}/artifacts/report`],
-        ["GET", `/projects/${project.projectId}/runs`],
-        ["DELETE", `/projects/${project.projectId}`]
-      ]) {
-        expect((await call(secondUserToken, route, method)).status).to.equal(404);
-      }
-    } finally {
-      expect(
-        (await call(firstUserToken, `/projects/${project.projectId}`, "DELETE")).status
-      ).to.equal(200);
     }
   });
 });
