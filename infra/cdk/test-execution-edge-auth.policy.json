@@ -1,0 +1,257 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CreateTaggedRestApi",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:POST"
+      ],
+      "Resource": "arn:aws:apigateway:eu-central-1::/restapis",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/Project": "InfraLens",
+          "aws:RequestTag/Environment": "test"
+        }
+      }
+    },
+    {
+      "Sid": "ManageTaggedRestApiAndChildren",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:GET",
+        "apigateway:POST",
+        "apigateway:PUT",
+        "apigateway:PATCH",
+        "apigateway:DELETE"
+      ],
+      "Resource": "arn:aws:apigateway:eu-central-1::/restapis/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Project": "InfraLens",
+          "aws:ResourceTag/Environment": "test"
+        }
+      }
+    },
+    {
+      "Sid": "ManageApiTags",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:GET",
+        "apigateway:PUT",
+        "apigateway:DELETE"
+      ],
+      "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2F*"
+    },
+    {
+      "Sid": "ConfigureRegionalApiLogging",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:GET",
+        "apigateway:PATCH"
+      ],
+      "Resource": "arn:aws:apigateway:eu-central-1::/account"
+    },
+    {
+      "Sid": "CreateTaggedUserPool",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:CreateUserPool"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/Project": "InfraLens",
+          "aws:RequestTag/Environment": "test",
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "ManageTaggedUserPoolConfiguration",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:DescribeUserPool",
+        "cognito-idp:GetUserPoolMfaConfig",
+        "cognito-idp:UpdateUserPool",
+        "cognito-idp:SetUserPoolMfaConfig",
+        "cognito-idp:DeleteUserPool",
+        "cognito-idp:ListTagsForResource",
+        "cognito-idp:TagResource",
+        "cognito-idp:UntagResource",
+        "cognito-idp:CreateUserPoolClient",
+        "cognito-idp:DescribeUserPoolClient",
+        "cognito-idp:ListUserPoolClientSecrets",
+        "cognito-idp:UpdateUserPoolClient",
+        "cognito-idp:DeleteUserPoolClient",
+        "cognito-idp:CreateUserPoolDomain",
+        "cognito-idp:UpdateUserPoolDomain",
+        "cognito-idp:DeleteUserPoolDomain"
+      ],
+      "Resource": "arn:aws:cognito-idp:eu-central-1:230944684535:userpool/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Project": "InfraLens",
+          "aws:ResourceTag/Environment": "test"
+        }
+      }
+    },
+    {
+      "Sid": "ReadHostedDomainStatus",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:DescribeUserPoolDomain"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "CreateTaggedDistribution",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateDistribution"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/Project": "InfraLens",
+          "aws:RequestTag/Environment": "test"
+        }
+      }
+    },
+    {
+      "Sid": "ManageTaggedDistribution",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:UpdateDistribution",
+        "cloudfront:DeleteDistribution",
+        "cloudfront:ListTagsForResource",
+        "cloudfront:TagResource",
+        "cloudfront:UntagResource"
+      ],
+      "Resource": "arn:aws:cloudfront::230944684535:distribution/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Project": "InfraLens",
+          "aws:ResourceTag/Environment": "test"
+        }
+      }
+    },
+    {
+      "Sid": "TagDistributionDuringCreation",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:TagResource"
+      ],
+      "Resource": "arn:aws:cloudfront::230944684535:distribution/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/Project": "InfraLens",
+          "aws:RequestTag/Environment": "test"
+        },
+        "Null": {
+          "aws:ResourceTag/Project": "true",
+          "aws:ResourceTag/Environment": "true"
+        }
+      }
+    },
+    {
+      "Sid": "CreateOriginAccessControl",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateOriginAccessControl"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ManageOriginAccessControls",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:GetOriginAccessControl",
+        "cloudfront:GetOriginAccessControlConfig",
+        "cloudfront:UpdateOriginAccessControl",
+        "cloudfront:DeleteOriginAccessControl"
+      ],
+      "Resource": "arn:aws:cloudfront::230944684535:origin-access-control/*"
+    },
+    {
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:TagKeys": [
+            "Project",
+            "Environment"
+          ]
+        }
+      },
+      "Resource": "arn:aws:apigateway:eu-central-1::/tags/*",
+      "Sid": "KeepApiOwnershipTagsImmutable",
+      "Action": [
+        "apigateway:DELETE"
+      ],
+      "Effect": "Deny"
+    },
+    {
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:TagKeys": [
+            "Project",
+            "Environment"
+          ]
+        }
+      },
+      "Resource": "*",
+      "Sid": "KeepPoolAndDistributionOwnershipTags",
+      "Action": [
+        "cognito-idp:UntagResource",
+        "cloudfront:UntagResource"
+      ],
+      "Effect": "Deny"
+    },
+    {
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestTag/Project": "InfraLens"
+        },
+        "ForAnyValue:StringEquals": {
+          "aws:TagKeys": [
+            "Project"
+          ]
+        }
+      },
+      "Resource": "*",
+      "Sid": "KeepProjectTagValue",
+      "Action": [
+        "apigateway:PUT",
+        "cognito-idp:TagResource",
+        "cloudfront:TagResource"
+      ],
+      "Effect": "Deny"
+    },
+    {
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestTag/Environment": "test"
+        },
+        "ForAnyValue:StringEquals": {
+          "aws:TagKeys": [
+            "Environment"
+          ]
+        }
+      },
+      "Resource": "*",
+      "Sid": "KeepEnvironmentTagValue",
+      "Action": [
+        "apigateway:PUT",
+        "cognito-idp:TagResource",
+        "cloudfront:TagResource"
+      ],
+      "Effect": "Deny"
+    }
+  ]
+}

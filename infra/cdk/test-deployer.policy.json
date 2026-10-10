@@ -1,0 +1,42 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InspectSelectedAccount",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PreflightApplicationAndBootstrap",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStacks"
+      ],
+      "Resource": [
+        "arn:aws:cloudformation:eu-central-1:230944684535:stack/InfraLensTestStack/*",
+        "arn:aws:cloudformation:eu-central-1:230944684535:stack/CDKToolkit/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "AssumeOnlyTestDeploymentRoles",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:TagSession"
+      ],
+      "Resource": [
+        "arn:aws:iam::230944684535:role/cdk-hnb659fds-deploy-role-230944684535-eu-central-1",
+        "arn:aws:iam::230944684535:role/cdk-hnb659fds-file-publishing-role-230944684535-eu-central-1",
+        "arn:aws:iam::230944684535:role/cdk-hnb659fds-lookup-role-230944684535-eu-central-1"
+      ]
+    }
+  ]
+}

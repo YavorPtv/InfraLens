@@ -2,18 +2,21 @@
 import * as cdk from "aws-cdk-lib";
 import {
   InfraLensStack,
-  type InfraLensEnvironment,
   type InfraLensStackProps,
   type InfraLensRequestLimitConfiguration
 } from "./infralens-stack";
+import { resolveDeploymentTarget } from "./deployment-target";
 
 const app = new cdk.App();
-const environmentName = readEnvironment(app.node.tryGetContext("environment"));
+for (const legacyKey of ["environment", "frontendOrigin", "cognitoDomainPrefix"]) {
+  if (app.node.tryGetContext(legacyKey) !== undefined) {
+    throw new Error(`CDK context ${legacyKey} is no longer supported. Configure deployment-target.ts and select -c target=test or -c target=production.`);
+  }
+}
+const target = resolveDeploymentTarget(app.node.tryGetContext("target"));
 
-new InfraLensStack(app, "InfraLensStack", {
-  environmentName,
-  cognitoDomainPrefix: app.node.tryGetContext("cognitoDomainPrefix"),
-  frontendOrigin: app.node.tryGetContext("frontendOrigin"),
+new InfraLensStack(app, target.stackName, {
+  target,
   alertEmail: app.node.tryGetContext("alertEmail"),
   monthlyBudgetUsd: readOptionalNumber(app.node.tryGetContext("monthlyBudgetUsd")),
   apiThrottleRateLimit: readOptionalNumber(app.node.tryGetContext("apiThrottleRateLimit")),
@@ -22,21 +25,8 @@ new InfraLensStack(app, "InfraLensStack", {
     app.node.tryGetContext("lambdaReservedConcurrency")
   ),
   requestLimits: readRequestLimits(app),
-  historyQuotas: readHistoryQuotas(app),
-  env: {
-    account: process.env.CDK_DEFAULT_ACCOUNT,
-    region: process.env.CDK_DEFAULT_REGION
-  }
+  historyQuotas: readHistoryQuotas(app)
 });
-
-function readEnvironment(value: unknown): InfraLensEnvironment {
-  const environment = value ?? "development";
-  if (environment !== "development" && environment !== "production") {
-    throw new Error("CDK context environment must be development or production.");
-  }
-
-  return environment;
-}
 
 function readRequestLimits(app: cdk.App): InfraLensRequestLimitConfiguration {
   return {

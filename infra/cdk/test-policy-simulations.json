@@ -1,0 +1,656 @@
+[
+  {
+    "Name": "CloudFormation reads the exact test bootstrap version",
+    "Policies": [
+      "execution-iam",
+      "execution-storage-compute",
+      "execution-edge-auth"
+    ],
+    "Action": "ssm:GetParameters",
+    "Resource": "arn:aws:ssm:eu-central-1:230944684535:parameter/cdk-bootstrap/hnb659fds/version",
+    "ExpectedDecision": "allowed",
+    "Context": {}
+  },
+  {
+    "Name": "CloudFormation cannot read production bootstrap parameters",
+    "Policies": [
+      "execution-iam",
+      "execution-storage-compute",
+      "execution-edge-auth"
+    ],
+    "Action": "ssm:GetParameters",
+    "Resource": "arn:aws:ssm:eu-central-1:609124256824:parameter/cdk-bootstrap/hnb659fds/version",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "CloudFormation cannot read unrelated parameters",
+    "Policies": [
+      "execution-iam",
+      "execution-storage-compute",
+      "execution-edge-auth"
+    ],
+    "Action": "ssm:GetParameters",
+    "Resource": "arn:aws:ssm:eu-central-1:230944684535:parameter/other-app/config",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "CloudFormation cannot modify the bootstrap version",
+    "Policies": [
+      "execution-iam",
+      "execution-storage-compute",
+      "execution-edge-auth"
+    ],
+    "Action": "ssm:PutParameter",
+    "Resource": "arn:aws:ssm:eu-central-1:230944684535:parameter/cdk-bootstrap/hnb659fds/version",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "Deployment login assumes its deployment role",
+    "Policies": [
+      "deployer"
+    ],
+    "Action": "sts:AssumeRole",
+    "Resource": "arn:aws:iam::230944684535:role/cdk-hnb659fds-deploy-role-230944684535-eu-central-1",
+    "ExpectedDecision": "allowed",
+    "Context": {}
+  },
+  {
+    "Name": "Deployment login cannot assume execution role directly",
+    "Policies": [
+      "deployer"
+    ],
+    "Action": "sts:AssumeRole",
+    "Resource": "arn:aws:iam::230944684535:role/cdk-hnb659fds-cfn-exec-role-230944684535-eu-central-1",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "Deployment login cannot assume production roles",
+    "Policies": [
+      "deployer"
+    ],
+    "Action": "sts:AssumeRole",
+    "Resource": "arn:aws:iam::609124256824:role/cdk-hnb659fds-deploy-role-609124256824-eu-central-1",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "Deployment login has no direct infrastructure writes",
+    "Policies": [
+      "deployer"
+    ],
+    "Action": "lambda:CreateFunction",
+    "Resource": "arn:aws:lambda:eu-central-1:230944684535:function:InfraLensTestStack-AnalysisApiFunction-example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "Prepare test changes using the scoped execution role",
+    "Policies": [
+      "deployment-role"
+    ],
+    "Action": "cloudformation:CreateChangeSet",
+    "Resource": "arn:aws:cloudformation:eu-central-1:230944684535:stack/InfraLensTestStack/example",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "cloudformation:RoleArn": "arn:aws:iam::230944684535:role/cdk-hnb659fds-cfn-exec-role-230944684535-eu-central-1"
+    }
+  },
+  {
+    "Name": "Cannot use another execution role",
+    "Policies": [
+      "deployment-role"
+    ],
+    "Action": "cloudformation:CreateChangeSet",
+    "Resource": "arn:aws:cloudformation:eu-central-1:230944684535:stack/InfraLensTestStack/example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "cloudformation:RoleArn": "arn:aws:iam::230944684535:role/Administrator"
+    }
+  },
+  {
+    "Name": "Cannot change another stack",
+    "Policies": [
+      "deployment-role"
+    ],
+    "Action": "cloudformation:CreateChangeSet",
+    "Resource": "arn:aws:cloudformation:eu-central-1:230944684535:stack/OtherStack/example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "cloudformation:RoleArn": "arn:aws:iam::230944684535:role/cdk-hnb659fds-cfn-exec-role-230944684535-eu-central-1"
+    }
+  },
+  {
+    "Name": "Cannot update bootstrap through routine deployment",
+    "Policies": [
+      "deployment-role"
+    ],
+    "Action": "cloudformation:UpdateStack",
+    "Resource": "arn:aws:cloudformation:eu-central-1:230944684535:stack/CDKToolkit/example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "cloudformation:RoleArn": "arn:aws:iam::230944684535:role/cdk-hnb659fds-cfn-exec-role-230944684535-eu-central-1"
+    }
+  },
+  {
+    "Name": "Cannot deploy in another region",
+    "Policies": [
+      "deployment-role"
+    ],
+    "Action": "cloudformation:CreateChangeSet",
+    "Resource": "arn:aws:cloudformation:us-east-1:230944684535:stack/InfraLensTestStack/example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "us-east-1",
+      "cloudformation:RoleArn": "arn:aws:iam::230944684535:role/cdk-hnb659fds-cfn-exec-role-230944684535-eu-central-1"
+    }
+  },
+  {
+    "Name": "Stack deletion is explicitly denied",
+    "Policies": [
+      "deployment-role"
+    ],
+    "Action": "cloudformation:DeleteStack",
+    "Resource": "arn:aws:cloudformation:eu-central-1:230944684535:stack/InfraLensTestStack/example",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1"
+    }
+  },
+  {
+    "Name": "Pass execution role only to CloudFormation",
+    "Policies": [
+      "deployment-role"
+    ],
+    "Action": "iam:PassRole",
+    "Resource": "arn:aws:iam::230944684535:role/cdk-hnb659fds-cfn-exec-role-230944684535-eu-central-1",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "iam:PassedToService": "cloudformation.amazonaws.com"
+    }
+  },
+  {
+    "Name": "Cannot pass execution role to Lambda",
+    "Policies": [
+      "deployment-role"
+    ],
+    "Action": "iam:PassRole",
+    "Resource": "arn:aws:iam::230944684535:role/cdk-hnb659fds-cfn-exec-role-230944684535-eu-central-1",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "iam:PassedToService": "lambda.amazonaws.com"
+    }
+  },
+  {
+    "Name": "Create an application role with required boundary",
+    "Policies": [
+      "execution-iam"
+    ],
+    "Action": "iam:CreateRole",
+    "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisFunctionRole-example",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "iam:PermissionsBoundary": "arn:aws:iam::230944684535:policy/InfraLensTestApplicationBoundary"
+    }
+  },
+  {
+    "Name": "Cannot create application role without boundary",
+    "Policies": [
+      "execution-iam"
+    ],
+    "Action": "iam:CreateRole",
+    "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisFunctionRole-example",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "Cannot replace required boundary",
+    "Policies": [
+      "execution-iam"
+    ],
+    "Action": "iam:PutRolePermissionsBoundary",
+    "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisFunctionRole-example",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {
+      "iam:PermissionsBoundary": "arn:aws:iam::230944684535:policy/InfraLensTestApplicationBoundaryOther"
+    }
+  },
+  {
+    "Name": "Cannot remove required boundary",
+    "Policies": [
+      "execution-iam"
+    ],
+    "Action": "iam:DeleteRolePermissionsBoundary",
+    "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisFunctionRole-example",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "Cannot edit its own execution role",
+    "Policies": [
+      "execution-iam"
+    ],
+    "Action": "iam:PutRolePolicy",
+    "Resource": "arn:aws:iam::230944684535:role/cdk-hnb659fds-cfn-exec-role-230944684535-eu-central-1",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "iam:PermissionsBoundary": "arn:aws:iam::230944684535:policy/InfraLensTestApplicationBoundary"
+    }
+  },
+  {
+    "Name": "Cannot alter the administrator-owned boundary document",
+    "Policies": [
+      "execution-iam"
+    ],
+    "Action": "iam:CreatePolicyVersion",
+    "Resource": "arn:aws:iam::230944684535:policy/InfraLensTestApplicationBoundary",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "Pass bounded application role to Lambda",
+    "Policies": [
+      "execution-iam"
+    ],
+    "Action": "iam:PassRole",
+    "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisFunctionRole-example",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "iam:PassedToService": "lambda.amazonaws.com"
+    }
+  },
+  {
+    "Name": "Cannot pass logging role to Lambda",
+    "Policies": [
+      "execution-iam"
+    ],
+    "Action": "iam:PassRole",
+    "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "iam:PassedToService": "lambda.amazonaws.com"
+    }
+  },
+  {
+    "Name": "Runtime boundary permits test history rows",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "dynamodb:PutItem",
+    "Resource": "arn:aws:dynamodb:eu-central-1:230944684535:table/InfraLensTestStack-ProjectsTable-example",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1"
+    }
+  },
+  {
+    "Name": "Runtime boundary excludes another table",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "dynamodb:PutItem",
+    "Resource": "arn:aws:dynamodb:eu-central-1:230944684535:table/UnrelatedTable",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1"
+    }
+  },
+  {
+    "Name": "Runtime boundary permits owner artifact writes",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "s3:PutObject",
+    "Resource": "arn:aws:s3:::infralensteststack-artifactbucket-example/owners/example/report.json",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "s3:ResourceAccount": "230944684535"
+    }
+  },
+  {
+    "Name": "Runtime boundary excludes frontend writes",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "s3:PutObject",
+    "Resource": "arn:aws:s3:::infralensteststack-frontendbucket-example/index.html",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "s3:ResourceAccount": "230944684535"
+    }
+  },
+  {
+    "Name": "Runtime boundary prevents role chaining",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "sts:AssumeRole",
+    "Resource": "arn:aws:iam::230944684535:role/cdk-hnb659fds-deploy-role-230944684535-eu-central-1",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {}
+  },
+  {
+    "Name": "Create a tagged test Cognito pool",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "cognito-idp:CreateUserPool",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:RequestTag/Project": "InfraLens",
+      "aws:RequestTag/Environment": "test"
+    }
+  },
+  {
+    "Name": "Cannot create an untagged Cognito pool",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "cognito-idp:CreateUserPool",
+    "Resource": "*",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1"
+    }
+  },
+  {
+    "Name": "Manage a tagged test distribution",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "cloudfront:UpdateDistribution",
+    "Resource": "arn:aws:cloudfront::230944684535:distribution/example",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:ResourceTag/Project": "InfraLens",
+      "aws:ResourceTag/Environment": "test"
+    }
+  },
+  {
+    "Name": "Cannot change a differently tagged distribution",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "cloudfront:UpdateDistribution",
+    "Resource": "arn:aws:cloudfront::230944684535:distribution/example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:ResourceTag/Project": "AnotherProject",
+      "aws:ResourceTag/Environment": "test"
+    }
+  },
+  {
+    "Name": "API accepts initial ownership tags",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:PUT",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:TagKeys": [
+        "Project",
+        "Environment"
+      ],
+      "aws:RequestTag/Project": "InfraLens",
+      "aws:RequestTag/Environment": "test"
+    }
+  },
+  {
+    "Name": "API accepts reapplying the same project tag",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:PUT",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:TagKeys": [
+        "Project"
+      ],
+      "aws:RequestTag/Project": "InfraLens"
+    }
+  },
+  {
+    "Name": "API refuses another project value",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:PUT",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {
+      "aws:TagKeys": [
+        "Project"
+      ],
+      "aws:RequestTag/Project": "OtherApp"
+    }
+  },
+  {
+    "Name": "API refuses production environment tag",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:PUT",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {
+      "aws:TagKeys": [
+        "Environment"
+      ],
+      "aws:RequestTag/Environment": "production"
+    }
+  },
+  {
+    "Name": "API refuses removing project ownership",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:DELETE",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {
+      "aws:TagKeys": [
+        "Project"
+      ]
+    },
+    "SimulatorLimitation": "API Gateway tag DELETE returned implicitDeny with no matched statements even under both unconditional wildcard Allow and Deny controls on October 4, 2026. Structural removal-protection tests remain; this is not an authorization pass."
+  },
+  {
+    "Name": "API refuses removing environment ownership",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:DELETE",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "explicitDeny",
+    "Context": {
+      "aws:TagKeys": [
+        "Environment"
+      ]
+    },
+    "SimulatorLimitation": "API Gateway tag DELETE returned implicitDeny with no matched statements even under both unconditional wildcard Allow and Deny controls on October 4, 2026. Structural removal-protection tests remain; this is not an authorization pass."
+  },
+  {
+    "Name": "API accepts an unrelated tag update",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:PUT",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:TagKeys": [
+        "Purpose"
+      ],
+      "aws:RequestTag/Purpose": "analysis"
+    }
+  },
+  {
+    "Name": "API accepts removing an unrelated tag",
+    "Policies": [
+      "execution-edge-auth"
+    ],
+    "Action": "apigateway:DELETE",
+    "Resource": "arn:aws:apigateway:eu-central-1::/tags/arn%3Aaws%3Aapigateway%3Aeu-central-1%3A%3A%2Frestapis%2Fexample123",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:TagKeys": [
+        "Purpose"
+      ]
+    },
+    "SimulatorLimitation": "API Gateway tag DELETE returned implicitDeny with no matched statements even under both unconditional wildcard Allow and Deny controls on October 4, 2026. Structural removal-protection tests remain; this is not an authorization pass."
+  },
+  {
+    "Name": "API logging boundary permits logs:CreateLogGroup",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:CreateLogGroup",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:CreateLogStream",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:CreateLogStream",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:DescribeLogGroups",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:DescribeLogGroups",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:DescribeLogStreams",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:DescribeLogStreams",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:PutLogEvents",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:PutLogEvents",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:GetLogEvents",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:GetLogEvents",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary permits logs:FilterLogEvents",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:FilterLogEvents",
+    "Resource": "*",
+    "ExpectedDecision": "allowed",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "Lambda boundary cannot write unrelated logs",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:PutLogEvents",
+    "Resource": "arn:aws:logs:eu-central-1:230944684535:log-group:unrelated-app:log-stream:example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisFunctionRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary excludes another region",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:PutLogEvents",
+    "Resource": "arn:aws:logs:eu-central-1:230944684535:log-group:unrelated-app:log-stream:example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "us-east-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary excludes production roles",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:PutLogEvents",
+    "Resource": "arn:aws:logs:eu-central-1:230944684535:log-group:unrelated-app:log-stream:example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::609124256824:role/InfraLensProdStack-AnalysisApiCloudWatchRole-example"
+    }
+  },
+  {
+    "Name": "API logging boundary excludes unrelated roles",
+    "Policies": [
+      "application-boundary"
+    ],
+    "Action": "logs:PutLogEvents",
+    "Resource": "arn:aws:logs:eu-central-1:230944684535:log-group:unrelated-app:log-stream:example",
+    "ExpectedDecision": "implicitDeny",
+    "Context": {
+      "aws:RequestedRegion": "eu-central-1",
+      "aws:PrincipalArn": "arn:aws:iam::230944684535:role/OtherAppLoggingRole"
+    }
+  }
+]

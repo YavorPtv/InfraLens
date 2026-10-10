@@ -382,18 +382,20 @@ See [Template validation](docs/TEMPLATE_VALIDATION.md) for configuration, API co
 - Local structure checks and optional AWS ValidateTemplate are separate from analysis success.
   Neither guarantees deployment. See [Template validation](docs/TEMPLATE_VALIDATION.md).
 - Compare currently compares templates only; it does not compare separate old and new source trees.
-- Reports are not persisted; refreshing or leaving the current browser session loses analysis
-  history.
+- Stateless reports live in the current browser session. Explicitly saved Projects reports can
+  be reopened; local memory history lasts until the Express process restarts.
 
 ## Hosted Deployment Security
 
-InfraLens initially uses invited access rather than anonymous public API access. The production CDK
-configuration uses Cognito hosted sign-in and API Gateway authorization for all analysis routes,
-restricts CORS to the frontend origin, validates request sizes, throttles requests, caps Lambda
+InfraLens uses explicit test and production deployment targets, each with separate AWS accounts,
+application stacks, storage and Cognito. Both hosted configurations use invited Cognito sign-in and
+API Gateway authorization for all analysis/history routes, restrict CORS to configured origins,
+validate request sizes, throttle requests, cap Lambda
 concurrency when configured, and configures structured logs and operational alarms.
 
-See [Protected Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) for required configuration,
-first-user invitation, current limits, monitoring, cost alerts, and the pre-deployment checklist.
+See [AWS test and production deployment](docs/PRODUCTION_DEPLOYMENT.md) for exact PowerShell commands,
+credential-free synthesis, STS account safeguards, separate outputs and frontend builds, and the
+remaining IAM/bootstrap/monitoring checklist. Current administrator profiles remain broad.
 
 See [Production Roadmap](docs/ROADMAP.md) for the recommended next development priorities.
 
@@ -401,5 +403,5 @@ See [Production Roadmap](docs/ROADMAP.md) for the recommended next development p
 
 The optional Projects workflow saves server-generated analysis reports and reopens them after a
 fresh browser session. See [Saved projects and analysis history](docs/SAVED_PROJECTS.md) for local
-memory setup, Cognito ownership, DynamoDB/S3 configuration, retention and disposable AWS testing.
+memory setup, Cognito ownership, DynamoDB/S3 configuration, retention and later persistent AWS testing.
 Stateless analysis and CLI usage continue to work without persistence or AWS credentials.

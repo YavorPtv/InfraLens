@@ -1,0 +1,128 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CreateBoundedApplicationRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:PutRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::230944684535:policy/InfraLensTestApplicationBoundary"
+        }
+      }
+    },
+    {
+      "Sid": "ManageApplicationRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRoleTags",
+        "iam:DeleteRolePolicy",
+        "iam:UpdateRole",
+        "iam:UpdateRoleDescription",
+        "iam:DeleteRole",
+        "iam:TagRole",
+        "iam:UntagRole"
+      ],
+      "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-*"
+    },
+    {
+      "Sid": "AttachOnlyGatewayLoggingPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-*",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
+        },
+        "StringEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::230944684535:policy/InfraLensTestApplicationBoundary"
+        }
+      }
+    },
+    {
+      "Sid": "PassApplicationRoleToLambda",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisFunctionRole*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "lambda.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "PassLoggingRoleToGateway",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-AnalysisApiCloudWatchRole*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "apigateway.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "NeverRemoveApplicationBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeleteRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-*"
+    },
+    {
+      "Sid": "NeverSubstituteApplicationBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateRole",
+        "iam:PutRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-*",
+      "Condition": {
+        "StringNotEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::230944684535:policy/InfraLensTestApplicationBoundary"
+        }
+      }
+    },
+    {
+      "Sid": "ProtectAdministratorOwnedPolicies",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "iam:DeletePolicyVersion",
+        "iam:DeletePolicy"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Condition": {
+        "StringEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::230944684535:policy/InfraLensTestApplicationBoundary"
+        }
+      },
+      "Resource": "arn:aws:iam::230944684535:role/InfraLensTestStack-*",
+      "Sid": "ChangeOnlyBoundedRolePermissions",
+      "Action": [
+        "iam:PutRolePolicy",
+        "iam:UpdateAssumeRolePolicy"
+      ],
+      "Effect": "Allow"
+    }
+  ]
+}

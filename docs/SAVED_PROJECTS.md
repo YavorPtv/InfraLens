@@ -11,9 +11,10 @@ REST API Gateway validates Cognito access tokens. The Lambda reads only
 `requestContext.authorizer.claims.sub`, passes it as a transport-owned identity to the history
 router, and builds every metadata key from that identity. Tokens are never decoded to manufacture
 an identity in the handler. Body/query identities, report JSON, and object keys are rejected.
-Missing claims fail with 401, including development stacks without Cognito. Production routes use
-the existing Cognito authorizer. Set a domain prefix on a disposable development stack to enable
-Cognito there too. Local Express is not a hosted authentication adapter.
+Missing claims fail with 401. Both explicit AWS targets require their own Cognito authorizer for
+all history and analysis routes. There is no unauthenticated development stack. The persistent test
+stack supports local React and deployed React, both using test Cognito. Local Express is not a
+hosted authentication adapter. See [deployment separation](PRODUCTION_DEPLOYMENT.md).
 
 | Method | Route | Behavior |
 | --- | --- | --- |
@@ -146,9 +147,10 @@ Existing template/source/request limits still apply. Quotas reject explicitly; t
 evict reports. Integer quotas must be 1–100,000; the input byte quota must be 1 byte–4 MiB. The lifetime
 idempotency quota does not reset on deletion; an operator can raise it within the bounded maximum.
 
-Production tables/bucket use RETAIN, tables have point-in-time recovery, and no broad DynamoDB/S3
-permissions are granted. Development persistence uses DESTROY; S3 still requires emptying the
-bucket before stack deletion (no privileged auto-delete custom resource). Lambda can GetItem,
+Test and production tables/buckets use RETAIN; production tables have point-in-time recovery.
+Keep the test stack deployed between runs. Retained resources require separate intentional cleanup,
+and S3 requires emptying before bucket deletion (no privileged auto-delete custom resource).
+No broad DynamoDB/S3 permissions are granted to the application Lambda. Lambda can GetItem,
 Query and transactional PutItem on the two tables, and GetObject/PutObject/PutObjectTagging/
 DeleteObject under the bucket's `owners/*` prefix. The bucket is separate from frontend hosting.
 
@@ -159,8 +161,10 @@ it intentionally resets when that process restarts. Explicit local configuration
 
 ```powershell
 $env:INFRALENS_ENVIRONMENT = 'development'
+$env:NODE_ENV = 'development'
 $env:INFRALENS_HISTORY_ADAPTER = 'memory'
 $env:INFRALENS_LOCAL_OWNER = 'local-developer'
+$env:INFRALENS_CLOUDFORMATION_VALIDATION = 'false'
 npm.cmd run build
 npm.cmd start --workspace @infralens/api
 ```
@@ -176,37 +180,36 @@ npm.cmd run typecheck
 npm.cmd run test
 npm.cmd run build
 npm.cmd run test:integration
-npm.cmd exec --workspace @infralens/cdk -- cdk synth --no-lookups --context environment=production --context cognitoDomainPrefix=infralens-login-synth-review
+npm.cmd run synth --workspace @infralens/cdk -- --target test
+npm.cmd run synth --workspace @infralens/cdk -- --target production
 ```
 
 No browser/frontend server is needed for these checks. The non-browser workflow suite uses the
 actual shared frontend client/restoration helper against the Lambda API contract with empty state.
 
-### Explicit disposable AWS checks
+### Persistent AWS test checks
 
-Do not point tests at production. Provision an explicitly approved disposable development stack,
-with a unique `cognitoDomainPrefix` if verifying hosted auth. Configure AWS credentials/region using
-your usual profile. Tests do not create or deploy stacks. Then set these names from that stack:
+The user reports successful deployment of InfraLensTestStack in account 230944684535, eu-central-1.
+The ignored infra/cdk/cdk-outputs.test.json contains its resource identifiers and Cognito configuration.
+The stack stays deployed between runs; tests use temporary data and never create/destroy infrastructure.
 
-```powershell
-$env:INFRALENS_DISPOSABLE_AWS = 'true'
-$env:INFRALENS_TEST_PROJECTS_TABLE = '<disposable ProjectsTableName>'
-$env:INFRALENS_TEST_RUNS_TABLE = '<disposable RunsTableName>'
-$env:INFRALENS_TEST_ARTIFACT_BUCKET = '<disposable ArtifactBucketName>'
-npm.cmd run test:aws --workspace @infralens/api
-```
+The live suites now use the guarded root commands documented in [Testing](TESTING.md#persistent-aws-test-workflows).
+They derive API URL/table/bucket names from validated outputs. Data-writing modes require a named profile,
+matching region/stack, --allow-test-data true, verified STS account and fresh CloudFormation outputs.
+The old INFRALENS_DISPOSABLE_AWS and manual resource variables are no longer accepted.
 
-The suite tests real conditional DynamoDB transactions, S3 writes/reads, signed/private downloads,
-pagination, duplicates, ownership and deletion. Its credential needs the adapter permissions plus
-DynamoDB DeleteItem on only the disposable tables to remove its random test namespaces. The
-application Lambda is not granted DeleteItem. Failed cleanup keeps manifests for recovery.
+Hosted tests are separate from direct storage tests. The guarded test:users:setup command provisions
+two persistent dedicated Cognito users. Four protected EMAIL/PASSWORD values feed automatic OAuth/PKCE
+login and token refresh on each run; manually supplied access tokens are retired. See
+[user setup](TESTING.md#persistent-cognito-users-and-automatic-authentication). API Gateway verifies
+authentication; local token checks only validate configuration. Project deletion is limited to
+the project created by the test and preserves pending cleanup metadata. Tombstones may remain.
 
-To also verify two actual Cognito users, supply `INFRALENS_TEST_API_URL` and distinct access tokens
-in `INFRALENS_TEST_USER_A_TOKEN` / `INFRALENS_TEST_USER_B_TOKEN` using a secure environment. Do not
-paste tokens into logs or documentation. This optional test makes HTTP requests through Gateway,
-checks owner access and cross-user denials, and deletes its project. Without both tokens it is
-skipped and must not be reported as verified. Never run these checks without the disposable flag.
+Direct SDK tests require a later scoped storage-test identity, including test-table DeleteItem for
+metadata cleanup and artifact access limited to the test bucket/owner namespaces. The deployment profile
+does not grant those rights; the Lambda role must not be broadened to satisfy tests. Independent fixtures
+make tests individually runnable. Failed artifact cleanup must preserve its manifests and metadata.
 
-Current implementation status: local verification only. Disposable AWS verification, including
-actual authorizer claims and deployed transaction/S3 IAM behavior, is still required before calling
-hosted persistence complete.
+Current verification is offline code/configuration testing plus the user's reported deployment.
+No live suite or browser test ran during this refactor. Actual storage permissions, both frontend
+logins and hosted cross-user isolation require a later explicitly authorized run after user/profile setup.

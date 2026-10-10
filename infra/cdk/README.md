@@ -1,48 +1,49 @@
 # InfraLens CDK
 
-AWS CDK stack for the InfraLens frontend and analysis API.
+The existing application stack is reused for explicit `test` and `production` deployment targets.
+No target is selected by default or from AWS credentials/application runtime mode.
 
-## Resources
+Both targets own their Lambda/REST API, DynamoDB tables, artifact and frontend buckets, CloudFront,
+Cognito pool/client/domain, logs and alarms. All analysis/history routes require Cognito. Test permits
+its CloudFront origin and `http://localhost:5173`; production permits its CloudFront origin only.
+Local React/Express requires no CDK deployment and retains explicit memory/fake-identity behavior.
 
-- Private S3 frontend bucket and CloudFront distribution with SPA fallback
-- Node.js Lambda for `/analyze`, `/diff`, and `/apply`
-- REST API Gateway with an unauthenticated `/health` endpoint
-- Production Cognito User Pool, hosted sign-in domain, app client, and API authorizer
-- Explicit API and Lambda log groups, throttling, reserved concurrency, and CloudWatch alarms
-- Optional SNS email notifications and AWS monthly budget
+From the repository root, credential-free checks:
 
-Development is the default CDK mode and supports the local Vite origin. A public deployment must use
-the production mode, which protects every analysis route with Cognito and disables self-sign-up.
-
-See [Protected Production Deployment](../../docs/PRODUCTION_DEPLOYMENT.md) for configuration,
-deployment outputs, inviting the first user, frontend auth settings, request limits, monitoring, and
-the production checklist.
-
-## Template validation
-
-The Lambda enables INFRALENS_CLOUDFORMATION_VALIDATION=true and can call only
-cloudformation:ValidateTemplate in addition to its scoped log writes. Resource `*` is required for
-this validation action, which has no resource-level scope; no stack deployment permission is granted.
-See [Template validation](../../docs/TEMPLATE_VALIDATION.md) for offline mode and validation limits.
-
-## Verify
-
-From the repository root:
-
-```sh
-npm install
-npm run build --workspace @infralens/cdk
-npm run test --workspace @infralens/cdk
-npm run synth --workspace @infralens/cdk
+```powershell
+npm.cmd run typecheck --workspace @infralens/cdk
+npm.cmd run test --workspace @infralens/cdk
+npm.cmd run synth --workspace @infralens/cdk -- --target test
+npm.cmd run synth --workspace @infralens/cdk -- --target production
 ```
 
-Production synthesis requires a unique Cognito domain prefix. Do not include the reserved terms
-`aws`, `amazon`, or `cognito` in it:
+Assemblies are separated under `cdk.out/test` and `cdk.out/production`. Deployment outputs are
+ignored `cdk-outputs.test.json` and `cdk-outputs.production.json` files. There is no bootstrap or
+destroy wrapper; both environments retain persistence resources intentionally.
 
-```sh
-npm run synth --workspace @infralens/cdk -- \
-  -c environment=production \
-  -c cognitoDomainPrefix=infralens-your-project
-```
+Read [AWS test and production deployment](../../docs/PRODUCTION_DEPLOYMENT.md) for exact PowerShell
+preflight/diff/deploy commands, account safeguards, existing administrator access, pending bootstrap
+and region decisions, frontend generation, authentication, retention and the deployment checklist.
+Deployment commands are implemented but were not executed by the environment-separation task.
 
-Synthesis does not deploy resources.
+The [test deployment permission package](../../docs/TEST_DEPLOYMENT_PERMISSIONS.md) contains eight
+reviewable policy documents, an offline bootstrap-template preparer, and an optional read-only AWS
+validation script. Test application roles require its administrator-owned permissions boundary.
+The user applied the initial package. A read-only readiness audit found that its separate default
+file-publishing policy remained; the guide now contains a two-resource correction and the preparer
+supports `--repair-file-publishing-policy`. The user applied that correction; read-only inspection
+confirmed the publisher has exactly the intended policy and no managed-policy attachments.
+The first application attempt then failed because the CloudFormation execution role lacked
+`ssm:GetParameters` on the test bootstrap version. The corrected policy and offline
+`--repair-bootstrap-version-read` mode prepare a one-policy bootstrap change; see the guide for
+review/application instructions. The applied bootstrap template now contains this version-read fix.
+The following deployment failed because the API ownership-tag deny also blocked initial tagging.
+The prepared `--repair-api-ownership-tags` correction allows the required values while preserving
+wrong-value/removal denials. The current bootstrap contains that correction. The latest failure was
+the API Gateway logging role's boundary excluding required account-level logging permissions.
+The prepared `--repair-api-logging-boundary` mode adds the documented logging actions only for the
+test API logging role in `eu-central-1`, preserving Lambda limits; it has not been applied to AWS.
+The application is `ROLLBACK_COMPLETE` with retained
+resources; deploy now stops before CDK's automatic failed-stack deletion/recreation. Review the guide's
+inventory and separate recovery decision before retrying; no cleanup is performed by the workflow.
+No production policies or bootstrap changes are included.

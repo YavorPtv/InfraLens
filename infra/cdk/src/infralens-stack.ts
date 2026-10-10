@@ -16,8 +16,12 @@ import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import { join } from "node:path";
 import type { Construct } from "constructs";
-
-export type InfraLensEnvironment = "development" | "production";
+import {
+  frontendUrls,
+  validateDeploymentTarget,
+  type DeploymentTarget,
+  type DeploymentTargetName
+} from "./deployment-target";
 
 export interface InfraLensRequestLimitConfiguration {
   maxRequestBytes?: number;
@@ -31,7 +35,8 @@ export interface InfraLensRequestLimitConfiguration {
   maxFixes?: number;
 }
 
-export interface InfraLensStackProps extends cdk.StackProps {
+export interface InfraLensStackProps extends Omit<cdk.StackProps, "env" | "stackName"> {
+  target: DeploymentTarget;
   historyQuotas?: {
     projectsPerUser?: number;
     runsPerProject?: number;
@@ -39,9 +44,6 @@ export interface InfraLensStackProps extends cdk.StackProps {
     retainedInputBytes?: number;
     saveKeysPerUser?: number;
   };
-  environmentName?: InfraLensEnvironment;
-  frontendOrigin?: string;
-  cognitoDomainPrefix?: string;
   alertEmail?: string;
   monthlyBudgetUsd?: number;
   apiThrottleRateLimit?: number;
@@ -51,27 +53,39 @@ export interface InfraLensStackProps extends cdk.StackProps {
 }
 
 interface ProtectedRouteOptions {
-  authorizer?: apigateway.IAuthorizer;
+  authorizer: apigateway.IAuthorizer;
   authorizationScopes?: string[];
 }
 
 export class InfraLensStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props: InfraLensStackProps = {}) {
-    super(scope, id, props);
+  constructor(scope: Construct, id: string, props: InfraLensStackProps) {
+    validateDeploymentTarget(props.target);
+    super(scope, id, {
+      ...props,
+      env: { account: props.target.account, region: props.target.region },
+      stackName: props.target.stackName
+    });
 
-    const environmentName = props.environmentName ?? "development";
-    const isProduction = environmentName === "production";
-    validateConfiguration(props, isProduction);
+    const target = props.target;
+    const environmentName = target.name;
+    validateConfiguration(props);
 
-    const persistenceRemovalPolicy = isProduction
-      ? cdk.RemovalPolicy.RETAIN
-      : cdk.RemovalPolicy.DESTROY;
+    if (target.applicationPermissionsBoundaryArn) {
+      // An administrator owns this policy outside the application stack.
+      const boundary = iam.ManagedPolicy.fromManagedPolicyArn(
+        this, "ApplicationPermissionsBoundary", target.applicationPermissionsBoundaryArn
+      );
+      iam.PermissionsBoundary.of(this).apply(boundary);
+    }
+
+    // Test is a persistent environment too. Teardown is a separate operator decision.
+    const persistenceRemovalPolicy = cdk.RemovalPolicy.RETAIN;
     const projectsTable = new dynamodb.Table(this, "ProjectsTable", {
       partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       encryption: dynamodb.TableEncryption.AWS_MANAGED,
-      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: isProduction },
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: target.pointInTimeRecovery },
       removalPolicy: persistenceRemovalPolicy
     });
     const runsTable = new dynamodb.Table(this, "RunsTable", {
@@ -79,7 +93,7 @@ export class InfraLensStack extends cdk.Stack {
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       encryption: dynamodb.TableEncryption.AWS_MANAGED,
-      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: isProduction },
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: target.pointInTimeRecovery },
       timeToLiveAttribute: "expiresAt",
       removalPolicy: persistenceRemovalPolicy
     });
@@ -128,12 +142,11 @@ export class InfraLensStack extends cdk.Stack {
     });
 
     const cloudFrontOrigin = `https://${frontendDistribution.distributionDomainName}`;
-    const frontendOrigin =
-      props.frontendOrigin ?? (isProduction ? cloudFrontOrigin : "http://localhost:5173");
+    const frontendOrigins = [cloudFrontOrigin, ...target.additionalFrontendOrigins];
 
     const lambdaLogGroup = new logs.LogGroup(this, "AnalysisFunctionLogGroup", {
       retention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: isProduction ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY
+      removalPolicy: cdk.RemovalPolicy.RETAIN
     });
     const analysisFunctionRole = new iam.Role(this, "AnalysisFunctionRole", {
       assumedBy: new iam.ServicePrincipal("lambda.amazonaws.com")
@@ -172,13 +185,13 @@ export class InfraLensStack extends cdk.Stack {
         minify: false,
         bundleAwsSDK: true,
         sourceMap: true,
-        target: "node20"
+        target: "node22"
       },
       depsLockFilePath: join(__dirname, "../../../package-lock.json"),
       entry: join(__dirname, "../../../apps/api/src/lambda.ts"),
       environment: {
-        INFRALENS_CORS_ORIGINS: frontendOrigin,
-        INFRALENS_ENVIRONMENT: environmentName,
+        INFRALENS_CORS_ORIGINS: frontendOrigins.join(","),
+        INFRALENS_ENVIRONMENT: target.runtimeEnvironment,
         INFRALENS_CLOUDFORMATION_VALIDATION: "true",
         INFRALENS_HISTORY_ADAPTER: "aws",
         INFRALENS_PROJECTS_TABLE: projectsTable.tableName,
@@ -195,13 +208,13 @@ export class InfraLensStack extends cdk.Stack {
         ? {}
         : { reservedConcurrentExecutions: props.lambdaReservedConcurrency }),
       role: analysisFunctionRole,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       timeout: cdk.Duration.seconds(30)
     });
 
     const accessLogGroup = new logs.LogGroup(this, "AnalysisApiAccessLogGroup", {
       retention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: isProduction ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY
+      removalPolicy: cdk.RemovalPolicy.RETAIN
     });
 
     const api = new apigateway.RestApi(this, "AnalysisApi", {
@@ -209,7 +222,7 @@ export class InfraLensStack extends cdk.Stack {
       defaultCorsPreflightOptions: {
         allowHeaders: ["Authorization", "Content-Type"],
         allowMethods: ["GET", "OPTIONS", "POST", "PATCH", "DELETE"],
-        allowOrigins: [frontendOrigin]
+        allowOrigins: frontendOrigins
       },
       deployOptions: {
         accessLogDestination: new apigateway.LogGroupLogDestination(accessLogGroup),
@@ -241,10 +254,11 @@ export class InfraLensStack extends cdk.Stack {
         integrationResponses: [
           {
             responseParameters: {
-              "method.response.header.Access-Control-Allow-Origin": quoteForGateway(frontendOrigin)
+              "method.response.header.Access-Control-Allow-Origin": quoteForGateway(cloudFrontOrigin),
+              "method.response.header.Vary": "'Origin'"
             },
             responseTemplates: {
-              "application/json": JSON.stringify({ status: "ok" })
+              "application/json": `${additionalOriginResponseTemplate(target.additionalFrontendOrigins)}\n${JSON.stringify({ status: "ok" })}`
             },
             statusCode: "200"
           }
@@ -257,7 +271,8 @@ export class InfraLensStack extends cdk.Stack {
         methodResponses: [
           {
             responseParameters: {
-              "method.response.header.Access-Control-Allow-Origin": true
+              "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Vary": true
             },
             statusCode: "200"
           }
@@ -265,13 +280,10 @@ export class InfraLensStack extends cdk.Stack {
       }
     );
 
-    const routeOptions =
-      isProduction || props.cognitoDomainPrefix !== undefined
-        ? createProductionAuthentication(this, frontendOrigin, props.cognitoDomainPrefix!)
-        : {};
+    const routeOptions = createHostedAuthentication(this, frontendOrigins, target.cognitoDomainPrefix);
 
     addAnalysisApiRoutes(api, analysisFunction, routeOptions);
-    addAuthenticationGatewayResponses(api, frontendOrigin);
+    addAuthenticationGatewayResponses(api, cloudFrontOrigin);
     configureOperationalAlarms(this, api, analysisFunction, props.alertEmail);
     configureBudget(this, environmentName, props.monthlyBudgetUsd, props.alertEmail);
 
@@ -290,6 +302,11 @@ export class InfraLensStack extends cdk.Stack {
     new cdk.CfnOutput(this, "AnalysisApplyApiUrl", { value: `${api.url}apply` });
     new cdk.CfnOutput(this, "AnalysisApiBaseUrl", { value: api.url });
     new cdk.CfnOutput(this, "DeploymentEnvironment", { value: environmentName });
+    new cdk.CfnOutput(this, "DeploymentAccount", { value: target.account });
+    new cdk.CfnOutput(this, "DeploymentRegion", { value: target.region });
+    new cdk.CfnOutput(this, "DeploymentStackName", { value: target.stackName });
+    new cdk.CfnOutput(this, "FrontendOrigin", { value: cloudFrontOrigin });
+    new cdk.CfnOutput(this, "AllowedFrontendOrigins", { value: frontendOrigins.join(",") });
     new cdk.CfnOutput(this, "ProjectsTableName", { value: projectsTable.tableName });
     new cdk.CfnOutput(this, "RunsTableName", { value: runsTable.tableName });
     new cdk.CfnOutput(this, "ArtifactBucketName", { value: artifactBucket.bucketName });
@@ -299,16 +316,13 @@ export class InfraLensStack extends cdk.Stack {
 export function addAnalysisApiRoutes(
   api: apigateway.RestApi,
   analysisFunction: lambda.IFunction,
-  options: ProtectedRouteOptions = {}
+  options: ProtectedRouteOptions
 ): void {
-  const methodOptions: apigateway.MethodOptions =
-    options.authorizer === undefined
-      ? {}
-      : {
-          authorizationType: apigateway.AuthorizationType.COGNITO,
-          authorizer: options.authorizer,
-          authorizationScopes: options.authorizationScopes
-        };
+  const methodOptions: apigateway.MethodOptions = {
+    authorizationType: apigateway.AuthorizationType.COGNITO,
+    authorizer: options.authorizer,
+    authorizationScopes: options.authorizationScopes
+  };
 
   for (const path of ["analyze", "diff", "apply"]) {
     api.root
@@ -340,9 +354,9 @@ export function addAnalysisApiRoutes(
     .addMethod("GET", integration, methodOptions);
 }
 
-function createProductionAuthentication(
+function createHostedAuthentication(
   scope: Construct,
-  frontendOrigin: string,
+  frontendOrigins: string[],
   domainPrefix: string
 ): ProtectedRouteOptions {
   const userPool = new cognito.UserPool(scope, "UserPool", {
@@ -356,9 +370,9 @@ function createProductionAuthentication(
     accessTokenValidity: cdk.Duration.hours(1),
     generateSecret: false,
     oAuth: {
-      callbackUrls: [`${frontendOrigin}/auth/callback`],
+      callbackUrls: frontendUrls(frontendOrigins).callbackUrls,
       flows: { authorizationCodeGrant: true },
-      logoutUrls: [`${frontendOrigin}/`],
+      logoutUrls: frontendUrls(frontendOrigins).logoutUrls,
       scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL]
     },
     preventUserExistenceErrors: true,
@@ -375,6 +389,8 @@ function createProductionAuthentication(
   new cdk.CfnOutput(scope, "CognitoUserPoolId", { value: userPool.userPoolId });
   new cdk.CfnOutput(scope, "CognitoWebClientId", { value: client.userPoolClientId });
   new cdk.CfnOutput(scope, "CognitoHostedDomain", { value: domain.baseUrl() });
+  new cdk.CfnOutput(scope, "CognitoCallbackUrls", { value: frontendUrls(frontendOrigins).callbackUrls.join(",") });
+  new cdk.CfnOutput(scope, "CognitoLogoutUrls", { value: frontendUrls(frontendOrigins).logoutUrls.join(",") });
 
   return {
     authorizer,
@@ -383,9 +399,12 @@ function createProductionAuthentication(
 }
 
 function addAuthenticationGatewayResponses(api: apigateway.RestApi, frontendOrigin: string): void {
+  // GatewayResponse headers cannot conditionally select an allowed origin. Use the hosted
+  // origin; localhost still has exact CORS on preflight and all Lambda responses.
   const responseParameters = {
     "Access-Control-Allow-Headers": "'Authorization,Content-Type'",
-    "Access-Control-Allow-Origin": quoteForGateway(frontendOrigin)
+    "Access-Control-Allow-Origin": quoteForGateway(frontendOrigin),
+    Vary: "'Origin'"
   };
 
   api.addGatewayResponse("UnauthorizedResponse", {
@@ -446,7 +465,7 @@ function configureOperationalAlarms(
 
 function configureBudget(
   scope: Construct,
-  environmentName: InfraLensEnvironment,
+  environmentName: DeploymentTargetName,
   monthlyBudgetUsd?: number,
   alertEmail?: string
 ): void {
@@ -531,23 +550,22 @@ function quoteForGateway(value: string): string {
   return `'${value}'`;
 }
 
-function validateConfiguration(props: InfraLensStackProps, isProduction: boolean): void {
-  if (
-    props.environmentName !== undefined &&
-    props.environmentName !== "development" &&
-    props.environmentName !== "production"
-  ) {
-    throw new Error("environmentName must be development or production.");
+function additionalOriginResponseTemplate(origins: readonly string[]): string {
+  if (origins.length === 0) {
+    return "";
   }
+  return [
+    '#set($origin = $input.params().header.get("Origin"))',
+    '#if($origin == "")',
+    '  #set($origin = $input.params().header.get("origin"))',
+    "#end",
+    `#if(${origins.map((origin) => `$origin == "${origin}"`).join(" || ")})`,
+    "  #set($context.responseOverride.header.Access-Control-Allow-Origin = $origin)",
+    "#end"
+  ].join("\n");
+}
 
-  if (isProduction && !props.cognitoDomainPrefix?.trim()) {
-    throw new Error("cognitoDomainPrefix is required for a production deployment.");
-  }
-
-  if (props.cognitoDomainPrefix !== undefined) {
-    validateCognitoDomainPrefix(props.cognitoDomainPrefix);
-  }
-
+function validateConfiguration(props: InfraLensStackProps): void {
   for (const [name, value] of Object.entries({
     apiThrottleBurstLimit: props.apiThrottleBurstLimit,
     apiThrottleRateLimit: props.apiThrottleRateLimit,
@@ -569,19 +587,5 @@ function validateConfiguration(props: InfraLensStackProps, isProduction: boolean
 
   if (props.monthlyBudgetUsd !== undefined && props.alertEmail === undefined) {
     throw new Error("alertEmail is required when monthlyBudgetUsd is configured.");
-  }
-}
-
-function validateCognitoDomainPrefix(prefix: string): void {
-  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(prefix)) {
-    throw new Error(
-      "cognitoDomainPrefix must be 1-63 lowercase letters, numbers, or hyphens and cannot start or end with a hyphen."
-    );
-  }
-
-  if (/(?:aws|amazon|cognito)/.test(prefix)) {
-    throw new Error(
-      "cognitoDomainPrefix must not contain the reserved terms aws, amazon, or cognito."
-    );
   }
 }

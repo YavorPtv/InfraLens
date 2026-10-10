@@ -4,8 +4,16 @@
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "diff": "cdk diff",
-    "synth": "cdk synth",
+    "diff": "npm run build && node dist/deployment-workflow.js diff",
+    "synth": "npm run build && node dist/deployment-workflow.js synth",
+    "preflight": "npm run build && node dist/deployment-workflow.js preflight",
+    "deploy": "npm run build && node dist/deployment-workflow.js deploy",
+    "frontend-config": "npm run build && node dist/deployment-workflow.js frontend-config",
+    "prepare-test-permissions": "npm run build && node dist/test-permissions.js",
+    "prepare-test-storage-permissions": "npm run build && node dist/test-storage-permissions.js",
+    "prepare-test-frontend-permissions": "npm run build && node dist/test-frontend-workflow.js permissions",
+    "build-test-frontend": "npm run build && node dist/test-frontend-workflow.js build",
+    "publish-test-frontend": "npm run build && node dist/test-frontend-workflow.js publish",
     "test": "mocha --timeout 15000 -r ts-node/register \"test/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
   },

@@ -1,0 +1,73 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadApplicationAndBootstrap",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStacks",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStackResources",
+        "cloudformation:ListStackResources",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:ListChangeSets",
+        "cloudformation:DescribeStackResource"
+      ],
+      "Resource": [
+        "arn:aws:cloudformation:eu-central-1:230944684535:stack/InfraLensTestStack/*",
+        "arn:aws:cloudformation:eu-central-1:230944684535:stack/CDKToolkit/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "ReadBootstrapVersion",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters"
+      ],
+      "Resource": "arn:aws:ssm:eu-central-1:230944684535:parameter/cdk-bootstrap/hnb659fds/version",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "ReadDeploymentDiagnostics",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:GetHookResult",
+        "cloudformation:ValidateTemplate"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "ReadChangeSetEvents",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeEvents"
+      ],
+      "Resource": [
+        "arn:aws:cloudformation:eu-central-1:230944684535:stack/InfraLensTestStack/*",
+        "arn:aws:cloudformation:eu-central-1:230944684535:changeSet/cdk-deploy-change-set/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { expect } from "chai";
 import { describe, it } from "mocha";
 import { addAnalysisApiRoutes, InfraLensStack } from "../src/infralens-stack";
+import { resolveDeploymentTarget } from "../src/deployment-target";
 
 interface SynthesizedResource {
   Type: string;
@@ -74,8 +75,7 @@ describe("InfraLensStack", () => {
     const app = new cdk.App();
     const stack = new InfraLensStack(app, "ProductionStack", {
       alertEmail: "alerts@example.com",
-      cognitoDomainPrefix: "infralens-test-protected-api",
-      environmentName: "production",
+      target: resolveDeploymentTarget("production"),
       lambdaReservedConcurrency: 5,
       monthlyBudgetUsd: 10
     });
@@ -206,12 +206,14 @@ describe("InfraLensStack", () => {
     template.hasResourceProperties("AWS::Logs::LogGroup", { RetentionInDays: 30 });
   });
 
-  it("requires a Cognito domain prefix in production", () => {
+  it("requires a valid Cognito domain prefix for every hosted target", () => {
     const app = new cdk.App();
 
     expect(
-      () => new InfraLensStack(app, "InvalidProductionStack", { environmentName: "production" })
-    ).to.throw("cognitoDomainPrefix is required");
+      () => new InfraLensStack(app, "InvalidProductionStack", {
+        target: { ...resolveDeploymentTarget("production"), cognitoDomainPrefix: "" }
+      })
+    ).to.throw("Invalid Cognito domain prefix");
   });
 
   it("rejects reserved Cognito domain terms before deployment", () => {
@@ -220,20 +222,116 @@ describe("InfraLensStack", () => {
     expect(
       () =>
         new InfraLensStack(app, "ReservedDomainStack", {
-          cognitoDomainPrefix: "infralens-cognito",
-          environmentName: "production"
+          target: { ...resolveDeploymentTarget("production"), cognitoDomainPrefix: "infralens-cognito" }
         })
-    ).to.throw("must not contain the reserved terms aws, amazon, or cognito");
+    ).to.throw("without aws, amazon, or cognito");
   });
 
   it("leaves reserved concurrency unset when the account quota is unknown", function () {
     const app = new cdk.App();
-    const stack = new InfraLensStack(app, "DefaultConcurrencyStack");
+    const stack = new InfraLensStack(app, "DefaultConcurrencyStack", { target: resolveDeploymentTarget("test") });
     const functions = Template.fromStack(stack).findResources("AWS::Lambda::Function");
     const analysisFunction = Object.values(functions)[0];
 
     expect(analysisFunction.Properties).not.to.have.property("ReservedConcurrentExecutions");
   });
+
+  for (const targetName of ["test", "production"] as const) {
+    it(`isolates ${targetName} resources and aligns API, Lambda, Cognito and frontend outputs`, () => {
+      const target = resolveDeploymentTarget(targetName);
+      const other = resolveDeploymentTarget(targetName === "test" ? "production" : "test");
+      const stack = new InfraLensStack(new cdk.App(), target.stackName, { target });
+      const template = Template.fromStack(stack);
+      const json = template.toJSON();
+      expect(stack.account).to.equal(target.account);
+      expect(stack.region).to.equal(target.region);
+      expect(stack.stackName).to.equal(target.stackName);
+      const serialized = JSON.stringify(json);
+      expect(serialized).not.to.include(other.account);
+      expect(serialized).not.to.include(other.stackName);
+      expect(serialized).not.to.include(other.cognitoDomainPrefix);
+      expect(serialized).not.to.include("Fn::ImportValue");
+      template.resourceCountIs("AWS::Cognito::UserPool", 1);
+      // User setup relies on email lookup; Cognito generates internal usernames for this pool mode.
+      template.hasResourceProperties("AWS::Cognito::UserPool", {
+        UsernameAttributes: ["email"], AdminCreateUserConfig: { AllowAdminCreateUserOnly: true }
+      });
+      template.resourceCountIs("AWS::Cognito::UserPoolUser", 0);
+      template.resourceCountIs("AWS::DynamoDB::Table", 2);
+      template.resourceCountIs("AWS::S3::Bucket", 2);
+      const applicationRoles = Object.values(template.findResources("AWS::IAM::Role"));
+      expect(applicationRoles).to.have.length(2);
+      for (const role of applicationRoles) {
+        expect(role.Properties.PermissionsBoundary).to.equal(target.applicationPermissionsBoundaryArn);
+      }
+      template.resourceCountIs("AWS::IAM::ManagedPolicy", 0);
+      template.hasResourceProperties("AWS::Lambda::Function", {
+        Runtime: "nodejs22.x"
+      });
+      template.hasResourceProperties("AWS::Cognito::UserPoolDomain", { Domain: target.cognitoDomainPrefix });
+      const resources = json.Resources as Record<string, SynthesizedResource>;
+      const distributionId = Object.entries(resources).find(([, resource]) => resource.Type === "AWS::CloudFront::Distribution")![0];
+      const cloudfrontOrigin = { "Fn::Join": ["", ["https://", { "Fn::GetAtt": [distributionId, "DomainName"] }]] };
+      const client = Object.values(template.findResources("AWS::Cognito::UserPoolClient"))[0].Properties;
+      const callbacks = client.CallbackURLs as unknown[];
+      const logouts = client.LogoutURLs as unknown[];
+      expect(callbacks).to.have.length(targetName === "test" ? 2 : 1);
+      expect(logouts).to.have.length(callbacks.length);
+      expect(callbacks[0]).to.deep.equal({ "Fn::Join": ["", ["https://", { "Fn::GetAtt": [distributionId, "DomainName"] }, "/auth/callback"]] });
+      expect(logouts[0]).to.deep.equal({ "Fn::Join": ["", ["https://", { "Fn::GetAtt": [distributionId, "DomainName"] }, "/"]] });
+      const variables = Object.values(template.findResources("AWS::Lambda::Function"))[0].Properties.Environment.Variables;
+      expect(variables.INFRALENS_ENVIRONMENT).to.equal("production");
+      expect(variables.INFRALENS_HISTORY_ADAPTER).to.equal("aws");
+      expect(variables).not.to.have.property("INFRALENS_LOCAL_OWNER");
+      for (const [variable, resourceType] of [
+        ["INFRALENS_PROJECTS_TABLE", "AWS::DynamoDB::Table"],
+        ["INFRALENS_RUNS_TABLE", "AWS::DynamoDB::Table"],
+        ["INFRALENS_ARTIFACT_BUCKET", "AWS::S3::Bucket"]
+      ]) {
+        expect(resources[variables[variable].Ref].Type).to.equal(resourceType);
+      }
+      expect(json.Outputs.FrontendOrigin.Value).to.deep.equal(cloudfrontOrigin);
+      expect(json.Outputs.AllowedFrontendOrigins.Value).to.deep.equal(variables.INFRALENS_CORS_ORIGINS);
+      if (targetName === "test") {
+        expect(callbacks[1]).to.equal("http://localhost:5173/auth/callback");
+        expect(logouts[1]).to.equal("http://localhost:5173/");
+        expect(JSON.stringify(variables.INFRALENS_CORS_ORIGINS)).to.include(",http://localhost:5173");
+      } else {
+        expect(serialized).not.to.include("localhost");
+        expect(variables.INFRALENS_CORS_ORIGINS).to.deep.equal(cloudfrontOrigin);
+      }
+      const methods = Object.values(template.findResources("AWS::ApiGateway::Method"));
+      const protectedMethods = methods.filter((method) => method.Properties.Integration?.Type === "AWS_PROXY");
+      expect(protectedMethods).to.have.length(14);
+      const authorizerId = Object.keys(template.findResources("AWS::ApiGateway::Authorizer"))[0];
+      for (const method of protectedMethods) {
+        expect(method.Properties.AuthorizationType).to.equal("COGNITO_USER_POOLS");
+        expect(method.Properties.AuthorizerId).to.deep.equal({ Ref: authorizerId });
+        expect(method.Properties.AuthorizationScopes).to.deep.equal(["openid"]);
+      }
+      const preflights = methods.filter((method) => method.Properties.HttpMethod === "OPTIONS");
+      expect(preflights.length).to.be.greaterThan(10);
+      for (const method of preflights) {
+        expect(method.Properties.AuthorizationType).to.equal("NONE");
+        const response = method.Properties.Integration.IntegrationResponses[0];
+        expect(JSON.stringify(response.ResponseParameters)).not.to.include("'*'");
+        expect(JSON.stringify(response.ResponseParameters)).to.include(distributionId);
+        expect(response.ResponseParameters["method.response.header.Access-Control-Allow-Methods"]).to.equal("'GET,OPTIONS,POST,PATCH,DELETE'");
+        if (targetName === "test") {
+          expect(response.ResponseTemplates["application/json"]).to.include('$origin == "http://localhost:5173"');
+        }
+      }
+      for (const key of ["DeploymentAccount", "DeploymentRegion", "DeploymentStackName", "AnalysisApiBaseUrl", "ProjectsTableName", "RunsTableName", "ArtifactBucketName", "FrontendBucketName", "FrontendDistributionId", "CognitoUserPoolId", "CognitoWebClientId", "CognitoHostedDomain", "CognitoCallbackUrls", "CognitoLogoutUrls"]) {
+        expect(json.Outputs).to.have.property(key);
+      }
+      for (const type of ["AWS::DynamoDB::Table", "AWS::S3::Bucket", "AWS::Cognito::UserPool", "AWS::Logs::LogGroup"]) {
+        for (const resource of Object.values(template.findResources(type))) {
+          expect(resource.DeletionPolicy).to.equal("Retain");
+        }
+      }
+      expect(serialized).not.to.include("Custom::S3AutoDeleteObjects");
+    });
+  }
 });
 
 function synthesizeTemplate(): Record<string, SynthesizedResource> {
@@ -242,7 +340,7 @@ function synthesizeTemplate(): Record<string, SynthesizedResource> {
   const analysisFunction = new lambda.Function(stack, "AnalysisApiFunction", {
     code: lambda.Code.fromInline("exports.handler = async () => ({ statusCode: 200 });"),
     handler: "index.handler",
-    runtime: lambda.Runtime.NODEJS_20_X
+    runtime: lambda.Runtime.NODEJS_22_X
   });
   const api = new apigateway.RestApi(stack, "AnalysisApi", {
     defaultCorsPreflightOptions: {

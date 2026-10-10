@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 cdk.out/
+cdk-outputs.*.json
 .env
 .env.*
 !.env.example
