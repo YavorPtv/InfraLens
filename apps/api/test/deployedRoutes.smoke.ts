@@ -1,20 +1,22 @@
 import { expect } from "chai";
-import { hostedTestRequest, readHostedTestConfiguration, testAccessTokenSubject,
+import { hostedTestRequest, readHostedTestConfiguration,
   type HostedTestConfiguration } from "./hostedTestHelpers";
+import { TestUserAuthentication } from "./testUserAuthentication";
 
 // Deliberately outside *.test.ts: ordinary tests never contact a deployment.
 describe("existing deployed InfraLens API (HTTP smoke only)", function () {
-  this.timeout(15_000);
+  this.timeout(120_000);
   let configuration: HostedTestConfiguration;
-  const token = process.env.INFRALENS_SMOKE_ACCESS_TOKEN;
+  let authentication: TestUserAuthentication | undefined;
   const template = JSON.stringify({ Resources: { SmokeQueue: { Type: "AWS::SQS::Queue" } } });
 
-  before(function () {
+  before(async function () {
     configuration = readHostedTestConfiguration();
-    if (token) {
-      testAccessTokenSubject(token, configuration, "INFRALENS_SMOKE_ACCESS_TOKEN");
+    if (configuration.authenticatedSmoke) {
+      authentication = new TestUserAuthentication(configuration);
+      await authentication.assertDistinctUsers();
     } else {
-      process.stdout.write("Authenticated smoke coverage skipped: no short-lived test access token supplied.\n");
+      process.stdout.write("Public smoke only. Use --authenticated true for automatic Cognito sign-in.\n");
     }
   });
 
@@ -29,6 +31,7 @@ describe("existing deployed InfraLens API (HTTP smoke only)", function () {
     });
     expect(response.status).to.be.oneOf([401, 403]);
   });
+  after(() => authentication?.clear());
 
   for (const [method, path] of [
     ["GET", "projects"], ["POST", "projects"], ["POST", "projects/cleanup"], ["POST", "projects/compare"],
@@ -62,8 +65,9 @@ describe("existing deployed InfraLens API (HTTP smoke only)", function () {
     });
   }
 
-  it("analyzes a tiny synthetic template when an access token is explicitly supplied", async function () {
-    if (!token) { this.skip(); return; }
+  it("analyzes a tiny synthetic template using an automatically acquired access token", async function () {
+    if (!authentication) { this.skip(); return; }
+    const token = await authentication.accessToken("A");
     const response = await request("analyze", {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ template })

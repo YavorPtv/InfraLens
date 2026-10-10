@@ -398,8 +398,11 @@ Sources: [AWS trail setup](https://docs.aws.amazon.com/awscloudtrail/latest/user
    CDKToolkit; do not replay historical failed-stack cleanup or older repair templates.
 2. Use infralens-test-deploy for future routine application updates. Review production region,
    bootstrap and policies independently; leave its existing CDKToolkit unchanged.
-3. Prepare dedicated test Cognito users and generate/build/publish the test frontend using the
-   existing deployment outputs. Frontend upload/invalidation and invitations need separate setup access.
+3. Run the guarded persistent [test-user setup](TESTING.md#persistent-cognito-users-and-automatic-authentication)
+   with protected credentials, then generate/build/publish the test frontend using existing outputs.
+   User provisioning and frontend upload/invalidation need separate setup access. API OAuth tests
+   can run before frontend publishing because their existing localhost callback is captured from
+   Cognito's redirect header without requiring a local server.
 4. Keep the independent CloudTrail trail; its logging/delivery was verified on October 4.
 5. Verify management-budget scope and member-account alerts/cost monitoring; coverage is still unknown.
 6. Use the guarded persistent-test workflows in [Testing](TESTING.md#persistent-aws-test-workflows)

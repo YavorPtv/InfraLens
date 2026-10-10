@@ -10,6 +10,10 @@ export interface HostedTestConfiguration {
   artifactBucket: string;
   userPoolId: string;
   clientId: string;
+  cognitoDomain: string;
+  callbackUrl: string;
+  authenticatedSmoke: boolean;
+  allowUserSetup: boolean;
   allowTestDataWrites: boolean;
 }
 
@@ -23,7 +27,9 @@ export function readHostedTestConfiguration(environment: NodeJS.ProcessEnv = pro
       !/^InfraLensTestStack-ProjectsTable[A-Za-z0-9-]+$/.test(config.projectsTable) ||
       !/^InfraLensTestStack-RunsTable[A-Za-z0-9-]+$/.test(config.runsTable) ||
       !/^infralensteststack-artifactbucket[a-z0-9-]+$/.test(config.artifactBucket) ||
-      !/^eu-central-1_[A-Za-z0-9]+$/.test(config.userPoolId) || !/^[a-z0-9]+$/.test(config.clientId)) {
+      !/^eu-central-1_[A-Za-z0-9]+$/.test(config.userPoolId) || !/^[a-z0-9]+$/.test(config.clientId) ||
+      config.cognitoDomain !== "https://infralens-test-230944684535-euc1.auth.eu-central-1.amazoncognito.com" ||
+      config.callbackUrl !== "http://localhost:5173/auth/callback") {
     throw new Error("Live-test configuration must match the AWS test environment.");
   }
   return config;
@@ -60,8 +66,8 @@ export function testAccessTokenSubject(
 export function distinctTestUsers(
   first: string | undefined, second: string | undefined, config: HostedTestConfiguration, now = Date.now()
 ): void {
-  const firstSubject = testAccessTokenSubject(first, config, "INFRALENS_TEST_USER_A_TOKEN", now);
-  const secondSubject = testAccessTokenSubject(second, config, "INFRALENS_TEST_USER_B_TOKEN", now);
+  const firstSubject = testAccessTokenSubject(first, config, "Test user A", now);
+  const secondSubject = testAccessTokenSubject(second, config, "Test user B", now);
   if (firstSubject === secondSubject) throw new Error("Hosted isolation needs two different Cognito user subjects.");
 }
 

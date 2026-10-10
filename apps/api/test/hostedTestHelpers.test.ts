@@ -8,7 +8,9 @@ const configuration: HostedTestConfiguration = {
   profile: "infralens-test-deploy", apiBaseUrl: "https://example.execute-api.eu-central-1.amazonaws.com/test/",
   projectsTable: "InfraLensTestStack-ProjectsTableABC-example", runsTable: "InfraLensTestStack-RunsTableABC-example",
   artifactBucket: "infralensteststack-artifactbucketabc-example", userPoolId: "eu-central-1_example",
-  clientId: "exampleclient", allowTestDataWrites: false
+  clientId: "exampleclient", allowTestDataWrites: false, allowUserSetup: false, authenticatedSmoke: false,
+  cognitoDomain: "https://infralens-test-230944684535-euc1.auth.eu-central-1.amazoncognito.com",
+  callbackUrl: "http://localhost:5173/auth/callback"
 };
 const now = 1_800_000_000_000;
 function token(overrides: Record<string, unknown> = {}) {

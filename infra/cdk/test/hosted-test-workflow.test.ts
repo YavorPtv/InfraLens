@@ -8,6 +8,8 @@ import type { ProcessCall } from "../src/deployment-workflow";
 
 const writeOptions = ["--target", "test", "--region", "eu-central-1", "--stack", "InfraLensTestStack",
   "--profile", "infralens-test-deploy", "--allow-test-data", "true"];
+const setupOptions = ["--target", "test", "--region", "eu-central-1", "--stack", "InfraLensTestStack",
+  "--profile", "infralens-test-admin", "--allow-user-setup", "true"];
 
 function outputDocument() {
   const origin = "https://example.cloudfront.net";
@@ -90,17 +92,79 @@ describe("persistent test environment workflows", () => {
     });
   });
 
-  for (const command of ["hosted", "storage"]) {
+  for (const command of ["hosted", "storage", "setup-users"]) {
     it(`blocks ${command} with mismatched STS identity before starting tests`, () => {
       withOutputFile(directory => {
         const calls: ProcessCall[] = [];
-        expect(() => runHostedTestWorkflow([command, ...writeOptions], call => {
+        const options = command === "setup-users" ? setupOptions : writeOptions;
+        expect(() => runHostedTestWorkflow([command, ...options], call => {
           calls.push(call); return JSON.stringify({ Account: "609124256824" });
         }, directory, {})).to.throw("caller account mismatch");
         expect(calls).to.have.length(1);
       });
     });
   }
+
+  it("requires separate test-user setup permission and never accepts a data-only opt-in", () => {
+    for (const args of [
+      ["setup-users", ...writeOptions], ["setup-users", "--target", "test"],
+      ["setup-users", ...setupOptions, "--allow-test-data", "true"],
+      ["setup-users", "--target", "production"], ["smoke", "--target", "test", "--allow-user-setup", "true"]
+    ]) {
+      expect(() => parseHostedTestRequest(args, "/cdk")).to.throw();
+    }
+  });
+
+  it("routes user setup through STS and current-stack checks without granting test-data writes", () => {
+    withOutputFile(directory => {
+      const calls: ProcessCall[] = [];
+      runHostedTestWorkflow(["setup-users", ...setupOptions], call => {
+        calls.push(call);
+        if (call.args[0] === "sts") return '{"Account":"230944684535"}';
+        if (call.args[0] === "cloudformation") return liveStack();
+        return "";
+      }, directory, { INFRALENS_TEST_USER_A_PASSWORD: "fixture-secret" });
+      expect(calls).to.have.length(3);
+      expect(calls[2].args).to.include("test/testUserSetup.ts");
+      const config = JSON.parse(calls[2].env.INFRALENS_HOSTED_TEST_CONFIG!);
+      expect(config.allowUserSetup).to.equal(true);
+      expect(config.allowTestDataWrites).to.equal(false);
+      expect(calls[0].env.INFRALENS_TEST_USER_A_PASSWORD).to.equal(undefined);
+      expect(calls[1].env.INFRALENS_TEST_USER_A_PASSWORD).to.equal(undefined);
+      expect(calls[2].env.INFRALENS_TEST_USER_A_PASSWORD).to.equal("fixture-secret");
+      expect(calls.every(call => !call.args.includes("fixture-secret"))).to.equal(true);
+    });
+  });
+
+  it("makes authenticated smoke explicit and uses output-pinned OAuth URLs without AWS credentials", () => {
+    withOutputFile(directory => {
+      const calls: ProcessCall[] = [];
+      runHostedTestWorkflow(["smoke", "--target", "test", "--authenticated", "true"], call => {
+        calls.push(call); return "";
+      }, directory, { INFRALENS_TEST_USER_A_PASSWORD: "fixture-secret", AWS_PROFILE: "production" });
+      expect(calls).to.have.length(1);
+      const config = JSON.parse(calls[0].env.INFRALENS_HOSTED_TEST_CONFIG!);
+      expect(config.authenticatedSmoke).to.equal(true);
+      expect(config.callbackUrl).to.equal("http://localhost:5173/auth/callback");
+      expect(config.cognitoDomain).to.equal(outputDocument().InfraLensTestStack.CognitoHostedDomain);
+      expect(calls[0].env.AWS_PROFILE).to.equal(undefined);
+      expect(calls[0].env.INFRALENS_TEST_USER_A_PASSWORD).to.equal("fixture-secret");
+    });
+  });
+
+  it("strips credentials from public smoke and rejects static access-token overrides", () => {
+    withOutputFile(directory => {
+      runHostedTestWorkflow(["smoke", "--target", "test"], call => {
+        expect(call.env.INFRALENS_TEST_USER_A_PASSWORD).to.equal(undefined); return "";
+      }, directory, { INFRALENS_TEST_USER_A_PASSWORD: "fixture-secret" });
+      for (const name of ["INFRALENS_TEST_USER_A_TOKEN", "INFRALENS_TEST_USER_B_TOKEN", "INFRALENS_SMOKE_ACCESS_TOKEN"]) {
+        let calls = 0;
+        expect(() => runHostedTestWorkflow(["smoke", "--target", "test"], () => { calls++; return ""; },
+          directory, { [name]: "fixture-token" })).to.throw("legacy");
+        expect(calls).to.equal(0);
+      }
+    });
+  });
 
   it("blocks stale output files and failed or missing application stacks before tests", () => {
     const stale = outputDocument();

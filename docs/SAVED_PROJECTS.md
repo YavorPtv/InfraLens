@@ -198,9 +198,11 @@ They derive API URL/table/bucket names from validated outputs. Data-writing mode
 matching region/stack, --allow-test-data true, verified STS account and fresh CloudFormation outputs.
 The old INFRALENS_DISPOSABLE_AWS and manual resource variables are no longer accepted.
 
-Hosted tests are separate from direct storage tests. They need two distinct dedicated Cognito users'
-current access tokens through INFRALENS_TEST_USER_A_TOKEN and INFRALENS_TEST_USER_B_TOKEN. API Gateway
-verifies authentication; local token checks only validate configuration. Project deletion is limited to
+Hosted tests are separate from direct storage tests. The guarded test:users:setup command provisions
+two persistent dedicated Cognito users. Four protected EMAIL/PASSWORD values feed automatic OAuth/PKCE
+login and token refresh on each run; manually supplied access tokens are retired. See
+[user setup](TESTING.md#persistent-cognito-users-and-automatic-authentication). API Gateway verifies
+authentication; local token checks only validate configuration. Project deletion is limited to
 the project created by the test and preserves pending cleanup metadata. Tombstones may remain.
 
 Direct SDK tests require a later scoped storage-test identity, including test-table DeleteItem for

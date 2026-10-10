@@ -82,16 +82,18 @@ From the repository root, commands available after the test deployment:
 # Public HTTP smoke: no AWS credentials or user token required.
 npm.cmd run test:smoke -- --target test
 
-# Hosted save/restore/two-user isolation: requires test users and current tokens first.
+# Authenticated smoke: requires persistent users, credentials and Chromium (setup below).
+npm.cmd run test:smoke -- --target test --authenticated true
+
+# Hosted save/restore/two-user isolation: automatically signs in and renews tokens.
 aws sso login --profile infralens-test-deploy
 npm.cmd run test:hosted -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-deploy --allow-test-data true
 ```
 
-Hosted tests require INFRALENS_TEST_USER_A_TOKEN and INFRALENS_TEST_USER_B_TOKEN in the process
-environment. Obtain short-lived access tokens by signing in as two dedicated test Cognito users;
-never paste them into chat, print them, commit them or store them in deployment outputs. There is
-no automatic login/refresh or user creation in this refactor. Tokens must use the selected test pool,
-client and openid scope; different token strings from the same user are rejected.
+Authenticated tests require four protected credential values: INFRALENS_TEST_USER_A_EMAIL,
+INFRALENS_TEST_USER_A_PASSWORD, INFRALENS_TEST_USER_B_EMAIL and INFRALENS_TEST_USER_B_PASSWORD.
+They acquire tokens automatically; do not supply or save access tokens. See the setup below.
+Both users sign in before authenticated smoke runs; hosted isolation also checks different subjects.
 
 The guarded workflow accepts only --target test. For data-writing hosted/storage modes, it verifies
 STS caller account, intended region/stack, stable application state and every local output against
@@ -103,15 +105,117 @@ explicit commands do not silently skip an entire suite. Normal tests remain cred
 Smoke checks public health, unauthenticated rejection for all 14 analysis/history methods, an invalid
 bearer token, and optionally authenticated analysis. It reads validated local outputs and performs
 HTTP calls only; it does not contact STS or independently establish live account ownership. A stale
-URL fails its HTTP assertions. Set INFRALENS_SMOKE_ACCESS_TOKEN through your secure process environment
-for authenticated analysis; without it, that one test reports a skip. Authentication/user workflows
-remain separate from public readiness checks. Supply --outputs PATH to use another public output file.
+URL fails its HTTP assertions. Use --authenticated true for automatic two-user sign-in and authenticated
+analysis; without that flag, only authenticated analysis is skipped. With the flag, missing credentials
+or failed login fails the suite. Supply --outputs PATH to use another public output file.
 
 apps/api/test/hostedHistory.hosted.ts checks authenticated save/restore and cross-user read/delete/
 download isolation. Cleanup deletes only the project created by that test. API deletion can retain
 metadata tombstones; pending artifact cleanup fails visibly and preserves recovery metadata. No stack
 or bucket is emptied. Every API request preserves the /test/ stage, rejects redirects and has a timeout.
 Local JWT claim checks detect configuration mistakes; API Gateway verifies signatures/authorization.
+
+## Persistent Cognito users and automatic authentication
+
+The separate test:users:setup command creates persistent users A and B in the deployed test pool,
+identified by configured email addresses and a fixture marker in the standard name attribute.
+The deployed pool uses email-only sign-in and Cognito generates its internal usernames; no pool
+configuration change or replacement is needed. Setup verifies STS, region/stack and current outputs
+before starting the worker. Both users must have different dedicated email addresses you control. Invitations
+are suppressed; setup marks those controlled addresses verified and sets permanent passwords.
+Use strong distinct generated passwords (at least 12 characters, with upper/lowercase, numbers and
+symbols to meet the pool policy). This is an administrative fixture setup, not public registration.
+
+Run setup after the first test deployment or after an intentional test-pool replacement. Later runs
+leave confirmed users and passwords intact. A partially completed FORCE_CHANGE_PASSWORD fixture can
+be completed with the configured password. An existing email identity with a different email,
+fixture marker, disabled state or unexpected status is rejected. Alias transfer is never enabled.
+Changing secrets alone does not rotate existing passwords; credential rotation is a separate
+intentional administrative operation. Do not run setup inside every test or add users/passwords to CDK.
+
+Store the four values in a protected secret store and inject them into the local test process or the
+GitHub aws-test environment. Never put them in CDK outputs, Vite variables, tracked files or command
+arguments. For an interactive PowerShell session, these prompts avoid putting passwords in shell
+history; use the same persistent credentials later or inject them from your chosen secret manager:
+
+```powershell
+$env:INFRALENS_TEST_USER_A_EMAIL = Read-Host "Dedicated test user A email"
+$fixturePasswordA = Read-Host "Test user A password from your secret store" -AsSecureString
+$env:INFRALENS_TEST_USER_A_PASSWORD = [System.Net.NetworkCredential]::new("", $fixturePasswordA).Password
+$env:INFRALENS_TEST_USER_B_EMAIL = Read-Host "Dedicated test user B email"
+$fixturePasswordB = Read-Host "Test user B password from your secret store" -AsSecureString
+$env:INFRALENS_TEST_USER_B_PASSWORD = [System.Net.NetworkCredential]::new("", $fixturePasswordB).Password
+
+# Administrative setup, explicitly creates users. Prepared here; not executed by this coding task.
+# The existing admin profile can run it. The routine deployment profile cannot.
+aws sso login --profile infralens-test-admin
+npm.cmd run test:users:setup -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-admin --allow-user-setup true
+
+# One-time browser binary installation on each local test machine; does not contact AWS.
+npx.cmd playwright install chromium
+
+# These commands acquire, validate, cache and renew tokens automatically.
+npm.cmd run test:smoke -- --target test --authenticated true
+aws sso login --profile infralens-test-deploy
+npm.cmd run test:hosted -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-deploy --allow-test-data true
+
+# Remove credential copies from this shell after testing; keep them in the protected secret store.
+Remove-Item Env:INFRALENS_TEST_USER_A_EMAIL, Env:INFRALENS_TEST_USER_A_PASSWORD, Env:INFRALENS_TEST_USER_B_EMAIL, Env:INFRALENS_TEST_USER_B_PASSWORD
+Remove-Variable fixturePasswordA, fixturePasswordB
+```
+
+For a later scoped setup identity, allow STS GetCallerIdentity, CloudFormation DescribeStacks for
+InfraLensTestStack, and cognito-idp:AdminGetUser, AdminCreateUser and AdminSetUserPassword on **only
+the test user-pool ARN** from the deployment outputs. Cognito scopes these administrative actions to
+the pool, not individual usernames. Keep this identity separate from routine deployment and test
+execution. No IAM changes or new profile are applied by this implementation; the supplied admin
+profile still has administrator permissions. Authenticated HTTP smoke needs no AWS CLI identity or
+provisioning privileges. Hosted data tests only need the existing read-only STS/stack preflight
+permissions in addition to the Cognito user credentials; storage permissions remain a separate task.
+
+The test-only Playwright library drives Cognito login in a fresh browser context for each user. It
+uses the same authorization-code/PKCE S256 flow and openid/email scopes as React. The existing
+http://localhost:5173/auth/callback is captured from Cognito's redirect Location header, so neither a React server
+nor published frontend assets are needed for API testing. This does not test the React sign-in UI.
+The browser is closed after code acquisition; tokens remain in memory only, are reused while valid,
+and refresh before expiry. A revoked refresh token triggers a new login. Unexpected server errors
+fail without retrying API writes. Subject checks prevent a mid-run identity
+switch. Different token strings for the same subject do not qualify as two users.
+
+The current test pool uses password sign-in without MFA. Unsupported challenges/MFA or sign-in page
+changes fail clearly; do not disable production security to accommodate test automation. Token
+responses and browser diagnostics are not printed; acquired tokens are masked in GitHub Actions.
+No traces, screenshots, storage-state files or token artifacts are produced. Remove the retired
+INFRALENS_SMOKE_ACCESS_TOKEN, INFRALENS_TEST_USER_A_TOKEN and INFRALENS_TEST_USER_B_TOKEN variables/secrets; they now fail
+as legacy overrides. Neither normal tests nor offline synthesis launch browsers or contact Cognito.
+
+See [Cognito token endpoint](https://docs.aws.amazon.com/cognito/latest/developerguide/token-endpoint.html)
+for PKCE/refresh and [Playwright library](https://playwright.dev/docs/library) for browser installation.
+
+If automatic sign-in fails, the message identifies the stage: Chromium launch, page loading, locating
+the form, filling/submitting controls or waiting for the callback. Classic Cognito renders two login
+forms; the helper selects one visible password form and keeps all three controls within it.
+Submission uses input[name="signInSubmitButton"]: Cognito displays "Sign in" but its aria-label is
+"submit", so a role locator searching for the visible text does not match the button. This control
+metadata was confirmed with a public login-page read; no credentials were submitted during diagnosis.
+Browser errors remain sanitized: do not enable raw Playwright call logs/traces to diagnose credential failures.
+For a launch error saying Chromium is missing, run npx.cmd playwright install chromium in the same
+Windows user session as the test. The helper captures the registered callback from a trusted Cognito
+3xx response's Location header, validating its exact URL, state and authorization code before use.
+Playwright page.route intercepts only the first URL in a redirect chain, so it cannot reliably capture
+the redirect destination. No successful localhost navigation is required. It also watches for allowlisted Cognito
+rejections (email/password, attempt limit, reset/new-password, MFA or CSRF) and returns fixed messages,
+never page text. Unknown failures still time out. If Cognito rejects credentials, reload the original
+saved values: repeating setup or changing environment secrets does not reset confirmed passwords.
+Share only the sanitized stage message. No rejection causes automatic password resets or login retries.
+
+Unknown callback failures include a Safe diagnostics JSON summary: number of login POSTs, last login
+HTTP status, request-failure/script-error counts, a fixed page category and native form-validity flags.
+No URL queries, request bodies/headers, input values, emails, passwords, page text or tokens are included.
+The summary distinguishes a click that never sent a request from a server response or transport failure.
+Browser-inspection errors are reported separately from genuine timeouts. Share that summary if login
+still fails; avoid repeated login attempts or infrastructure/policy changes without identifying the cause.
+See [Playwright routing limitations](https://playwright.dev/docs/api/class-page#page-route).
 
 ## Direct storage checks: separate permission setup required
 
@@ -141,18 +245,30 @@ Direct Mocha invocation of live files is unsupported; use guarded npm commands.
 
 ## Manual smoke workflow in GitHub Actions
 
-Long-term authentication design: provision two persistent test-only Cognito users in an idempotent
-setup step and obtain fresh tokens automatically during each authenticated run. Keep user credentials
-in protected secrets, not pre-generated access tokens. Automate the app's OAuth authorization-code/PKCE
-flow so the tokens include its required scopes, then refresh or re-authenticate before expiry.
-This acquisition helper is future work; the current refactor validates supplied tokens only.
+Configure a GitHub Actions environment named aws-test, restrict its permitted branches, and set
+required reviewers if appropriate. Add the four EMAIL/PASSWORD secrets above to that environment
+after user setup. Set the Actions variable INFRALENS_TEST_DEPLOYMENT_OUTPUTS to the full public test
+outputs JSON. No AWS keys, refresh tokens or pre-generated access-token secrets are required.
 
-The manual deployed-smoke.yml workflow remains HTTP-only and uses no AWS credentials. Set the repository
-Actions variable INFRALENS_TEST_DEPLOYMENT_OUTPUTS to the full public JSON from the test output file;
-replace the old URL variable. An optional INFRALENS_SMOKE_ACCESS_TOKEN Actions secret enables authenticated
-analysis while valid. The job materializes an ignored output file and calls the same guarded smoke
-command. Missing/malformed outputs fail the manually requested job. It does not deploy, upload assets,
-create users or acquire/refresh tokens. Standard push/PR CI still builds and runs offline tests only.
+deployed-smoke.yml is manual and defaults authenticated=true. It installs Chromium, signs in as both
+users and uses a fresh token for analysis. Selecting authenticated=false runs only public HTTP checks
+without credential secrets or a browser launch. The job writes the ignored outputs file and uses
+the same test-only safeguards. Missing outputs, secrets or login failures fail the authenticated job.
+It never provisions users, deploys, uploads assets or grants permissions. Standard push/PR CI still
+builds and runs offline tests only: live checks depend on a persistent external service and protected
+credentials, while hosted data tests also write/clean temporary data. A future post-deployment
+pipeline can invoke the guarded authenticated command with those same protected secrets; it should
+follow a successful test deployment rather than run for every untrusted pull request.
+GitHub must have the workflow file on the default branch to expose its manual Run workflow action;
+then select the reviewed branch containing these changes. This coding task does not push or merge it.
+
+Read-only remote checks on October 10 confirmed main matches the local commit containing
+deployed-smoke.yml with workflow_dispatch. You can test the new workflow **before merging**: push
+feature/hosted-test-workflows, open Actions -> Smoke tests (existing deployment required) -> Run workflow,
+choose that feature branch and enable authenticated. Configure aws-test secrets/outputs first, and
+permit that reviewed feature branch in the environment's branch rules. After the run passes, open a PR.
+This branch depends on feature/separate-aws-environments; use that branch as the PR base until the
+environment work has merged into main, then retarget the hosted-test PR to main as appropriate.
 
 ## What passing tests guarantee—and what they do not check
 
@@ -160,7 +276,9 @@ create users or acquire/refresh tokens. Standard push/PR CI still builds and run
   local Express calls intentionally do not enforce hosted authentication. Existing CDK assertions
   verify Cognito protection and `openid` scope for all analysis routes; adapter integration tests
   verify request validation and error contracts, while deployed smoke tests check actual rejection.
-  Cognito sign-in, PKCE, token refresh, invitation and browser session behavior remain manual.
+  The authenticated workflows exercise Cognito PKCE sign-in and acquire/renew tokens automatically.
+  Refresh behavior is covered offline with mocks; a short smoke run need not trigger a live refresh.
+  Invitations and the React sign-in UI are outside these API workflows.
 - Source-action `confidence` is mapping confidence; `actionConfidence` is SDK-package confidence;
   `PolicySuggestion.confidence` is a separate aggregate. Handler mappings are medium, filename
   mappings low and explicit mappings high. Medium/low mapping evidence cannot auto-narrow actions.

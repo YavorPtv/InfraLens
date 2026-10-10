@@ -252,6 +252,11 @@ describe("InfraLensStack", () => {
       expect(serialized).not.to.include(other.cognitoDomainPrefix);
       expect(serialized).not.to.include("Fn::ImportValue");
       template.resourceCountIs("AWS::Cognito::UserPool", 1);
+      // User setup relies on email lookup; Cognito generates internal usernames for this pool mode.
+      template.hasResourceProperties("AWS::Cognito::UserPool", {
+        UsernameAttributes: ["email"], AdminCreateUserConfig: { AllowAdminCreateUserOnly: true }
+      });
+      template.resourceCountIs("AWS::Cognito::UserPoolUser", 0);
       template.resourceCountIs("AWS::DynamoDB::Table", 2);
       template.resourceCountIs("AWS::S3::Bucket", 2);
       const applicationRoles = Object.values(template.findResources("AWS::IAM::Role"));

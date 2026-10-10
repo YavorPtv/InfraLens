@@ -17,6 +17,7 @@
     "test:smoke": "npm run build --workspace @infralens/cdk && node infra/cdk/dist/hosted-test-workflow.js smoke",
     "test:hosted": "npm run build --workspace @infralens/cdk && node infra/cdk/dist/hosted-test-workflow.js hosted",
     "test:aws": "npm run build --workspace @infralens/cdk && node infra/cdk/dist/hosted-test-workflow.js storage",
+    "test:users:setup": "npm run build --workspace @infralens/cdk && node infra/cdk/dist/hosted-test-workflow.js setup-users",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {

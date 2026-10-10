@@ -6,11 +6,12 @@ import {
   verifyCallerAccount, type DeploymentRequest, type ProcessCall, type ProcessRunner
 } from "./deployment-workflow";
 
-type TestCommand = "smoke" | "hosted" | "storage";
+type TestCommand = "smoke" | "hosted" | "storage" | "setup-users";
 interface TestRequest {
   command: TestCommand;
   deployment: DeploymentRequest;
   outputsPath: string;
+  authenticatedSmoke: boolean;
 }
 
 export interface HostedTestConfiguration {
@@ -25,17 +26,23 @@ export interface HostedTestConfiguration {
   artifactBucket: string;
   userPoolId: string;
   clientId: string;
+  cognitoDomain: string;
+  callbackUrl: string;
+  authenticatedSmoke: boolean;
+  allowUserSetup: boolean;
   allowTestDataWrites: boolean;
 }
 
 export function parseHostedTestRequest(args: string[], cdkDirectory: string): TestRequest {
   const [command, ...flags] = args;
-  if (command !== "smoke" && command !== "hosted" && command !== "storage") {
-    throw new Error("Choose smoke, hosted or storage with --target test.");
+  if (command !== "smoke" && command !== "hosted" && command !== "storage" && command !== "setup-users") {
+    throw new Error("Choose smoke, hosted, storage or setup-users with --target test.");
   }
   const deploymentFlags: string[] = [];
   let outputsPath = join(cdkDirectory, "cdk-outputs.test.json");
   let allowWrites = false;
+  let allowUserSetup = false;
+  let authenticatedSmoke = false;
   const seen = new Set<string>();
   for (let index = 0; index < flags.length; index += 2) {
     const key = flags[index];
@@ -47,10 +54,20 @@ export function parseHostedTestRequest(args: string[], cdkDirectory: string): Te
     if (key === "--outputs") {
       outputsPath = resolve(value);
     } else if (key === "--allow-test-data") {
-      if (value !== "true" || command === "smoke") {
+      if (value !== "true" || (command !== "hosted" && command !== "storage")) {
         throw new Error("Use --allow-test-data true only for hosted or storage tests.");
       }
       allowWrites = true;
+    } else if (key === "--allow-user-setup") {
+      if (value !== "true" || command !== "setup-users") {
+        throw new Error("Use --allow-user-setup true only with setup-users.");
+      }
+      allowUserSetup = true;
+    } else if (key === "--authenticated") {
+      if (value !== "true" || command !== "smoke") {
+        throw new Error("Use --authenticated true only with smoke.");
+      }
+      authenticatedSmoke = true;
     } else {
       deploymentFlags.push(key, value);
     }
@@ -60,10 +77,13 @@ export function parseHostedTestRequest(args: string[], cdkDirectory: string): Te
   if (deployment.target.name !== "test") {
     throw new Error("Live-test workflows accept only --target test; production is prohibited.");
   }
-  if (command !== "smoke" && (!allowWrites || !seen.has("--profile"))) {
+  if ((command === "hosted" || command === "storage") && (!allowWrites || !seen.has("--profile"))) {
     throw new Error("Data-writing tests require an explicit --profile and --allow-test-data true.");
   }
-  return { command, deployment, outputsPath };
+  if (command === "setup-users" && (!allowUserSetup || !seen.has("--profile"))) {
+    throw new Error("User setup requires an explicit --profile and --allow-user-setup true.");
+  }
+  return { command, deployment, outputsPath, authenticatedSmoke };
 }
 
 export function loadHostedTestConfiguration(
@@ -89,7 +109,10 @@ export function loadHostedTestConfiguration(
     profile: request.deployment.profile, apiBaseUrl: values.AnalysisApiBaseUrl,
     projectsTable: values.ProjectsTableName, runsTable: values.RunsTableName,
     artifactBucket: values.ArtifactBucketName, userPoolId: values.CognitoUserPoolId,
-    clientId: values.CognitoWebClientId, allowTestDataWrites: request.command !== "smoke"
+    clientId: values.CognitoWebClientId, cognitoDomain: values.CognitoHostedDomain,
+    callbackUrl: "http://localhost:5173/auth/callback", authenticatedSmoke: request.authenticatedSmoke,
+    allowUserSetup: request.command === "setup-users",
+    allowTestDataWrites: request.command === "hosted" || request.command === "storage"
   };
 }
 
@@ -100,14 +123,18 @@ export function runHostedTestWorkflow(
   const request = parseHostedTestRequest(args, cdkDirectory);
   const legacyVariables = [
     "INFRALENS_DISPOSABLE_AWS", "INFRALENS_SMOKE_API_BASE_URL", "INFRALENS_TEST_API_URL",
-    "INFRALENS_TEST_PROJECTS_TABLE", "INFRALENS_TEST_RUNS_TABLE", "INFRALENS_TEST_ARTIFACT_BUCKET"
+    "INFRALENS_TEST_PROJECTS_TABLE", "INFRALENS_TEST_RUNS_TABLE", "INFRALENS_TEST_ARTIFACT_BUCKET",
+    "INFRALENS_SMOKE_ACCESS_TOKEN", "INFRALENS_TEST_USER_A_TOKEN", "INFRALENS_TEST_USER_B_TOKEN"
   ];
   if (legacyVariables.some(name => inherited[name] !== undefined)) {
-    throw new Error("Remove legacy live-test resource/opt-in variables; use deployment outputs and --allow-test-data true.");
+    throw new Error("Remove legacy live-test resource, opt-in and token variables; use deployment outputs, explicit flags and protected user credentials.");
   }
   const document: unknown = JSON.parse(readFileSync(request.outputsPath, "utf8").replace(/^\uFEFF/, ""));
   const configuration = loadHostedTestConfiguration(request, document);
   const environment = deploymentProcessEnvironment(request.deployment, inherited);
+  for (const key of Object.keys(environment)) {
+    if (/^INFRALENS_TEST_USER_[AB]_(EMAIL|PASSWORD)$/.test(key)) delete environment[key];
+  }
   delete environment.INFRALENS_HOSTED_TEST_CONFIG;
   environment.INFRALENS_HOSTED_TEST_CONFIG = JSON.stringify(configuration);
   if (request.command !== "smoke") {
@@ -136,12 +163,23 @@ export function runHostedTestWorkflow(
     }
   }
   const files: Record<TestCommand, string> = {
-    smoke: "test/deployedRoutes.smoke.ts", hosted: "test/hostedHistory.hosted.ts", storage: "test/history.aws.ts"
+    smoke: "test/deployedRoutes.smoke.ts", hosted: "test/hostedHistory.hosted.ts", storage: "test/history.aws.ts",
+    "setup-users": "test/testUserSetup.ts"
   };
   console.log(`Running ${request.command} checks for ${configuration.stackName} in ${configuration.region}.`);
+  const workerArgs = request.command === "setup-users"
+    ? ["-r", "ts-node/register", files[request.command]]
+    : [require.resolve("mocha/bin/mocha.js"), "-r", "ts-node/register", files[request.command], "--timeout", "120000"];
+  // Secrets are needed only by authentication/user setup workers, never AWS preflight or storage checks.
+  const workerEnvironment = { ...environment };
+  if (request.command === "hosted" || request.command === "setup-users" || request.authenticatedSmoke) {
+    for (const key of Object.keys(inherited)) {
+      if (/^INFRALENS_TEST_USER_[AB]_(EMAIL|PASSWORD)$/.test(key)) workerEnvironment[key] = inherited[key];
+    }
+  }
   runner({ executable: process.execPath,
-    args: [require.resolve("mocha/bin/mocha.js"), "-r", "ts-node/register", files[request.command], "--timeout", "60000"],
-    cwd: resolve(cdkDirectory, "../../apps/api"), env: environment });
+    args: workerArgs,
+    cwd: resolve(cdkDirectory, "../../apps/api"), env: workerEnvironment });
 }
 
 function runTestProcess(call: ProcessCall): string {
