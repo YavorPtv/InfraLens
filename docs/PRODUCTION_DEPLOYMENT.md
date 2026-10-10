@@ -28,7 +28,7 @@ AWS state (user-supplied except for the read-only test audit below):
   output file exists and validates offline against account 230944684535, eu-central-1 and the selected
   stack. Earlier failed-stack states and policy repair notes below are historical; no fresh live
   stack/IAM inspection was performed during the hosted-test refactor. Recheck live state before any
-  future recovery or policy operation. Frontend publishing and test-user setup remain next steps.
+  future recovery or policy operation. Test-user setup and frontend publishing are complete per user report.
 
 
 - AWS Organizations and IAM Identity Center are configured. No custom organization policies or
@@ -232,6 +232,13 @@ The generator validates output identity, API region/stage, Cognito domain and ca
 It writes ignored `apps/web/.env.aws-test-local.local` and `.env.aws-test-hosted.local`. Local React
 calls the test AWS API directly; do not start the local fake-identity Express API for this mode.
 
+After the CloudFront frontend works, check this localhost mode too: sign in, analyze a sample,
+save/reopen a project and log out. It verifies the distinct localhost callback and browser CORS path.
+Both frontends use the same test Cognito users and backend data: signing in as the same user shows
+the same saved history from either origin. API smoke does not replace these browser checks.
+No CLI profile/AWS keys are needed to run React; sign-in uses Cognito. Fully local React + Express
+memory/fake-identity mode remains a separate AWS-free option without the aws-test-local mode flag.
+
 Build the deployed test frontend separately:
 
 ```powershell
@@ -252,12 +259,96 @@ an `aws-*` mode fails if its generated settings are missing or its target/fronte
 The browser additionally rejects an origin different from that build's configured origin. Session
 storage keys include the Cognito domain and client, separating sessions even when using localhost.
 
-CDK creates the frontend infrastructure but does not upload the web build. In the later deployment
-task, upload only the matching `dist/aws-test` or `dist/aws-production` directory to that target's
-`FrontendBucketName`, then invalidate its `FrontendDistributionId`. Repeat the guarded preflight and
-validate the outputs immediately before these AWS writes. First-user invitation through Cognito is
-also a later authorized operation using that target's `CognitoUserPoolId`; it is not part of normal
-tests or the Lambda's permissions. Do not upload a local/fake-identity frontend build.
+CDK creates the frontend infrastructure but does not upload the web build. The test workflow below
+builds and uploads only dist/aws-test to its validated FrontendBucketName, then invalidates only its
+FrontendDistributionId. Production publishing remains a separate preparation/review; do not adapt
+the test command by substituting production names. Do not upload a local/fake-identity frontend build.
+
+### Publish the test frontend
+
+Use a separate Identity Center permission set InfraLensTestFrontend and CLI profile
+infralens-test-frontend. Keep the deployment and storage-test permission sets unchanged.
+No application stack deployment, bootstrap update or new permissions boundary is needed.
+
+October 10 preparation checks passed: 39 related offline tests, CDK typechecks/build, actual hosted
+Vite build, matching live stack outputs and private OAC origin. IAM Access Analyzer returned no
+findings; 29 read-only permission simulations matched intended allows/denials. These checks do not
+prove the newly provisioned role or actual frontend publishing; the assistant has not uploaded files,
+created invalidations, changed IAM or run browser tests. The existing Vite >500 kB warning remains.
+The user subsequently reported successful frontend publishing; localhost browser checks are next.
+
+From the repository root, these commands are available now and require no AWS credentials:
+
+```powershell
+npm.cmd run prepare-test-frontend-permissions --workspace @infralens/cdk -- --target test
+Get-Content -LiteralPath infra/cdk/cdk.out/test-frontend.policy.json
+npm.cmd run build-test-frontend --workspace @infralens/cdk -- --target test
+```
+
+The generated inline policy is scoped to the exact test frontend bucket and distribution from
+validated test outputs. It grants regional DescribeStacks, GetBucketLocation and SSE-S3 PutObject,
+plus global CloudFront GetDistribution/CreateInvalidation/GetInvalidation and caller identity.
+CloudFront permissions have an exact account/distribution ARN, without an eu-central-1 condition
+because CloudFront is a global service. No bucket/object reads, listing/deletion, artifact/history
+access, Cognito administration, role creation, CDK deployment or distribution updates are granted.
+
+In the management/delegated administrator's IAM Identity Center home region:
+
+1. Create a Custom permission set named InfraLensTestFrontend with a one-hour session duration.
+2. Paste the complete generated test-frontend.policy.json into Inline policy. Add no managed policies.
+3. Assign your user or a dedicated frontend-publishers group to this permission set in account
+   230944684535 only. Wait for provisioning to complete. Do not assign it to production.
+
+See [custom permission sets](https://docs.aws.amazon.com/singlesignon/latest/userguide/permissionsetcustom.html)
+and [CloudFront resource permissions](https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudfront.html).
+Generation never calls AWS or applies policies. If resource names change, refresh outputs and
+regenerate/review/reprovision the permission set; adding broader policies defeats this scope.
+
+After provisioning, configure the profile and select account 230944684535, role InfraLensTestFrontend,
+client region eu-central-1 and JSON output. Reuse the existing SSO start URL/session and its actual
+Identity Center region; that home region may differ from the application's region.
+
+```powershell
+aws configure sso --profile infralens-test-frontend
+aws sso login --profile infralens-test-frontend
+aws sts get-caller-identity --profile infralens-test-frontend --region eu-central-1 --output json --no-cli-pager
+```
+
+Confirm Account is 230944684535 and Arn includes AWSReservedSSO_InfraLensTestFrontend_. Then the
+following command is available; it writes frontend objects and creates a cache invalidation:
+
+```powershell
+npm.cmd run publish-test-frontend --workspace @infralens/cdk -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-frontend
+```
+
+The command validates explicit target/profile/region/stack and local outputs, then checks actual STS
+identity, the live complete application stack and every output, the bucket owner/region, and the
+distribution's account/domain/enabled status/private S3 origin. It rejects stale or substituted
+resources before building/uploading; it never inspects or updates CDKToolkit. Profile names alone
+are not account proof; use the dedicated permission set rather than an administrator profile.
+
+It generates both test frontend environment files and rebuilds the hosted variant with AWS
+credentials/test-user secrets removed and consumed Vite settings pinned to validated test outputs.
+Vite empties only the local dist/aws-test build directory; directory links/junctions are rejected.
+No shared build output is uploaded. All files are checked before writes; assets upload before
+index.html. S3 requests specify the expected bucket owner, AES256 encryption and content types.
+Hashed assets use immutable caching; index/nonhashed files use revalidation. CloudFront invalidation
+covers /* and the command waits for completion before printing the hosted URL. Existing SPA error
+responses serve index.html for /auth/callback and other React routes.
+
+Old hashed files remain in S3 so cached pages/open tabs can still fetch their version. There is no
+automatic bucket emptying, sync --delete or stack destruction. Review accumulated asset cleanup
+separately. Publishing is not atomic: a failed asset upload stops before index/cache refresh; a
+failure after index replacement can leave uploaded files visible before invalidation completes.
+Investigate the error and rerun the guarded publish command; no automatic rollback is attempted.
+If the invalidation waiter times out, check that invalidation separately before declaring the UI ready.
+
+After success, open FrontendOrigin from test outputs in a normal browser. Sign in with an existing
+confirmed Cognito user, analyze a sample, save/reopen history, log out and check another user's
+isolation. Confirm /auth/callback completes, reload a React route, and inspect API requests for the
+test API base URL. These manual frontend checks are distinct from the HTTP-only smoke suite.
+Do not paste passwords/tokens or signed download URLs into chat or logs. No frontend publishing or
+browser/hosted tests were run by the assistant during preparation.
 
 ## Authentication, CORS and operational behavior
 

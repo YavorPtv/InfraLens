@@ -217,24 +217,114 @@ Browser-inspection errors are reported separately from genuine timeouts. Share t
 still fails; avoid repeated login attempts or infrastructure/policy changes without identifying the cause.
 See [Playwright routing limitations](https://playwright.dev/docs/api/class-page#page-route).
 
-## Direct storage checks: separate permission setup required
+## Direct storage checks: dedicated permission setup
 
 apps/api/test/history.aws.ts checks real DynamoDB transactions, idempotency, pagination, owner isolation
 and private S3 signed downloads. Each test creates its own random owner namespaces in the persistent
 stack; tests no longer depend on an earlier test having run. Cleanup removes only its namespaces,
 including metadata tombstones, and retains metadata if artifact cleanup is pending.
 
-This suite needs its own scoped storage-test identity: STS caller identity and DescribeStacks on the
-test app, adapter access to only its tables/bucket, plus DynamoDB DeleteItem for test cleanup.
-The existing infralens-test-deploy profile lacks this direct data access. Establish and review those
-permissions separately; do not use the Lambda role or broaden it for test cleanup. No IAM changes
-or new profile were created here. The following command requires that later setup:
+Use a dedicated Identity Center permission set named InfraLensTestStorage and a CLI profile named
+infralens-test-storage. This is independent of InfraLensTestDeploy, the Lambda role, application
+permissions boundary and CDKToolkit. No bootstrap update or application deployment is needed.
+
+The offline generator reads validated test deployment outputs and writes a reviewable inline policy
+to ignored infra/cdk/cdk.out/test-storage.policy.json. It accepts only an explicit test target and
+pins the exact two table ARNs, artifact bucket, account 230944684535 and region eu-central-1.
+It grants GetItem, Query, PutItem and DeleteItem only for partition keys in the test-owner namespace;
+ForAllValues and a non-null LeadingKeys condition also protect multi-item transactions. DynamoDB
+transactional puts use PutItem authorization, not an IAM action named TransactWriteItems.
+S3 grants GetObject, PutObject, PutObjectTagging and DeleteObject only under
+owners/test-*/projects/*/runs/*. Tagged writes need PutObjectTagging; signed downloads need GetObject.
+There are no table scans, index grants, bucket listing, version deletion, IAM, Cognito, frontend
+publishing or deployment grants. Only STS GetCallerIdentity uses a wildcard resource because it
+does not support a resource ARN. The policy also grants DescribeStacks on the exact test stack
+for the existing account/output preflight.
+
+These grants cover the reserved test-* owner namespace across runs, not only the current random
+UUIDs. They exclude ordinary Cognito subject namespaces. Cleanup code further confines deletion
+to that test's two random owners. This policy alone does not cancel permissions from any other
+attached policy; create a dedicated permission set with no additional managed policies. Its role
+can read public stack outputs, which contain resource names and URLs, never credentials.
+
+### 1. Generate and review the policy locally (available now, no AWS access)
+
+From the repository root:
 
 ```powershell
-# Proposed profile name; configure it only after reviewed storage-test permissions exist.
+npm.cmd run prepare-test-storage-permissions --workspace @infralens/cdk -- --target test
+Get-Content -LiteralPath infra/cdk/cdk.out/test-storage.policy.json
+```
+
+Use --outputs <path> only when choosing a different test outputs snapshot. Generation never calls
+AWS or applies a policy. Offline validation cannot prove a snapshot is current; the October 10
+read-only check matched the local file to the live stack. If the stack is replaced, refresh outputs,
+regenerate the policy and review/reprovision the permission set. The guarded test runner compares
+outputs to the live stack on every run and blocks stale files before test data writes.
+
+October 10 validation: eight offline policy tests and CDK build/typechecks passed; read-only IAM
+Access Analyzer validation returned no findings. 57 read-only IAM action/resource simulations
+verified allowed fixtures and denied ordinary-user, mixed/missing-key, wrong-account/region/bucket
+and administrative requests. These checks do not replace running the storage suite with the newly
+provisioned role; no real storage tests or AWS permission changes were performed by the assistant.
+
+### 2. Create and assign the permission set (administrator setup, changes AWS permissions)
+
+In the management account or delegated administrator, open IAM Identity Center in its configured
+home region; that region is not necessarily the application region eu-central-1.
+
+1. Open Permission sets, choose Create permission set, then Custom permission set.
+2. Add no AWS managed or customer managed policies. In Inline policy, paste the complete generated
+   test-storage.policy.json. The policy is below the permission set's inline-policy size limit.
+3. Name it InfraLensTestStorage. Use a one-hour session duration initially. No permissions boundary
+   is needed for this data-only role: it cannot create roles or change policies. Preserve the existing
+   application boundary and bootstrap; this setup does not modify either.
+4. Create the permission set. Under AWS accounts, select only test account 230944684535 and assign
+   your user, or a dedicated test-operators group, to InfraLensTestStorage. The same existing Identity
+   Center user can have administrator, deployment and storage permission sets as separate sessions.
+5. Wait for provisioning to succeed. Do not assign it to production or add AdministratorAccess.
+
+See AWS documentation on [custom permission sets](https://docs.aws.amazon.com/singlesignon/latest/userguide/permissionsetcustom.html),
+[DynamoDB transaction authorization](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html),
+[partition-key conditions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/specifying-conditions.html)
+and [S3 tagging permissions](https://docs.aws.amazon.com/AmazonS3/latest/userguide/tagging-and-policies.html).
+
+### 3. Configure and verify the CLI profile (after permission set provisioning)
+
+```powershell
+aws configure sso --profile infralens-test-storage
+```
+
+Reuse your existing SSO start URL/session and Identity Center region. Select account 230944684535,
+role InfraLensTestStorage, default client region eu-central-1 and JSON output. Do not select the
+administrator or deployment role for this profile. Then:
+
+```powershell
+aws sso login --profile infralens-test-storage
+aws sts get-caller-identity --profile infralens-test-storage --region eu-central-1 --output json --no-cli-pager
+aws cloudformation describe-stacks --stack-name InfraLensTestStack --profile infralens-test-storage --region eu-central-1 --query 'Stacks[0].[StackId,StackStatus]' --output json --no-cli-pager
+```
+
+Confirm Account is 230944684535 and Arn contains AWSReservedSSO_InfraLensTestStorage_. Confirm the
+stack ARN identifies that account, region and InfraLensTestStack with a stable complete status.
+The runner checks actual account identity and live outputs independently of the profile name;
+the CLI configuration is what selects this permission set's restricted role.
+
+### 4. Run the direct storage suite (after setup; writes and cleans temporary test data)
+
+No Cognito emails, passwords, access tokens or frontend are required for this suite. Remove legacy
+resource variables as described below, and use the guarded command from the repository root:
+
+```powershell
 aws sso login --profile infralens-test-storage
 npm.cmd run test:aws -- --target test --region eu-central-1 --stack InfraLensTestStack --profile infralens-test-storage --allow-test-data true
 ```
+
+Keep the stack deployed. The flag permits temporary fixture records/artifacts and cleanup, not
+stack deletion. If cleanup fails, preserve recovery metadata and investigate the reported failure
+before retrying; do not grant administrator access or automatically empty the artifact bucket.
+The authenticated GitHub smoke job remains HTTP-only and needs no storage IAM permissions.
+GitHub direct-storage execution via a separate OIDC role is later work, not part of this setup.
 
 INFRALENS_DISPOSABLE_AWS and manual smoke/API URL, table and bucket variables are retired. Remove
 INFRALENS_SMOKE_API_BASE_URL, INFRALENS_TEST_API_URL, INFRALENS_TEST_PROJECTS_TABLE,

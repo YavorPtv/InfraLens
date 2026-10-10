@@ -5,12 +5,11 @@ Last refreshed: October 10, 2026.
 ## Current task and Git state
 
 - Read AGENTS.md first. Preserve unrelated changes; keep npm workspaces, Mocha/Chai and the existing layout.
-- Active branch: feature/hosted-test-workflows, created from feature/separate-aws-environments at 9f4c0b1.
-  The parent has four environment/policy commits beyond local main (8896116). This is a dependent branch;
-  merge the environment work first or adjust the base later. Read-only remote references on October 10
-  confirm main and the parent still match those commits; the hosted-test branch is not pushed. No merge was performed.
-- Authorized work: automatic persistent test-user setup and fresh OAuth token acquisition/renewal.
-  User authorized a checkpoint commit, including the API test-folder type-definition resolution fix.
+- Active branch: feature/separate-aws-environments at e8c95f4. The user merged hosted-test-workflows
+  into it through PR #54. Local main remains 8896116. The branch was clean before storage-policy work.
+- Current authorized work: finish AWS test preparation, including scoped frontend publishing and setup documentation.
+  The user reports storage tests and frontend publishing succeeded, and authorized a checkpoint commit
+  of the scoped permission generators, publisher, tests and docs. Do not push. Earlier authentication work is committed/merged.
   Do not push, deploy/bootstrap/destroy, modify IAM/Organizations, or run hosted smoke,
   live storage or browser tests without a new explicit request. Read-only AWS inspection is allowed if needed.
 - Test-only API dev dependencies: Playwright and Cognito SDK. No workspace restructuring or application
@@ -30,11 +29,13 @@ Last refreshed: October 10, 2026.
 - Test supports CloudFront and exactly http://localhost:5173; both use test Cognito with the AWS API.
   Production permits its configured hosted origin only. All 14 analysis/history methods require Cognito;
   health and OPTIONS are public. Local memory mode remains credential-free.
-- Frontend publishing has not been reported complete. CDK creates frontend infrastructure but does not
-  upload React assets. Both dedicated Cognito fixtures were verified enabled/CONFIRMED on October 10.
+- Frontend publishing succeeded according to the user on October 10. CDK creates infrastructure;
+  the guarded publisher uploads React assets. Both Cognito fixtures were verified enabled/CONFIRMED.
 - infralens-test-admin and infralens-prod-admin remain administrators. Routine test deployment uses
   infralens-test-deploy / InfraLensTestDeploy. It does not grant direct table/bucket test access, frontend
-  upload/invalidation or user invitation. A scoped direct-storage test identity is a separate later setup.
+  upload/invalidation or user invitation. The user set up InfraLensTestStorage / infralens-test-storage
+  and reports all three direct storage tests passing. InfraLensTestFrontend / infralens-test-frontend
+  is the dedicated publishing permission set/profile used by the successful frontend workflow per user report.
 - Test CDKToolkit is customized (version 32, qualifier hnb659fds, variant InfraLensTestScopedV1).
   Preserve it; don't run default bootstrap over the custom policies. Production CDKToolkit stays unchanged.
 - API Gateway logging uses the test application boundary's role/region exception for its seven logging
@@ -62,6 +63,21 @@ Last refreshed: October 10, 2026.
 - No test creates/destroys a stack. Hosted deletion uses the API and may retain metadata tombstones;
   direct-storage cleanup needs scoped DeleteItem plus adapter permissions. Pending cleanup must preserve
   recovery metadata. Never broaden the application Lambda role for testing.
+- infra/cdk/src/test-storage-permissions.ts prepares an offline inline policy from validated test outputs.
+  Script: prepare-test-storage-permissions --workspace @infralens/cdk -- --target test. Generated file:
+  ignored infra/cdk/cdk.out/test-storage.policy.json. Exact table ARNs with non-null ForAllValues
+  LeadingKeys restricted to OWNER#test-* (runs also #PROJECT#*); S3 only owners/test-*/projects/*/runs/*,
+  four object actions including PutObjectTagging, expected bucket owner and region. Preflight grants
+  only STS identity and DescribeStacks for InfraLensTestStack. No deployment/administrative grants.
+  Covers all reserved test-* owners, not just the current run; ordinary Cognito owners are excluded.
+  Assign a new permission set with no broader attached policies; no boundary/bootstrap change needed.
+- infra/cdk/src/test-frontend-workflow.ts prepares the exact test frontend inline policy, builds offline
+  and implements guarded publishing. Scripts: prepare-test-frontend-permissions, build-test-frontend,
+  publish-test-frontend in @infralens/cdk. Explicit target test; publish also requires profile, region,
+  stack. Verify STS, current stable app/outputs, expected bucket owner/region and private OAC-backed
+  distribution before build/upload. Pin hosted Vite values, strip AWS/user secrets during build, reject
+  output directory links. Upload assets before index with AES256/expected owner/cache headers, preserve
+  prior hashed files, invalidate /* and wait. No S3 delete/list/read or CDK/bootstrap operations.
 - test:users:setup requires --allow-user-setup true and an explicit profile/region/stack. After STS/current
   outputs checks, it creates two persistent users identified by dedicated emails plus a name fixture marker.
   The existing pool is email-only; Cognito generates internal usernames. Suppress invitations, never transfer
@@ -88,6 +104,22 @@ Last refreshed: October 10, 2026.
 
 ## Verification and next work
 
+- October 10 frontend preparation: 39 related offline tests passed (12 frontend, eight storage-policy,
+  19 deployment guards). CDK typechecks/build and the actual aws-test-hosted Vite build passed; the
+  existing >500 kB chunk warning remains. Read-only test-admin STS/live-stack/output, S3 owner/region
+  and CloudFront deployed/private OAC origin checks passed. IAM Access Analyzer returned no findings;
+  29 read-only IAM action/resource simulations passed for intended publishing, global CloudFront,
+  rejected other buckets/accounts, missing encryption, deletion and administration. No actual frontend
+  uploads, invalidations, IAM changes or browser tests by the assistant. The user subsequently reports
+  frontend publishing worked. Localhost browser verification remains pending. Publishing policy is
+  ignored at infra/cdk/cdk.out/test-frontend.policy.json. Workspace typechecks also passed.
+- October 10 storage policy: eight offline tests and CDK build/typechecks passed. IAM Access Analyzer
+  validate-policy returned no findings. 57 read-only custom-policy action/resource simulations passed,
+  covering test-owner table/object access, normal Cognito owners, mixed/missing partition keys,
+  wrong S3 owner/region/bucket, exact stack preflight and excluded administration. Simulator results
+  are ignored under cdk.out; they do not prove actual storage requests or effective provisioned-role
+  permissions. No storage suite was run by the assistant; the user subsequently reported three passing
+  storage tests. No IAM permissions applied by the assistant. The user now authorized a checkpoint commit.
 - October 10 editor-config fix: apps/api/test/tsconfig.json explicitly resolves the workspace's hoisted
   node_modules/@types. Compiling that exact config, all workspace typechecks and builds passed.
   Full offline npm test passed, including 160 API tests and 69 CDK tests with synthesis assertions.
@@ -107,14 +139,19 @@ Last refreshed: October 10, 2026.
 - Prior logging fix: 55 CDK tests, workspace typechecks/build, one-policy template validation, and 49 IAM
   simulations passed; three API tag-deletion simulator cases remained explicitly unverified. The user
   subsequently reported successful test deployment. Simulation success alone is not live coverage.
-- Next: publish the reviewed branch and configure the GitHub aws-test environment, its four user secrets
-  and public deployment-output variable, then run that branch's authenticated smoke workflow. Local
-  main already contains deployed-smoke.yml with workflow_dispatch; read-only remote references confirm
-  that commit remains current, so merging first is unnecessary. Exact steps are in docs/TESTING.md.
+- The user reports the authenticated GitHub smoke workflow passed; the public-only step was skipped
+  intentionally because authenticated mode includes its public checks. No live tests by the assistant.
+  The user also reports all three direct-storage tests passed after setting up the scoped identity.
+  The user reports frontend publishing also worked. Next: manually check localhost in aws-test-local
+  mode for test Cognito login, browser CORS, analysis, shared saved history and logout. This uses the
+  same test API/users/data as CloudFront, without a local Express API or CLI credentials. Keep fully
+  local React/Express memory/fake-identity mode separate. Instructions: docs/PRODUCTION_DEPLOYMENT.md.
   Routine test execution never provisions users. No IAM changes or actual user creation by the assistant.
-- Publish the frontend for real React verification; API OAuth tests can run before assets are published. Run public
-  smoke, authenticated workflows and two-user isolation only when explicitly authorized and ready.
-- Direct storage verification additionally needs its own scoped identity; leave the stack deployed between runs.
+- Publishing is now user-reported complete; no independent browser verification was performed by the assistant.
+  Run further public smoke, authenticated workflows and two-user isolation only when explicitly authorized and ready.
+- October 10 storage-policy work: read-only STS and CloudFormation with infralens-test-admin verified
+  test account 230944684535, the exact regional stack ARN, CREATE_COMPLETE and all local outputs.
+  No IAM changes or test records written. Leave the stack deployed between runs.
 - Frontend localhost can show generic CORS errors for Gateway-generated auth failures; browser login,
   PKCE/refresh and actual frontend behavior still need later verification.
 
@@ -129,7 +166,7 @@ Last refreshed: October 10, 2026.
 ## Starting a fresh chat
 
 Read AGENTS.md and HANDOFF.md first, then inspect the current branch and uncommitted diff. Continue
-InfraLens from feature/hosted-test-workflows. The user reports the persistent AWS test stack deployed;
+InfraLens from feature/separate-aws-environments. The user reports the persistent AWS test stack deployed;
 its public outputs are in ignored infra/cdk/cdk-outputs.test.json. Preserve changes and follow the
 verification/next-work section. Do not commit, push, change AWS resources/permissions, or run live tests
 until explicitly authorized. Ask only for missing user/secret-store setup or a scoped storage-test identity

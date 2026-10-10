@@ -268,7 +268,7 @@ export function createFrontendConfigurations(target: DeploymentTarget, document:
   return configurations;
 }
 
-function runProcess(call: ProcessCall): string {
+export function runProcess(call: ProcessCall): string {
   const result = spawnSync(call.executable, call.args, {
     cwd: call.cwd, env: call.env, encoding: "utf8", shell: false,
     stdio: call.capture ? ["ignore", "pipe", "pipe"] : "inherit"
