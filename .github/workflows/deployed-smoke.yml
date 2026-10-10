@@ -2,20 +2,21 @@ name: Smoke tests (existing deployment required)
 
 on:
   workflow_dispatch:
+    inputs:
+      authenticated:
+        description: Sign in automatically as both persistent test Cognito users
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 jobs:
   smoke:
-    name: Validate existing API deployment over HTTP
-    if: ${{ vars.INFRALENS_SMOKE_API_BASE_URL != '' }}
+    name: Validate existing test API and Cognito sign-in
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      INFRALENS_SMOKE_API_BASE_URL: ${{ vars.INFRALENS_SMOKE_API_BASE_URL }}
-      # Optional short-lived Cognito access token; never required for unauthenticated checks.
-      INFRALENS_SMOKE_ACCESS_TOKEN: ${{ secrets.INFRALENS_SMOKE_ACCESS_TOKEN }}
+    timeout-minutes: 10
+    environment: aws-test
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -27,5 +28,28 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
-      - name: Smoke test existing deployment (no infrastructure deployment)
-        run: npm run test:smoke
+      - name: Install login browser
+        if: inputs.authenticated
+        run: npx playwright install --with-deps chromium
+      - name: Load public test deployment outputs
+        env:
+          INFRALENS_TEST_DEPLOYMENT_OUTPUTS: ${{ vars.INFRALENS_TEST_DEPLOYMENT_OUTPUTS }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const input = process.env.INFRALENS_TEST_DEPLOYMENT_OUTPUTS;
+          if (!input) throw new Error('Set INFRALENS_TEST_DEPLOYMENT_OUTPUTS to the public test CDK outputs JSON.');
+          const document = JSON.parse(input);
+          fs.writeFileSync('infra/cdk/cdk-outputs.test.json', JSON.stringify(document));
+          NODE
+      - name: Public smoke test
+        if: ${{ !inputs.authenticated }}
+        run: npm run test:smoke -- --target test
+      - name: Authenticated smoke test with fresh OAuth tokens
+        if: inputs.authenticated
+        env:
+          INFRALENS_TEST_USER_A_EMAIL: ${{ secrets.INFRALENS_TEST_USER_A_EMAIL }}
+          INFRALENS_TEST_USER_A_PASSWORD: ${{ secrets.INFRALENS_TEST_USER_A_PASSWORD }}
+          INFRALENS_TEST_USER_B_EMAIL: ${{ secrets.INFRALENS_TEST_USER_B_EMAIL }}
+          INFRALENS_TEST_USER_B_PASSWORD: ${{ secrets.INFRALENS_TEST_USER_B_PASSWORD }}
+        run: npm run test:smoke -- --target test --authenticated true

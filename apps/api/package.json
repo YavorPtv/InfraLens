@@ -21,8 +21,10 @@
     "start": "node dist/index.js",
     "test": "mocha -r ts-node/register \"test/**/*.test.ts\"",
     "test:integration": "mocha -r ts-node/register \"test/**/*.integration.test.ts\"",
-    "test:smoke": "mocha -r ts-node/register \"test/**/*.smoke.ts\"",
-    "test:aws": "mocha -r ts-node/register \"test/**/*.aws.ts\" --timeout 60000",
+    "test:smoke": "npm run build --workspace @infralens/cdk && node ../../infra/cdk/dist/hosted-test-workflow.js smoke",
+    "test:hosted": "npm run build --workspace @infralens/cdk && node ../../infra/cdk/dist/hosted-test-workflow.js hosted",
+    "test:aws": "npm run build --workspace @infralens/cdk && node ../../infra/cdk/dist/hosted-test-workflow.js storage",
+    "test:users:setup": "npm run build --workspace @infralens/cdk && node ../../infra/cdk/dist/hosted-test-workflow.js setup-users",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
@@ -37,7 +39,9 @@
     "express": "^5.2.1"
   },
   "devDependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1148.0",
     "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6"
+    "@types/express": "^5.0.6",
+    "playwright": "^1.64.0"
   }
 }

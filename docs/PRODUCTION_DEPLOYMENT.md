@@ -24,6 +24,13 @@ Profile names are labels; the workflow checks the actual STS caller account ever
 
 AWS state (user-supplied except for the read-only test audit below):
 
+- Current status: the user reports successful deployment of InfraLensTestStack. The ignored test
+  output file exists and validates offline against account 230944684535, eu-central-1 and the selected
+  stack. Earlier failed-stack states and policy repair notes below are historical; no fresh live
+  stack/IAM inspection was performed during the hosted-test refactor. Recheck live state before any
+  future recovery or policy operation. Frontend publishing and test-user setup remain next steps.
+
+
 - AWS Organizations and IAM Identity Center are configured. No custom organization policies or
   permission restrictions were added.
 - There is no production application stack. No migration or application stack rename is needed.
@@ -385,22 +392,21 @@ Sources: [AWS trail setup](https://docs.aws.amazon.com/awscloudtrail/latest/user
 [CloudTrail security guidance](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/best-practices-security.html),
 [CloudTrail pricing](https://aws.amazon.com/cloudtrail/pricing/).
 
-## Next deployment checklist
+## Next deployment and verification checklist
 
-1. Completed: test SSO login, scoped bootstrap update and publishing-policy correction. Read-only
-   IAM inspection confirmed the intended publisher policy and removal of its extra old grants.
-   The execution-role bootstrap-version read and API tagging corrections are also applied. Pending:
-   apply the logging boundary correction and separately review recovery of `InfraLensTestStack` (`ROLLBACK_COMPLETE`)
-   and its retained resources before another deployment attempt.
-2. Use `infralens-test-deploy` for routine test deployment. Keep production bootstrap unchanged;
-   its account/region preparation is independent of the first test deployment.
-3. Recheck the test Cognito prefix when deploying. Confirm production region/prefix before a later
-   production deployment; they are not prerequisites for the test environment.
-4. Completed: account-level `infralens-test-audit` logging and S3 delivery verified; retain it
-   independently of the application and bootstrap.
-5. Verify the $1 management budget's scope; configure appropriate member-account coverage,
-   recipients/alerts and cost monitoring. Budgets are not real-time spending caps.
-6. Run test preflight and template diff, review resources/policies/costs, then authorize the first
-   persistent test deployment. Export outputs, invite users, generate/build/upload the test frontend.
-7. In a later task verify both test frontends, token rejection/renewal, two-user isolation and actual
-   storage behavior. Run no browser E2E, hosted smoke or live-storage checks as part of this change.
+1. First test deployment: completed according to the user. Preserve the persistent test stack and
+   CDKToolkit; do not replay historical failed-stack cleanup or older repair templates.
+2. Use infralens-test-deploy for future routine application updates. Review production region,
+   bootstrap and policies independently; leave its existing CDKToolkit unchanged.
+3. Run the guarded persistent [test-user setup](TESTING.md#persistent-cognito-users-and-automatic-authentication)
+   with protected credentials, then generate/build/publish the test frontend using existing outputs.
+   User provisioning and frontend upload/invalidation need separate setup access. API OAuth tests
+   can run before frontend publishing because their existing localhost callback is captured from
+   Cognito's redirect header without requiring a local server.
+4. Keep the independent CloudTrail trail; its logging/delivery was verified on October 4.
+5. Verify management-budget scope and member-account alerts/cost monitoring; coverage is still unknown.
+6. Use the guarded persistent-test workflows in [Testing](TESTING.md#persistent-aws-test-workflows)
+   when explicitly authorized: public smoke, then authenticated history/isolation after test users exist.
+   Direct SDK storage tests additionally need a separately reviewed scoped identity.
+7. Later verify both frontend logins, token rejection/renewal, ownership and storage behavior. No hosted
+   smoke, live storage or browser tests were run as part of this refactor.
