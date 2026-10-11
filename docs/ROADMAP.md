@@ -1,10 +1,12 @@
 # InfraLens Portfolio And AWS Engineering Roadmap
 
-Last redesigned: September 23, 2026. This replaces the previous analyzer-focused roadmap.
-Verified repository baseline: `main` at `8896116` includes saved projects/history (#53), analyzer
-coverage (#52) and template validation (#51). Milestone 1 code is merged; hosted verification is
-still pending. Later milestones remain plans. See HANDOFF.md for current uncommitted environment
-separation and user-supplied AWS setup; Git history does not establish live deployment state.
+Last updated: October 11, 2026.
+Verified repository baseline: main at cf2363e includes AWS environment separation and test workflows
+(#55), saved projects/history (#53), analyzer coverage (#52) and template validation (#51).
+The persistent AWS test stack and frontend are deployed according to the user, who also reports
+successful authenticated GitHub smoke and all three direct storage tests. These are user reports,
+not new live verification performed for this roadmap update. Localhost browser checks and granular
+fresh-session/two-user UI acceptance remain to be recorded. Production has no application stack.
 
 ## Goal And Scope
 
@@ -12,8 +14,10 @@ Build an AWS-backed developer tool that demonstrates engineering judgment and pr
 experience with persistence, asynchronous processing, reliable messaging and cloud operations.
 The objective is a strong portfolio project and useful learning, not exhaustive AWS analysis.
 
-The existing analyzer is sufficient for this stage. Fix serious correctness problems and regressions,
-but defer more rules, SDK coverage and obscure IAM cases unless a planned workflow needs them.
+Build on the existing analyzer. Source-aware comparison is now a priority because comparison must
+preserve the source evidence already used by analysis and IAM suggestions. Fix serious correctness
+problems and regressions, but defer unrelated rules, SDK coverage and obscure IAM cases unless a
+planned workflow needs them.
 The final showcase comes after the core milestones so it can demonstrate the finished workflow.
 Use small fixtures and incremental verification throughout; postponing the showcase does not mean
 postponing working software or tests.
@@ -22,10 +26,26 @@ Existing foundation: React UI, CLI, independent analyzer, Express/Lambda adapter
 REST API, CDK, graph analysis, policy suggestions, apply/compare/export, and local integration tests.
 See [HANDOFF](../HANDOFF.md) for current behavior and [analyzer limits](ANALYZER_COVERAGE.md).
 
+## Current Priorities
+
+| Work | Status / order |
+| --- | --- |
+| Saved projects/history foundation (milestone 1) | Implemented and deployed to test; retain the remaining browser acceptance checklist |
+| Explicit AWS environments and scoped test operations | Merged; test deployment, storage checks and frontend publishing exercised by the user |
+| Source-aware comparison (milestone 1.5 below) | Recommended next development task |
+| Make history useful (milestone 2) | Next after comparison can preserve source context |
+| Queues, reliable dispatch and operations (milestones 3–5) | Planned; implement in sequence when the preceding workflow works |
+| Production application deployment | Deferred; separate readiness decision, not the next milestone |
+
+Before closing the remaining milestone 1 acceptance notes, check localhost against test Cognito/API
+and record fresh-session report reopening and two-user isolation through the UI. Passing HTTP smoke
+or direct storage tests does not establish those browser behaviors. These small verification tasks
+can happen alongside the next comparison feature; they do not require production infrastructure.
+
 ## Chosen Architecture
 
-Keep the current npm workspaces and analyzer boundaries. Start with two DynamoDB tables for
-metadata and a private S3 artifact bucket, then add an SQS worker and reliable dispatch. Keep AWS
+Keep the current npm workspaces and analyzer boundaries. The implemented synchronous system uses
+two DynamoDB tables for metadata and a private S3 artifact bucket; later add an SQS worker and reliable dispatch. Keep AWS
 adapters outside `packages/analyzer`; use the existing API and CDK workspaces initially. A future
 workspace split needs its own justification and approval under the repository rules.
 
@@ -34,8 +54,9 @@ project's chronological runs, and a specific run. Start with on-demand capacity.
 a valid alternative if relational collaboration or arbitrary reporting becomes central; do not
 introduce it alongside DynamoDB without a separate requirement.
 
-Store complete reports/templates/source manifests in S3, not DynamoDB items. DynamoDB holds
-ownership, status, timestamps, summaries, schema/analyzer versions and artifact references. This
+Store complete reports/templates and opted-in source inputs in S3, not DynamoDB items. DynamoDB
+currently holds ownership, lifecycle state, timestamps, quotas and artifact references. Run summaries,
+schema/analyzer versions and parent-child provenance are milestone 2 work, not implemented metadata. This
 avoids the 400 KB item limit. S3 and DynamoDB do not share a transaction, so partial saves and
 orphan cleanup are explicit design work. [AWS guidance](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-use-s3-too.html)
 
@@ -63,20 +84,25 @@ flowchart TD
   Worker --> Observability
 ```
 
-## Milestone 1: Saved Projects And Analysis History — Start Here
+## Milestone 1: Saved Projects And Analysis History — Implemented Foundation
 
 **Outcome:** sign in, create a project, save an analysis, reload the app and reopen the same report.
 
 Deliver a complete persistence feature before adding a queue:
 
+The following foundation is implemented. Test deployment, authenticated smoke, storage checks and
+frontend publishing have successful user-reported results. Keep the acceptance criteria below as
+the remaining manual browser checklist; do not repeat stack creation or declare every live edge
+case proven by those reports.
+
 - Projects: create, list, rename and delete. Runs: create, list with cursor pagination, open and delete.
 - Save reports through server-side analysis of submitted inputs; do not treat browser-supplied
   report JSON as an authoritative analyzer result. Keep existing stateless analyze/CLI workflows.
-- Use two tables with explicit access patterns: Projects partitioned by owner with project ID sort
-  keys; Runs partitioned by owner/project with a chronological timestamp/run-ID sort key. Return
-  an opaque run key/cursor. Avoid table scans in user-facing APIs; add indexes only for named queries.
+- Use two tables with explicit access patterns: Projects partitioned by owner and Runs by
+  owner/project, with separate record/list keys for access and chronological pagination. Return
+  an opaque cursor. Avoid table scans in user-facing APIs; add indexes only for named queries.
 - Derive owner identity from trusted Cognito authorizer claims (`sub`), never a submitted user ID.
-  The current Lambda request contract does not expose these claims; extend and test it. Enforce
+  The Lambda adapter now supplies these trusted claims. Enforce
   ownership on every project, run, artifact and comparison operation, including pagination.
 - Store artifacts under server-generated owner/project/run keys in a private, encrypted bucket.
   Expose downloads only after authorization using short-lived URLs; never log signed URLs.
@@ -105,18 +131,62 @@ it or obtain its artifacts; duplicate saves yield one run; failed writes recover
 storage integration checks pass. Verify against the persistent AWS test environment as well as local
 adapters before declaring hosted persistence complete.
 
+## Milestone 1.5: Compare Templates With Source Context — Next
+
+**Outcome:** compare two analysis inputs, each with its own template, optional source tree, mappings
+and exclusions, and explain material changes in source-derived AWS/IAM evidence.
+
+Current gap verified in the repository: analyzeTemplateDiff already accepts independent oldTemplate
+and newTemplate analysis options and returns both reports. However, POST /diff parses/passes only
+template strings, ComparePage uploads only templates, the CLI uses template-only diff, and saved-run
+comparison discards retained source by reading only input.template. DiffReport and its UI summarize
+resource/finding changes without an explicit source/action/suggestion delta. Merely forwarding source
+files is insufficient: changing code from a DynamoDB read to a write can change the suggested IAM
+actions while leaving the CloudFormation resources and template-rule findings unchanged.
+
+- Extend the shared/API comparison contract with independent source files, mappings and exclusions
+  for each side. Reuse existing normalization and source analysis; preserve template-only requests.
+- Validate each side and the total request against explicit file/count/byte limits. Old and new files
+  with the same paths must remain separate; do not silently reuse one side's mapping or exclusions.
+- Show source-inferred action and least-privilege suggestion changes with Lambda/resource attribution,
+  supporting evidence, confidence and unresolved-analysis warnings. Distinguish missing source from
+  an empty analyzed tree, and inferred actions from actual IAM permissions. Do not label incomplete
+  inference as proof that a permission is unused or that risk is resolved.
+- Let Compare upload a template and source folder/files for each side using existing source helpers.
+  Keep results and Markdown export consistent. Preserve source context in Analyze -> Apply -> Compare
+  navigation, including comparisons where only the template changes after applying a fix.
+- Pass retained source/mappings/exclusions through saved-run comparison when available and authorized.
+  Source retention remains opt-in; never reconstruct raw source from reports or silently retain it.
+  Unretained source needs a clear template-only/reupload choice, not a claim of full source equivalence.
+  Expired raw inputs still require reupload; do not bypass expiry by reconstructing inputs from reports.
+  Preserve current ownership, deletion and input-expiry enforcement.
+- Keep the analyzer independent of AWS/React. No queue, new storage service, general source-editor
+  feature or infrastructure redesign is needed. Keep the existing CLI template-only workflow working;
+  a source-aware CLI interface can be a separately scoped slice if needed.
+- Cover template-only compatibility, code-only action changes, unchanged inputs, independent mappings,
+  partial/unresolved inference, invalid/oversized inputs, apply-navigation context and retained/absent/
+  expired/cross-owner saved inputs with readable Mocha/Chai and API adapter tests.
+
+**Done when:** with an unchanged CloudFormation template, changing the old/new source's AWS operations
+produces an explained source/IAM comparison in API, UI and export; saved comparisons honor retention
+and ownership, and template-only callers keep working. Implement and verify offline first, then
+update/test the persistent AWS test deployment through the existing guarded workflows when authorized.
+
 ## Milestone 2: Make History Useful
 
 **Outcome:** a project shows how its architecture changed across saved runs.
 
-- Select two stored runs and reuse existing template comparison. Record analyzer/schema versions
-  so old reports remain readable and comparisons do not silently mix incompatible formats.
+- Build on the existing two-run selection and milestone 1.5 comparison. Record analyzer/schema versions
+  with a compatibility path for existing records, so old reports remain readable and comparisons do
+  not silently mix incompatible formats. Recomputed comparisons use the current analyzer; do not
+  present them as a replay of historical analyzer output.
 - Show run summaries, findings, timestamps and changes. Treat finding deltas cautiously when the
   analyzer version changed; do not claim that every difference reflects a template improvement.
 - Apply selected fixes to create a new child run linked to its original. Preserve the original
   artifacts. Existing fix-staleness and template-validation checks still apply.
-- Reanalyze retained inputs explicitly with the current analyzer. Expired inputs require reupload;
-  source-aware old/new diffing is not implied by stored history and remains outside this milestone.
+- Reanalyze retained inputs explicitly with the current analyzer. Expired raw inputs require reupload;
+  unretained source requires reupload or clearly labeled template-only analysis. Reuse milestone 1.5
+  source comparison rather than introducing another template-only implementation.
 - Include the missing source evidence fields in the report UI only where they help explain a saved
   result or manual-review decision. This is supporting work, not a separate analyzer expansion.
 
@@ -221,6 +291,27 @@ cleanup can resume after failure without losing active data.
 **Done when:** a fresh environment can be deployed, verified, failure-tested, restored and torn down
 from documentation; the repository includes measured results and honest limitations.
 
+## Production Readiness — Deferred
+
+Continue building and verifying product features in the persistent test environment. A second
+application stack now would add another set of policies, releases, configuration and operating costs
+without closing the source-comparison or history gaps. The user prefers to defer production, and it
+is not required for the next feature or for working hosted test infrastructure.
+
+Revisit production when there is a stable workflow worth releasing to its intended users/demo audience:
+
+- Source-aware compare and the chosen history workflow have documented local/test acceptance results.
+- Backend/frontend release and recovery procedures are repeatable; production access and approvals
+  are separately reviewed. Do not assume the test policies transfer unchanged to production.
+- Confirm the production region and exact frontend/Cognito origins; keep accounts, data and outputs separate.
+- Verify production audit logging, budget scope/alerts and appropriate backup/recovery settings.
+- Review a concrete deployment diff and make an explicit first-production-deployment decision.
+
+There is no requirement to finish every future queue/scale milestone or freeze the entire architecture
+before production. The gate is readiness of the version being released, not an empty backlog.
+Leave the existing production CDKToolkit unchanged during current feature work.
+This staged approach follows [AWS pre-deployment guidance](https://docs.aws.amazon.com/prescriptive-guidance/latest/resilience-lifecycle-framework/pre-deployment.html).
+
 ## Optional Scale Lab — Choose At Most One Before The Showcase
 
 Core learning already includes DynamoDB, S3, SQS, Streams, Lambda and Scheduler. An optional lab
@@ -265,7 +356,8 @@ ownership, API, UI, then failure/hosted verification. Write a brief architecture
 consequential choices, not a large speculative framework. Keep Mocha/Chai and existing workspace
 conventions; add CDK assertions and real adapter checks where they establish behavior.
 
-The first development task is milestone 1's smallest complete slice: create a project, persist one
-server-generated report in S3 with DynamoDB metadata, list/reopen it for its owner, and prove a
-second identity cannot access it. Add pagination, deletion, retention and retry handling before
-calling that milestone complete. No queue or new analyzer rules are needed for this first slice.
+The recommended next development task is milestone 1.5. Start with a small code-only AWS action
+change fixture and a backward-compatible API contract, then carry independent source context through
+the UI, apply navigation, saved-run comparison and export. Agree on the comparison semantics before
+extending report fields. Finish remaining milestone 1 browser checks and then proceed to milestone 2.
+No production deployment, queue or broad analyzer expansion is needed for this next slice.
