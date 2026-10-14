@@ -28,7 +28,7 @@ export function AnalyzePage() {
   const sourceFileInputRef = useRef<HTMLInputElement | null>(null);
   const sourceFolderInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
-  const { setOriginalTemplateInput, setReport } = useAnalysisReport();
+  const { setOriginalTemplateInput, setOriginalSource, setReport } = useAnalysisReport();
   const lambdaLogicalIds = useMemo(
     () => extractLambdaLogicalIds(templateInput),
     [templateInput]
@@ -116,6 +116,8 @@ export function AnalyzePage() {
       const report = await analyzeTemplate(analysisInput);
       setReport(report);
       setOriginalTemplateInput(templateInput);
+      setOriginalSource({ sourceFiles: analysisInput.sourceFiles, sourceFileMappings: analysisInput.sourceFileMappings,
+        sourceFileExclusions: analysisInput.sourceFileExclusions });
       navigate("/report");
     } catch (analysisError) {
       if (projectId && analysisError instanceof HistoryRequestError && analysisError.status === 410) {
@@ -124,6 +126,7 @@ export function AnalyzePage() {
       setValidationError(analysisError instanceof TemplateAnalysisError ? analysisError : null);
       setReport(null);
       setOriginalTemplateInput(null);
+      setOriginalSource(undefined);
       setError(
         analysisError instanceof Error
           ? analysisError.message

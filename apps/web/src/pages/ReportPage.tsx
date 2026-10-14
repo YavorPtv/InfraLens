@@ -11,7 +11,7 @@ import { SeveritySummary } from "../components/report/SeveritySummary";
 import { downloadTextFile } from "../downloadTextFile";
 
 export function ReportPage() {
-  const { originalTemplateInput, report } = useAnalysisReport();
+  const { originalTemplateInput, originalSource, report } = useAnalysisReport();
 
   if (report === null) {
     return (
@@ -81,6 +81,7 @@ export function ReportPage() {
       <ApplySuggestionsPanel
         fixes={report.templateFixes ?? []}
         originalTemplateInput={originalTemplateInput}
+        originalSource={originalSource}
       />
 
       <div className="report-grid">

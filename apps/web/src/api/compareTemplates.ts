@@ -1,10 +1,6 @@
 import type { DiffReport } from "@infralens/shared";
 import { authenticatedFetch } from "../auth/authClient";
-
-interface CompareTemplatesRequest {
-  oldTemplateInput: string;
-  newTemplateInput: string;
-}
+import { serializeCompareRequest, type CompareNavigationState } from "../compareInput";
 
 interface ApiErrorResponse {
   error?: {
@@ -17,19 +13,13 @@ interface ApiErrorResponse {
 const defaultApiBaseUrl = "http://localhost:3000";
 const apiBaseUrl = import.meta.env.VITE_INFRALENS_API_BASE_URL ?? defaultApiBaseUrl;
 
-export async function compareTemplates({
-  oldTemplateInput,
-  newTemplateInput
-}: CompareTemplatesRequest): Promise<DiffReport> {
+export async function compareTemplates(input: CompareNavigationState): Promise<DiffReport> {
   const response = await authenticatedFetch(getDiffUrl(apiBaseUrl), {
     method: "POST",
     headers: {
       "Content-Type": "application/json; charset=utf-8"
     },
-    body: JSON.stringify({
-      oldTemplate: oldTemplateInput,
-      newTemplate: newTemplateInput
-    })
+    body: JSON.stringify(serializeCompareRequest(input))
   });
 
   if (!response.ok) {

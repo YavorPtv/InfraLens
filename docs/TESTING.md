@@ -374,16 +374,20 @@ environment work has merged into main, then retarget the hosted-test PR to main 
   mappings low and explicit mappings high. Medium/low mapping evidence cannot auto-narrow actions.
 - Unknown or non-Lambda explicit IDs are currently ignored by inference, allowing automatic fallback.
   Invalid mapping *shapes* return 400. Tests preserve both behaviors without changing validation.
-  Unresolved actions are omitted from `AnalysisReport`, so the unresolved evidence assertion calls
-  the public inference function alongside the API report assertion.
-- Compare accepts templates only, without separate source trees. Diff exports therefore contain
-  suggestions based on template evidence. Shared diff export supports Markdown; CLI diff JSON uses
+  Unresolved actions are now retained in `AnalysisReport.sourceAnalysis` with unresolved attribution;
+  they do not qualify for automatic IAM action narrowing.
+- Compare accepts independent old/new source trees as well as template-only requests. The
+  sourceComparison suites use an unchanged-template read-to-write fixture to check inferred actions,
+  before/after suggestions, evidence/confidence, partial warnings, independent mappings/exclusions,
+  request limits, Apply navigation serialization and saved retention/ownership/expiry/deletion.
+  Shared diff export supports Markdown; CLI diff JSON uses
   ordinary JSON serialization, which is exercised here. CLI argument/file-output behavior retains
   its existing tests; this suite does not spawn the CLI process.
 - Unexpected analyzer failure needs the existing injectable callback to trigger deterministically;
   successful workflows use the real analyzer. No test-only production behavior was added.
 - Browser upload controls, path preservation, navigation, selection rendering, clipboard and actual
-  download clicks remain manual. Exporters are tested without a browser. Reports intentionally
+  download clicks remain manual. Source upload helpers and Apply/Compare request serialization are
+  tested without a browser. Exporters are tested without a browser. Reports intentionally
   contain template properties (including inline `Code.ZipFile`, if supplied); the privacy assertion
   concerns separately uploaded source bodies, not redaction of the CloudFormation template.
 - Generated templates pass local structure regression checks; AWS responses are simulated only at

@@ -4,16 +4,14 @@ import { exportDiffReportToMarkdown } from "@infralens/shared";
 import type { ChangedResource, DiffReport, Finding, ResourceNode } from "@infralens/shared";
 import { compareTemplates } from "../api/compareTemplates";
 import { downloadTextFile } from "../downloadTextFile";
+import { SourceContextInput } from "../components/SourceContextInput";
+import { LeastPrivilegeSuggestions } from "../components/report/LeastPrivilegeSuggestions";
+import type { SourceAnalysisInput, SourceActionEvidence } from "@infralens/shared";
+import type { CompareNavigationState } from "../compareInput";
 
 const acceptedTemplateExtensions = [".json", ".yaml", ".yml"];
 
 type TemplateSide = "old" | "new";
-
-interface CompareNavigationState {
-  oldTemplateInput: string;
-  newTemplateInput: string;
-  compareImmediately?: boolean;
-}
 
 export function ComparePage() {
   const location = useLocation();
@@ -25,6 +23,10 @@ export function ComparePage() {
     navigationState?.newTemplateInput ?? ""
   );
   const [diffReport, setDiffReport] = useState<DiffReport | null>(null);
+  const [oldSource, setOldSource] = useState<SourceAnalysisInput | undefined>(navigationState?.oldSource);
+  const [newSource, setNewSource] = useState<SourceAnalysisInput | undefined>(navigationState?.newSource);
+  const [oldReading, setOldReading] = useState(false);
+  const [newReading, setNewReading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const oldFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -45,7 +47,8 @@ export function ComparePage() {
 
     void compareTemplates({
       oldTemplateInput: navigationState.oldTemplateInput,
-      newTemplateInput: navigationState.newTemplateInput
+      newTemplateInput: navigationState.newTemplateInput,
+      oldSource: navigationState.oldSource, newSource: navigationState.newSource
     })
       .then(setDiffReport)
       .catch((comparisonError: unknown) => {
@@ -98,7 +101,7 @@ export function ComparePage() {
       setDiffReport(
         await compareTemplates({
           oldTemplateInput,
-          newTemplateInput
+          newTemplateInput, oldSource, newSource
         })
       );
     } catch (comparisonError) {
@@ -118,7 +121,7 @@ export function ComparePage() {
       <div className="section-heading">
         <h2>Compare Templates</h2>
         <p className="muted-note">
-          Compare two CloudFormation templates to see resource changes and risk movement.
+          Compare templates and independent source trees to see resource, risk and inferred IAM evidence changes.
         </p>
       </div>
 
@@ -145,10 +148,15 @@ export function ComparePage() {
         />
       </div>
 
+      <div className="compare-input-grid">
+        <SourceContextInput label="Old" value={oldSource} onChange={setOldSource} onReadingChange={setOldReading} />
+        <SourceContextInput label="New" value={newSource} onChange={setNewSource} onReadingChange={setNewReading} />
+      </div>
+
       <div className="analyze-actions">
         <button
           className="primary-button"
-          disabled={isLoading}
+          disabled={isLoading || oldReading || newReading}
           onClick={() => {
             void handleCompare();
           }}
@@ -222,7 +230,7 @@ function TemplateInputPanel({
   );
 }
 
-function DiffReportView({ report }: { report: DiffReport }) {
+export function DiffReportView({ report }: { report: DiffReport }) {
   return (
     <div className="diff-report">
       <div className="report-export-bar">
@@ -247,6 +255,7 @@ function DiffReportView({ report }: { report: DiffReport }) {
         </div>
       </div>
       <DiffSummary report={report} />
+      <SourceComparisonView report={report} />
 
       <section className="diff-section">
         <h2>Resource Changes</h2>
@@ -271,6 +280,49 @@ function DiffReportView({ report }: { report: DiffReport }) {
       </section>
     </div>
   );
+}
+
+function SourceComparisonView({ report }: { report: DiffReport }) {
+  if (!report.source) return <p>Source comparison metadata unavailable.</p>;
+  const { source, suggestions } = report;
+  return <section className="diff-section">
+    <h2>Source / IAM Evidence Changes</h2>
+    <p>Old source: {source.old.status} ({source.old.fileCount} files). New source: {source.new.status} ({source.new.fileCount} files).</p>
+    <ul>{source.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+    <div className="diff-grid">
+      <SourceActionList title="Newly inferred actions" actions={source.added} />
+      <SourceActionList title="Actions no longer observed" actions={source.noLongerObserved} />
+      <SourceActionList title="Unchanged inferred actions" actions={source.unchanged} />
+    </div>
+    <h3>Changed action evidence</h3>
+    {source.changed.length === 0 ? <p>None.</p> : source.changed.map((change, index) => <div className="diff-grid" key={index}>
+      <SourceActionList title="Before" actions={[change.old]} /><SourceActionList title="After" actions={[change.new]} />
+    </div>)}
+    {suggestions && <>
+      <h2>Least-Privilege Suggestion Changes</h2>
+      <p>Recommendations only. This comparison does not change deployed permissions. Unchanged suggestions: {suggestions.unchanged.length}.</p>
+      <h3>Added suggestions</h3><LeastPrivilegeSuggestions suggestions={suggestions.added} />
+      <h3>Removed suggestions</h3><LeastPrivilegeSuggestions suggestions={suggestions.removed} />
+      <h3>Changed suggestions</h3>
+      {!suggestions.changed.length && <p>None.</p>}
+      {suggestions.changed.map((change, index) => <div key={index}>
+        <h4>Before</h4><LeastPrivilegeSuggestions suggestions={[change.old]} />
+        <h4>After</h4><LeastPrivilegeSuggestions suggestions={[change.new]} />
+      </div>)}
+    </>}
+  </section>;
+}
+
+function SourceActionList({ title, actions }: { title: string; actions: SourceActionEvidence[] }) {
+  return <div className="diff-panel"><h3>{title}</h3>{!actions.length ? <p>None.</p> : <ul className="diff-list">
+    {actions.map((action, index) => <li key={index}>
+      <strong>{action.action}</strong><p>Lambda: {action.lambdaFunctionId ?? "unresolved"}; file: {action.filePath}; command: {action.matchedCommand}</p>
+      <p>Mapping confidence: {action.confidence}; action confidence: {action.actionConfidence ?? "unknown"}.</p>
+      <p>Evidence: {action.evidence}{action.useLocation && `; use ${action.useLocation.line}:${action.useLocation.column}`}</p>
+      {action.rootFilePath && <p>Root: {action.rootFilePath}; imports: {action.importChain?.join(" → ")}</p>}
+      {action.limitations?.map((warning, i) => <p key={i}>{warning}</p>)}
+    </li>)}
+  </ul>}</div>;
 }
 
 function DiffSummary({ report }: { report: DiffReport }) {
@@ -418,6 +470,8 @@ function getCompareNavigationState(value: unknown): CompareNavigationState | nul
     ? {
         oldTemplateInput: state.oldTemplateInput,
         newTemplateInput: state.newTemplateInput,
+        oldSource: state.oldSource,
+        newSource: state.newSource,
         compareImmediately: state.compareImmediately === true
       }
     : null;

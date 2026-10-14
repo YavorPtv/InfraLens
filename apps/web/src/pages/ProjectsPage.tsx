@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
-  exportDiffReportToMarkdown,
   type HistoryPage,
   type SavedProject,
   type SavedRun
 } from "@infralens/shared";
+import type { DiffReport } from "@infralens/shared";
+import { DiffReportView } from "./ComparePage";
 import { historyClient } from "../api/history";
 
 export function ProjectsPage() {
@@ -17,7 +18,7 @@ export function ProjectsPage() {
   const [notice, setNotice] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
-  const [comparisonMarkdown, setComparisonMarkdown] = useState("");
+  const [comparisonReport, setComparisonReport] = useState<DiffReport | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -25,7 +26,7 @@ export function ProjectsPage() {
     setIsBusy(true);
     setError(null);
     setSelectedRunIds([]);
-    setComparisonMarkdown("");
+    setComparisonReport(null);
     setRuns({ items: [] });
 
     async function loadPage(): Promise<void> {
@@ -163,7 +164,7 @@ export function ProjectsPage() {
       const oldRun = { projectId, runId: selectedRunIds[0] };
       const newRun = { projectId, runId: selectedRunIds[1] };
       const report = await historyClient.compare(oldRun, newRun);
-      setComparisonMarkdown(exportDiffReportToMarkdown(report));
+      setComparisonReport(report);
     });
   }
 
@@ -177,7 +178,7 @@ export function ProjectsPage() {
       showDeletionNotice(result.cleanupPending);
       setRuns(await historyClient.runs(projectId));
       setSelectedRunIds([]);
-      setComparisonMarkdown("");
+      setComparisonReport(null);
     });
   }
 
@@ -223,13 +224,15 @@ export function ProjectsPage() {
               Analyze and save
             </Link>
           </p>
-          <p>Select two runs in old → new order to compare their retained templates.</p>
+          <p>Select two runs in old → new order to compare retained templates and opted-in source. When source is absent, continue with template-only comparison or reupload on Compare.</p>
+          <Link to="/compare">Reupload templates and source on Compare</Link>
           <button
             className="secondary-button"
             disabled={isBusy || selectedRunIds.length !== 2}
             onClick={handleCompareRuns}
           >
-            Compare selected runs
+            {selectedRunIds.some(id => !runs.items.find(run => run.runId === id)?.sourceRetained)
+              ? "Compare available inputs (missing source is template-only)" : "Compare selected runs with source"}
           </button>
 
           <ul className="source-file-list">
@@ -276,11 +279,7 @@ export function ProjectsPage() {
               Load more runs
             </button>
           )}
-          {comparisonMarkdown && (
-            <pre className="template-input" style={{ whiteSpace: "pre-wrap" }}>
-              {comparisonMarkdown}
-            </pre>
-          )}
+          {comparisonReport && <DiffReportView report={comparisonReport} />}
         </>
       ) : (
         <>

@@ -1,0 +1,36 @@
+{
+  "Resources": {
+    "OrdersTable": {
+      "Type": "AWS::DynamoDB::Table"
+    },
+    "AppRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "Policies": [
+          {
+            "PolicyName": "Orders",
+            "PolicyDocument": {
+              "Statement": {
+                "Effect": "Allow",
+                "Action": "dynamodb:*",
+                "Resource": "*"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "AppFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Handler": "handler.handler",
+        "Role": { "Fn::GetAtt": ["AppRole", "Arn"] },
+        "Environment": {
+          "Variables": {
+            "TABLE_NAME": { "Ref": "OrdersTable" }
+          }
+        }
+      }
+    }
+  }
+}

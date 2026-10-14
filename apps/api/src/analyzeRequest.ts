@@ -16,6 +16,8 @@ import type {
   ApplySuggestionsResult,
   CfnTemplate,
   DiffReport,
+  DiffApiRequest,
+  SourceAnalysisInput,
   TemplateFix,
   TemplatePatch,
   TemplatePathSegment
@@ -69,10 +71,7 @@ export interface ApiErrorResponse {
   };
 }
 
-export interface DiffApiRequest {
-  oldTemplate: string;
-  newTemplate: string;
-}
+export type { DiffApiRequest } from "@infralens/shared";
 
 export interface ApplyApiRequest {
   template: string;
@@ -143,7 +142,10 @@ export function diffCloudFormationBody(
   const request = parseDiffApiRequest(rawBody, limits);
 
   try {
-    return diff(request.oldTemplate, request.newTemplate);
+    return diff(request.oldTemplate, request.newTemplate, {
+      oldTemplate: request.oldSource,
+      newTemplate: request.newSource
+    });
   } catch (error) {
     if (error instanceof TemplateValidationError) throw templateRequestError(error);
 
@@ -262,10 +264,29 @@ function parseDiffApiRequest(rawBody: string, limits: ApiRequestLimits): DiffApi
     "Combined diff template size"
   );
 
-  return {
-    oldTemplate: parsedBody.oldTemplate,
-    newTemplate: parsedBody.newTemplate
+  const parseSide = (value: unknown, label: string): SourceAnalysisInput | undefined => {
+    if (value === undefined) return undefined;
+    if (!isRecord(value)) throw new ApiRequestError(400, "INVALID_REQUEST", `${label} must be a source context object.`);
+    try {
+      return normalizeSourceAnalysisInput({
+        sourceFiles: parseSourceFiles(value.sourceFiles, limits),
+        sourceFileMappings: parseSourceFileMappings(value.sourceFileMappings, limits),
+        sourceFileExclusions: parseSourceFileExclusions(value.sourceFileExclusions, limits)
+      });
+    } catch (error) {
+      if (error instanceof SourcePathError) throw new ApiRequestError(400, "INVALID_TEMPLATE", `${label}: ${error.message}`);
+      throw error;
+    }
   };
+  const oldSource = parseSide(parsedBody.oldSource, "oldSource");
+  const newSource = parseSide(parsedBody.newSource, "newSource");
+  const sides = [oldSource, newSource];
+  assertNumericLimit(sides.reduce((count, side) => count + Object.keys(side?.sourceFiles ?? {}).length, 0),
+    limits.maxSourceFiles * 2, "Combined diff source file count");
+  assertNumericLimit(sides.reduce((size, side) => size + Object.values(side?.sourceFiles ?? {}).reduce((sum, code) => sum + byteLength(code), 0), 0),
+    limits.maxCombinedSourceBytes, "Combined diff source-code size");
+  return { oldTemplate: parsedBody.oldTemplate, newTemplate: parsedBody.newTemplate,
+    ...(oldSource === undefined ? {} : { oldSource }), ...(newSource === undefined ? {} : { newSource }) };
 }
 
 function parseApplyApiRequest(rawBody: string, limits: ApiRequestLimits): ApplyApiRequest {

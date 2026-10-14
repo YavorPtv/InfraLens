@@ -29,7 +29,9 @@ hosted authentication adapter. See [deployment separation](PRODUCTION_DEPLOYMENT
 Lists and cleanup accept `limit` (1–50, default 20) and `cursor`. Follow `nextCursor` even if a page
 is empty: pending/deleted records do not appear, but still advance the underlying query. Runs sort
 oldest first by server timestamp, then UUID. Each comparison reference is independently authorized;
-the existing template-only diff engine is used. Expired inputs return 410 and require reupload on
+retained source, mappings and exclusions are passed independently to the source-aware diff engine.
+Unretained source is explicitly missing; the UI offers comparison of available inputs or reupload.
+Expired inputs return 410 and require reupload on
 Compare. API responses use `Cache-Control: no-store`; structured errors never include storage keys,
 signed URLs, template contents or source contents.
 
@@ -44,7 +46,8 @@ Save body:
 ```
 
 `input` also accepts the existing source files, mappings and exclusions. Save returns the server
-report, public run metadata and the retained template. No owner or storage keys are returned.
+report, public run metadata, the retained template and an `input` snapshot while unexpired. That
+snapshot includes source only when retention was explicitly enabled. No owner or storage keys are returned.
 The web client keeps only a request fingerprint and retry key in sessionStorage during a save,
 not the submitted inputs. Successful saves clear that retry key. Fresh-session restoration fetches
 the report by project/run URL and does not depend on surviving React state.

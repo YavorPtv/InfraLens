@@ -4,7 +4,12 @@ import type {
   Finding,
   FindingDiffSummary,
   ResourceDiffSummary,
-  ResourceNode
+  ResourceNode,
+  SourceAnalysisReport,
+  SourceActionEvidence,
+  PolicySuggestion,
+  PolicySuggestionDiffSummary,
+  SourceDiffSummary
 } from "@infralens/shared";
 import { analyzeTemplate, type AnalyzeTemplateOptions } from "./analyzeTemplate";
 import { parseTemplateInput } from "./parseTemplate";
@@ -23,6 +28,9 @@ export function analyzeTemplateDiff(
   const newTemplate = parseTemplateInput(newTemplateInput);
   const oldReport = analyzeTemplate(oldTemplateInput, options.oldTemplate);
   const newReport = analyzeTemplate(newTemplateInput, options.newTemplate);
+  const source = diffSource(oldReport.sourceAnalysis!, newReport.sourceAnalysis!);
+  source.warnings.push(...(oldReport.iamAnalysis?.limitations ?? []).map(warning => `Old IAM: ${warning}`),
+    ...(newReport.iamAnalysis?.limitations ?? []).map(warning => `New IAM: ${warning}`));
 
   return {
     oldReport,
@@ -33,8 +41,59 @@ export function analyzeTemplateDiff(
       oldResourceNodes: oldReport.resources,
       newResourceNodes: newReport.resources
     }),
-    findings: diffFindings(oldReport.findings, newReport.findings)
+    findings: diffFindings(oldReport.findings, newReport.findings),
+    source,
+    suggestions: diffSuggestions(oldReport.leastPrivilegeSuggestions, newReport.leastPrivilegeSuggestions)
   };
+}
+
+function diffSource(old: SourceAnalysisReport, next: SourceAnalysisReport): SourceDiffSummary {
+  const key = (action: SourceActionEvidence) =>
+    JSON.stringify([action.lambdaFunctionId ?? null, action.action, action.filePath, action.rootFilePath ?? null]);
+  const oldActions = new Map(old.actions.map(action => [key(action), action]));
+  const newActions = new Map(next.actions.map(action => [key(action), action]));
+  const shared = next.actions.filter(action => oldActions.has(key(action)));
+  return {
+    old, new: next,
+    added: next.actions.filter(action => !oldActions.has(key(action))),
+    noLongerObserved: old.actions.filter(action => !newActions.has(key(action))),
+    changed: shared.filter(action => stableStringify(oldActions.get(key(action))) !== stableStringify(action))
+      .map(action => ({ old: oldActions.get(key(action))!, new: action })),
+    unchanged: shared.filter(action => stableStringify(oldActions.get(key(action))) === stableStringify(action)),
+    warnings: [
+      "Source actions are static inferences, not actual IAM permissions. Actions no longer observed are not proof that permissions are unused or risk is resolved.",
+      ...(old.status === "missing" || next.status === "missing"
+        ? ["Source is missing on one or both sides. This comparison cannot establish source equivalence; reupload source for a source-aware comparison."] : []),
+      ...old.warnings.map(warning => `Old: ${warning}`),
+      ...next.warnings.map(warning => `New: ${warning}`),
+      ...(old.actions.some(action => !action.lambdaFunctionId) || next.actions.some(action => !action.lambdaFunctionId)
+        ? ["Some inferred actions have no resolved Lambda mapping; attribution requires manual review."] : [])
+    ]
+  };
+}
+
+function diffSuggestions(old: PolicySuggestion[], next: PolicySuggestion[]): PolicySuggestionDiffSummary {
+  const key = (suggestion: PolicySuggestion) => JSON.stringify([
+    suggestion.lambdaFunctionId, suggestion.roleId, suggestion.service, suggestion.evidence.statementEvidencePath
+  ]);
+  const oldByKey = new Map(old.map(suggestion => [key(suggestion), suggestion]));
+  const nextByKey = new Map(next.map(suggestion => [key(suggestion), suggestion]));
+  const shared = next.filter(suggestion => oldByKey.has(key(suggestion)));
+  return {
+    added: next.filter(suggestion => !oldByKey.has(key(suggestion))),
+    removed: old.filter(suggestion => !nextByKey.has(key(suggestion))),
+    changed: shared.filter(suggestion => suggestionSignature(oldByKey.get(key(suggestion))!) !== suggestionSignature(suggestion))
+      .map(suggestion => ({ old: oldByKey.get(key(suggestion))!, new: suggestion })),
+    unchanged: shared.filter(suggestion => suggestionSignature(oldByKey.get(key(suggestion))!) === suggestionSignature(suggestion))
+  };
+}
+
+function suggestionSignature(suggestion: PolicySuggestion): string {
+  return stableStringify({ ...suggestion,
+    currentActions: [...suggestion.currentActions].sort(),
+    suggestedActions: [...suggestion.suggestedActions].sort(),
+    actions: [...suggestion.actions].sort()
+  });
 }
 
 function diffResources({

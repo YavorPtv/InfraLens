@@ -6,7 +6,8 @@ export {
   SourcePathError,
   type SourceFile,
   type SourceAnalysisInput,
-  type AnalyzeApiRequest
+  type AnalyzeApiRequest,
+  type DiffApiRequest
 } from "./sourceFiles";
 
 export type CfnPrimitive = string | number | boolean | null;
@@ -278,6 +279,7 @@ export interface PublicExposure {
 }
 
 export interface AnalysisReport extends AnalysisGraph, PublicExposure {
+  sourceAnalysis?: SourceAnalysisReport;
   iamAnalysis?: IamAnalysis;
   sourceAnalysisWarnings?: string[];
   analysisStatus: "completed";
@@ -312,6 +314,36 @@ export interface DiffReport {
   newReport: AnalysisReport;
   resources: ResourceDiffSummary;
   findings: FindingDiffSummary;
+  source?: SourceDiffSummary;
+  suggestions?: PolicySuggestionDiffSummary;
+}
+
+export interface SourceActionEvidence extends Omit<PolicySuggestionSourceActionEvidence, "lambdaFunctionId"> {
+  lambdaFunctionId?: ResourceId;
+}
+
+export interface SourceAnalysisReport {
+  status: "missing" | "provided";
+  fileCount: number;
+  actions: SourceActionEvidence[];
+  warnings: string[];
+}
+
+export interface SourceDiffSummary {
+  old: SourceAnalysisReport;
+  new: SourceAnalysisReport;
+  added: SourceActionEvidence[];
+  noLongerObserved: SourceActionEvidence[];
+  changed: Array<{ old: SourceActionEvidence; new: SourceActionEvidence }>;
+  unchanged: SourceActionEvidence[];
+  warnings: string[];
+}
+
+export interface PolicySuggestionDiffSummary {
+  added: PolicySuggestion[];
+  removed: PolicySuggestion[];
+  changed: Array<{ old: PolicySuggestion; new: PolicySuggestion }>;
+  unchanged: PolicySuggestion[];
 }
 
 export interface AnalysisContext extends AnalysisGraph, Pick<PublicExposure, "publiclyReachableResourceIds"> {
