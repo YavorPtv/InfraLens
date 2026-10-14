@@ -9,6 +9,16 @@ suggestions. The analyzer verified the GetItem -> PutItem action/suggestion delt
 with no resource/finding changes. Instructions are in examples/compare/README.md; browser acceptance
 remains pending.
 
+October 14 frontend follow-up: Analyze, Compare, Report, Projects and SavedReport routes now use
+React.lazy on the existing feature branch. AppLayout wraps its Outlet in Suspense, keeping the
+navigation, page heading and analysis provider mounted while page code loads. The home/sign-in/
+callback code stays eager. No dependencies, chunk-size limits or deployment settings changed.
+Web typecheck, local production build and guarded offline hosted-test frontend build passed.
+The build manifest confirmed all five pages are dynamic entries outside the initial static import
+graph. Hosted initial JavaScript fell from 535,850 to 247,746 bytes (about 54%); the report/graph
+chunk is about 236 kB. Both builds finish without the previous >500 kB warning. Browser navigation
+and publishing this follow-up remain unverified; no AWS writes ran.
+
 ## Repository and boundaries
 
 - Feature checkout: feature/source-aware-comparison, based on main. The baseline includes Feature/separate aws environments (#55), hosted-test

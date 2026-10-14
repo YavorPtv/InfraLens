@@ -1,6 +1,6 @@
 # InfraLens Portfolio And AWS Engineering Roadmap
 
-Last updated: October 12, 2026.
+Last updated: October 14, 2026.
 Verified repository baseline: main at cf2363e includes AWS environment separation and test workflows
 (#55), saved projects/history (#53), analyzer coverage (#52) and template validation (#51).
 The persistent AWS test stack and frontend are deployed according to the user, who also reports
@@ -41,6 +41,12 @@ Before closing the remaining milestone 1 acceptance notes, check localhost again
 and record fresh-session report reopening and two-user isolation through the UI. Passing HTTP smoke
 or direct storage tests does not establish those browser behaviors. These small verification tasks
 can happen alongside the next comparison feature; they do not require production infrastructure.
+
+October 14 frontend loading follow-up is implemented on the existing feature branch: five application
+pages load on demand, with a Suspense status inside the persistent layout. Web typecheck, local and
+guarded offline hosted-test frontend builds passed; manifest inspection verified the lazy routes.
+Hosted initial JavaScript decreased from about 536 kB to 248 kB, and neither build emits the previous
+500 kB warning. This does not establish browser/hosted acceptance; no publishing or AWS changes ran.
 
 ## Chosen Architecture
 

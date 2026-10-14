@@ -1,15 +1,17 @@
+import { lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AppLayout } from "./components/AppLayout";
-import { AnalyzePage } from "./pages/AnalyzePage";
-import { ComparePage } from "./pages/ComparePage";
 import { HomePage } from "./pages/HomePage";
-import { ReportPage } from "./pages/ReportPage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { SignInPage } from "./pages/SignInPage";
 import { AnalysisReportProvider } from "./reportState";
-import { ProjectsPage } from "./pages/ProjectsPage";
-import { SavedReportPage } from "./pages/SavedReportPage";
+
+const AnalyzePage = lazy(() => import("./pages/AnalyzePage").then(module => ({ default: module.AnalyzePage })));
+const ComparePage = lazy(() => import("./pages/ComparePage").then(module => ({ default: module.ComparePage })));
+const ReportPage = lazy(() => import("./pages/ReportPage").then(module => ({ default: module.ReportPage })));
+const ProjectsPage = lazy(() => import("./pages/ProjectsPage").then(module => ({ default: module.ProjectsPage })));
+const SavedReportPage = lazy(() => import("./pages/SavedReportPage").then(module => ({ default: module.SavedReportPage })));
 
 export function App() {
   return (
