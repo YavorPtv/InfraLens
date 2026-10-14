@@ -72,11 +72,11 @@ function countSourceFiles(rawBody: string | undefined): number {
 
   try {
     const parsed = JSON.parse(rawBody) as unknown;
-    if (!isRecord(parsed) || !isRecord(parsed.sourceFiles)) {
+    if (!isRecord(parsed)) {
       return 0;
     }
-
-    return Object.keys(parsed.sourceFiles).length;
+    const count = (value: unknown) => isRecord(value) && isRecord(value.sourceFiles) ? Object.keys(value.sourceFiles).length : 0;
+    return count(parsed) + count(parsed.oldSource) + count(parsed.newSource);
   } catch {
     return 0;
   }

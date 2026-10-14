@@ -9,15 +9,19 @@ import type {
 } from "@infralens/shared";
 import { applySuggestions } from "../../api/applySuggestions";
 import { downloadTextFile } from "../../downloadTextFile";
+import { createApplyComparison } from "../../compareInput";
+import type { SourceAnalysisInput } from "@infralens/shared";
 
 interface ApplySuggestionsPanelProps {
   fixes: TemplateFix[];
   originalTemplateInput: string | null;
+  originalSource?: SourceAnalysisInput;
 }
 
 export function ApplySuggestionsPanel({
   fixes,
-  originalTemplateInput
+  originalTemplateInput,
+  originalSource
 }: ApplySuggestionsPanelProps) {
   const [selectedFixIds, setSelectedFixIds] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<ApplySuggestionsResult | null>(null);
@@ -238,11 +242,7 @@ export function ApplySuggestionsPanel({
                 disabled={originalTemplateInput === null || !canDownload}
                 onClick={() =>
                   navigate("/compare", {
-                    state: {
-                      oldTemplateInput: originalTemplateInput,
-                      newTemplateInput: generatedTemplate,
-                      compareImmediately: true
-                    }
+                    state: createApplyComparison(originalTemplateInput!, generatedTemplate!, originalSource)
                   })
                 }
                 type="button"

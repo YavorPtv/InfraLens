@@ -9,6 +9,7 @@ import type {
   Severity,
   SeverityCounts
 } from "./index";
+import type { SourceActionEvidence } from "./index";
 
 const severityOrder: Severity[] = ["critical", "high", "medium", "low"];
 
@@ -101,11 +102,46 @@ export function exportDiffReportToMarkdown(report: DiffReport): string {
     "### Unchanged Findings",
     "",
     ...formatFindings(report.findings.unchanged),
+    ...formatSourceComparison(report),
     "",
     "## Least-Privilege Suggestions",
     "",
     ...formatLeastPrivilegeSuggestions(report.newReport.leastPrivilegeSuggestions)
   ].join("\n");
+}
+
+function formatSourceComparison(report: DiffReport): string[] {
+  const source = report.source;
+  const suggestions = report.suggestions;
+  if (!source) return ["", "## Source comparison", "", "Source comparison metadata unavailable in this report."];
+  return ["", "## Source / IAM Evidence Changes", "",
+    `- Old source: ${source.old.status} (${source.old.fileCount} files)`,
+    `- New source: ${source.new.status} (${source.new.fileCount} files)`,
+    ...source.warnings.map(warning => `- ${warning}`),
+    "", "### Newly inferred actions", "", ...formatInferredActions(source.added),
+    "", "### Actions no longer observed", "", ...formatInferredActions(source.noLongerObserved),
+    "", "### Changed action evidence", "",
+    ...(source.changed.length ? source.changed.flatMap(change => ["Old:", ...formatInferredActions([change.old]),
+      "New:", ...formatInferredActions([change.new])]) : ["None."]),
+    "", "### Unchanged inferred actions", "", ...formatInferredActions(source.unchanged),
+    ...(suggestions ? ["", "## Least-Privilege Suggestion Changes", "",
+      "Suggestions are recommendations; this comparison does not change deployed permissions.",
+      "", "### Added suggestions", "", ...formatLeastPrivilegeSuggestions(suggestions.added),
+      "", "### Removed suggestions", "", ...formatLeastPrivilegeSuggestions(suggestions.removed),
+      "", "### Changed suggestions", "",
+      ...(suggestions.changed.length ? suggestions.changed.flatMap(change => [
+        "Before:", ...formatLeastPrivilegeSuggestions([change.old]), "After:", ...formatLeastPrivilegeSuggestions([change.new])
+      ]) : ["None."]), `Unchanged suggestions: ${suggestions.unchanged.length}`] : [])
+  ];
+}
+
+function formatInferredActions(actions: SourceActionEvidence[]): string[] {
+  return actions.length ? actions.flatMap(action => [
+    `- ${action.action}: Lambda ${action.lambdaFunctionId ?? "unresolved"}; ${action.filePath}; command ${action.matchedCommand}; mapping confidence ${action.confidence}; action confidence ${action.actionConfidence ?? "unknown"}`,
+    `  - Evidence: ${action.evidence}${action.useLocation ? `; use ${action.useLocation.line}:${action.useLocation.column}` : ""}`,
+    ...(action.rootFilePath ? [`  - Root: ${action.rootFilePath}; imports: ${(action.importChain ?? []).join(" -> ")}`] : []),
+    ...(action.limitations ?? []).map(warning => `  - Limitation: ${warning}`)
+  ]) : ["None."];
 }
 
 function formatSeveritySummary(counts: SeverityCounts): string[] {
@@ -163,6 +199,7 @@ function formatLeastPrivilegeSuggestions(suggestions: PolicySuggestion[]): strin
     `- Suggested resources: ${formatSuggestedResources(suggestion)}`,
     `- Evidence path: \`${suggestion.evidence.statementEvidencePath}\``,
     `- Suggestion: ${suggestion.explanation}`,
+    ...(suggestion.manualOnly ? [`- Manual review required: ${suggestion.manualReviewReason ?? "Inference is incomplete."}`] : []),
     ...(suggestion.suggestedStatements ? ["", "```json", JSON.stringify(suggestion.suggestedStatements, null, 2), "```"] : []),
     ...formatSourceActionEvidence(suggestion),
     ""

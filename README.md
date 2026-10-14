@@ -381,7 +381,8 @@ See [Template validation](docs/TEMPLATE_VALIDATION.md) for configuration, API co
   cannot guarantee that every runtime permission or production source file was included.
 - Local structure checks and optional AWS ValidateTemplate are separate from analysis success.
   Neither guarantees deployment. See [Template validation](docs/TEMPLATE_VALIDATION.md).
-- Compare currently compares templates only; it does not compare separate old and new source trees.
+- Compare accepts separate old/new source trees and reports inferred action and suggestion changes.
+  Missing or incomplete source cannot prove that a permission is unused. See [source comparison](docs/SOURCE_COMPARISON.md).
 - Stateless reports live in the current browser session. Explicitly saved Projects reports can
   be reopened; local memory history lasts until the Express process restarts.
 

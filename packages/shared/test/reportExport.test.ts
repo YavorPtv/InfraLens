@@ -7,6 +7,29 @@ import {
 } from "../src";
 
 describe("report export", () => {
+  it("exports comparison availability, changed source evidence and both suggestion snapshots", () => {
+    const oldReport = createAnalysisReport();
+    const newReport = createAnalysisReport();
+    const before = oldReport.leastPrivilegeSuggestions[0];
+    const after = newReport.leastPrivilegeSuggestions[0];
+    before.suggestedActions = ["dynamodb:GetItem"];
+    after.suggestedActions = ["dynamodb:PutItem"];
+    after.manualOnly = true;
+    after.manualReviewReason = "Unresolved import requires review.";
+    const action = { ...before.evidence.sourceActions![0], actionConfidence: "low" as const,
+      limitations: ["Dynamic operation is unresolved."], useLocation: { line: 7, column: 3 } };
+    const diff: DiffReport = { oldReport, newReport, resources: { added: [], removed: [], changed: [] },
+      findings: { introduced: [], resolved: [], unchanged: [] }, source: {
+        old: { status: "missing", fileCount: 0, actions: [], warnings: [] },
+        new: { status: "provided", fileCount: 1, actions: [action], warnings: action.limitations },
+        added: [action], noLongerObserved: [], changed: [], unchanged: [], warnings: ["Missing source requires reupload."]
+      }, suggestions: { added: [], removed: [], changed: [{ old: before, new: after }], unchanged: [] } };
+    const output = exportDiffReportToMarkdown(diff);
+    for (const text of ["Old source: missing", "New source: provided", "Missing source requires reupload.",
+      "action confidence low", "use 7:3", "Dynamic operation is unresolved.", "Before:", "After:",
+      "Unresolved import requires review.", "`dynamodb:GetItem`", "`dynamodb:PutItem`"])
+      expect(output).to.include(text);
+  });
   it("exports partial IAM/source limitations and partitioned policy statements", () => {
     const report = createAnalysisReport();
     report.iamAnalysis = { evaluation: "partial", principals: [], policies: [], limitations: ["External managed policy contents are unknown."] };

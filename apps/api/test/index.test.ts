@@ -64,6 +64,7 @@ describe("local API", () => {
       score: 100
     });
     expect(report).to.have.keys([
+      "sourceAnalysis",
       "iamAnalysis",
       "sourceAnalysisWarnings",
       "analysisStatus",

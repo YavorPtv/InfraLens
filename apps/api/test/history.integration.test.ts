@@ -21,6 +21,8 @@ import { configuredHistory, localHistoryOwner } from "../src/historyConfig";
 import { createHistoryClient, restoreSavedReport } from "../../web/src/api/historyClient";
 import { createApiApp } from "../src/index";
 import type { AddressInfo } from "node:net";
+import { example } from "./workflowFixtures";
+import type { DiffApiRequest, DiffReport } from "@infralens/shared";
 
 const template = JSON.stringify({ Resources: { Bucket: { Type: "AWS::S3::Bucket" } } });
 
@@ -83,6 +85,60 @@ async function rejects(action: Promise<unknown>, status: number) {
 }
 
 describe("saved projects and analysis history", () => {
+  it("compares retained source independently, labels unretained source and rejects expiry/other owners/deletion", async () => {
+    const context = setup();
+    const fixture: DiffApiRequest = JSON.parse(example("compare/source-action-change.json"));
+    const project = await context.history.createProject("alice", "source comparison");
+    const save = (key: string, source: DiffApiRequest["oldSource"], retainSource = true) =>
+      context.history.save("alice", project.projectId, { input: { template: fixture.oldTemplate, ...source }, idempotencyKey: key, retainSource });
+    const oldRun = await save("source-read", fixture.oldSource);
+    const newRun = await save("source-write", fixture.newSource);
+    const response = await context.api("alice", "POST", "/projects/compare", { oldRun: oldRun.run, newRun: newRun.run });
+    // Route references intentionally allow IDs only, not run metadata.
+    expect(response.status).to.equal(400);
+    const reference = (run: typeof oldRun.run) => ({ projectId: run.projectId, runId: run.runId });
+    const compared = await context.api("alice", "POST", "/projects/compare", { oldRun: reference(oldRun.run), newRun: reference(newRun.run) });
+    expect(compared.status).to.equal(200);
+    const diff = compared.body as DiffReport;
+    expect(diff.source!.added[0].action).to.equal("dynamodb:PutItem");
+    expect(diff.suggestions!.changed[0].old.suggestedActions).to.deep.equal(["dynamodb:GetItem"]);
+    expect((await context.history.open("alice", project.projectId, oldRun.run.runId)).input!.sourceFileMappings).to.deep.equal(fixture.oldSource!.sourceFileMappings);
+    const noSource = await save("source-not-retained", fixture.newSource, false);
+    expect((await context.history.open("alice", project.projectId, noSource.run.runId)).input).to.deep.equal({ template: fixture.oldTemplate });
+    const missing = await context.history.compare("alice", oldRun.run, noSource.run);
+    expect(missing.source!.new.status).to.equal("missing");
+    expect(missing.source!.warnings.join(" ")).to.include("reupload source");
+    const empty = await save("source-empty", { sourceFiles: {} });
+    expect(empty.run.sourceRetained).to.equal(true);
+    expect((await context.history.compare("alice", oldRun.run, empty.run)).source!.new.status).to.equal("provided");
+    await rejects(context.history.compare("bob", oldRun.run, newRun.run), 404);
+    await context.history.deleteRun("alice", project.projectId, newRun.run.runId);
+    await rejects(context.history.compare("alice", oldRun.run, newRun.run), 404);
+    context.advance(7 * 86400_000);
+    await rejects(context.history.compare("alice", oldRun.run, noSource.run), 410);
+    expect((await context.history.open("alice", project.projectId, oldRun.run.runId)).input).to.equal(undefined);
+  });
+
+  it("preserves retained exclusions during comparison and clears previous source on restore", async () => {
+    const context = setup();
+    const fixture: DiffApiRequest = JSON.parse(example("compare/source-action-change.json"));
+    const project = await context.history.createProject("alice", "exclusions");
+    const first = await context.history.save("alice", project.projectId, { input: { template: fixture.oldTemplate, ...fixture.oldSource }, retainSource: true, idempotencyKey: "retained-before" });
+    const second = await context.history.save("alice", project.projectId, { input: { template: fixture.newTemplate, ...fixture.newSource, sourceFileExclusions: ["src/handler.ts"] }, retainSource: true, idempotencyKey: "retained-after" });
+    const diff = await context.history.compare("alice", first.run, second.run);
+    expect(diff.source!.old.actions).to.have.length(1);
+    expect(diff.source!.new.actions).to.deep.equal([]);
+    const reopened = await context.history.open("alice", project.projectId, second.run.runId);
+    let restored: unknown = fixture.oldSource;
+    await restoreSavedReport({ open: async () => reopened }, project.projectId, second.run.runId,
+      { setReport: () => {}, setOriginalTemplateInput: () => {}, setOriginalSource: value => { restored = value; } });
+    expect(restored).to.deep.equal({ ...fixture.newSource, sourceFileExclusions: ["src/handler.ts"] });
+    context.advance(7 * 86400_000);
+    const expired = await context.history.open("alice", project.projectId, second.run.runId);
+    await restoreSavedReport({ open: async () => expired }, project.projectId, second.run.runId,
+      { setReport: () => {}, setOriginalTemplateInput: () => {}, setOriginalSource: value => { restored = value; } });
+    expect(restored).to.equal(undefined);
+  });
   it("creates, lists, renames and deletes owner-scoped projects with generated IDs", async () => {
     const context = setup();
     const created = await context.api("alice", "POST", "/projects", { name: " First " });

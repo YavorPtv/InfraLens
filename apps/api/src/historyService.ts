@@ -457,7 +457,7 @@ export class HistoryService {
           input: `${prefix}/input.json`
         },
         inputExpiresAt: new Date(this.now() + retentionMs).toISOString(),
-        sourceRetained: retainSource === true && Object.keys(input.sourceFiles ?? {}).length > 0,
+        sourceRetained: retainSource === true && input.sourceFiles !== undefined,
         retainedInputBytes: Buffer.byteLength(retainedBody)
       };
       const writes = [
@@ -569,17 +569,17 @@ export class HistoryService {
     const report = JSON.parse(
       await this.artifacts.get(runRecord.artifacts.report)
     ) as AnalysisReport;
-    let template: string | undefined;
+    let input: AnalyzeApiRequest | undefined;
     if (this.now() < Date.parse(runRecord.inputExpiresAt)) {
-      template = (
-        JSON.parse(await this.artifacts.get(runRecord.artifacts.input)) as AnalyzeApiRequest
-      ).template;
+      const retained = JSON.parse(await this.artifacts.get(runRecord.artifacts.input)) as AnalyzeApiRequest;
+      input = runRecord.sourceRetained ? retained : { template: retained.template };
     }
     await this.getCompletedRun(ownerId, projectId, runId);
+    if (this.now() >= Date.parse(runRecord.inputExpiresAt)) input = undefined;
     return {
       run: toSavedRun(runRecord),
       report,
-      ...(template === undefined ? {} : { template })
+      ...(input === undefined ? {} : { template: input.template, input })
     };
   }
 
@@ -628,20 +628,30 @@ export class HistoryService {
         throwHistoryError(
           410,
           "INPUT_EXPIRED",
-          "Retained inputs expired. Reupload both templates on Compare."
+          "Retained inputs expired. Reupload templates and source on Compare."
         );
       }
-      return (JSON.parse(await this.artifacts.get(runRecord.artifacts.input)) as AnalyzeApiRequest)
-        .template;
+      const input = JSON.parse(await this.artifacts.get(runRecord.artifacts.input)) as AnalyzeApiRequest;
+      if (this.now() >= Date.parse(runRecord.inputExpiresAt)) {
+        throwHistoryError(410, "INPUT_EXPIRED", "Retained inputs expired. Reupload templates and source on Compare.");
+      }
+      return runRecord.sourceRetained ? input : { template: input.template };
     };
-    const oldTemplate = await read(oldRun);
-    const newTemplate = await read(newRun);
-    await this.getCompletedRun(ownerId, oldRun.projectId, oldRun.runId);
-    await this.getCompletedRun(ownerId, newRun.projectId, newRun.runId);
+    const oldInput = await read(oldRun);
+    const newInput = await read(newRun);
+    const oldRecord = await this.getCompletedRun(ownerId, oldRun.projectId, oldRun.runId);
+    const newRecord = await this.getCompletedRun(ownerId, newRun.projectId, newRun.runId);
+    if (this.now() >= Math.min(Date.parse(oldRecord.inputExpiresAt), Date.parse(newRecord.inputExpiresAt))) {
+      throwHistoryError(410, "INPUT_EXPIRED", "Retained inputs expired. Reupload templates and source on Compare.");
+    }
     return diffCloudFormationBody(
       JSON.stringify({
-        oldTemplate,
-        newTemplate
+        oldTemplate: oldInput.template,
+        newTemplate: newInput.template,
+        oldSource: { sourceFiles: oldInput.sourceFiles, sourceFileMappings: oldInput.sourceFileMappings,
+          sourceFileExclusions: oldInput.sourceFileExclusions },
+        newSource: { sourceFiles: newInput.sourceFiles, sourceFileMappings: newInput.sourceFileMappings,
+          sourceFileExclusions: newInput.sourceFileExclusions }
       }),
       undefined,
       this.options.limits ?? defaultApiRequestLimits

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Header } from "./Header";
 import { getPageTitle } from "../routes";
@@ -12,7 +13,9 @@ export function AppLayout() {
       <main className="main-content" aria-labelledby="page-title">
         <div className="page-kicker">AWS architecture analysis</div>
         <h1 id="page-title">{pageTitle}</h1>
-        <Outlet />
+        <Suspense fallback={<section className="page-section" role="status">Loading page...</section>}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   );

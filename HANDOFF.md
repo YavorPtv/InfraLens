@@ -1,11 +1,28 @@
 # InfraLens handoff
 
-Updated: October 11, 2026. Read AGENTS.md first, then inspect Git and the relevant code.
+Updated: October 14, 2026. Read AGENTS.md first, then inspect Git and the relevant code.
+
+October 12 fixture addition: examples/compare/before/project and after/project each contain one
+tiny handler (two source lines plus `// @ts-nocheck`) for manual browser upload. Use source-action-template.json on both sides and
+explicit AppFunction mappings for high confidence. Auto detect also shows the delta, with manual-review
+suggestions. The analyzer verified the GetItem -> PutItem action/suggestion delta
+with no resource/finding changes. Instructions are in examples/compare/README.md; browser acceptance
+remains pending.
+
+October 14 frontend follow-up: Analyze, Compare, Report, Projects and SavedReport routes now use
+React.lazy on the existing feature branch. AppLayout wraps its Outlet in Suspense, keeping the
+navigation, page heading and analysis provider mounted while page code loads. The home/sign-in/
+callback code stays eager. No dependencies, chunk-size limits or deployment settings changed.
+Web typecheck, local production build and guarded offline hosted-test frontend build passed.
+The build manifest confirmed all five pages are dynamic entries outside the initial static import
+graph. Hosted initial JavaScript fell from 535,850 to 247,746 bytes (about 54%); the report/graph
+chunk is about 236 kB. Both builds finish without the previous >500 kB warning. Browser navigation
+and publishing this follow-up remain unverified; no AWS writes ran.
 
 ## Repository and boundaries
 
-- Current checkout: main at cf2363e, Feature/separate aws environments (#55). It includes hosted-test
-  workflows and scoped storage/frontend publishing. This documentation refresh is committed on main;
+- Feature checkout: feature/source-aware-comparison, based on main. The baseline includes Feature/separate aws environments (#55), hosted-test
+  workflows and scoped storage/frontend publishing. Milestone 1.5 changes are on this feature branch;
   inspect Git for the latest revision and any subsequent changes.
 - Keep npm workspaces, TypeScript, Mocha/Chai and the existing layout. Analyzer logic stays independent
   of AWS/React in packages/analyzer; shared contracts in packages/shared; API/UI in apps/api and apps/web;
@@ -13,40 +30,44 @@ Updated: October 11, 2026. Read AGENTS.md first, then inspect Git and the releva
 - Update docs/ROADMAP.md whenever a task completes or changes milestone status, scope, priorities or
   remaining work. Before handing off or committing, check that the roadmap and HANDOFF.md agree with
   the implemented behavior and verified results; do not mark unverified work complete.
-- This task updated documentation only. Recommended next task is below; its implementation has not
-  started. Create a focused feature branch from current main when the user authorizes implementation.
+- This task implemented milestone 1.5 on the focused feature branch. Offline verification passed.
   Do not commit/push, deploy/bootstrap/destroy, modify IAM/Organizations or run browser/hosted/live-storage
   tests without explicit authorization. Read-only AWS inspection with the supplied profiles is allowed
   when needed, after verifying caller account. Never request secrets/tokens in chat.
 
-## Recommended next task: source-aware comparison
+## Milestone 1.5 implemented; next: authorized acceptance checks, then milestone 2
 
-Read milestone 1.5 in docs/ROADMAP.md. The user considers this extremely important and prefers to
-defer production deployment. Recommendation: source-aware comparison -> milestone 2 history
-improvements -> later queue/operations work. Remaining manual browser checks can happen alongside it.
+Read milestone 1.5 in docs/ROADMAP.md and docs/SOURCE_COMPARISON.md. Production remains deferred.
+Recommendation: browser/hosted acceptance for source-aware comparison -> milestone 2 history
+improvements -> later queue/operations work. Milestone 1's remaining browser checks are still pending.
 
 Verified current behavior:
 
-- packages/analyzer/src/templateDiff.ts already accepts independent oldTemplate/newTemplate analysis
-  options, including source files/mappings/exclusions, and returns both analysis reports.
-- apps/api/src/analyzeRequest.ts parses POST /diff into two template strings and calls the analyzer
-  without those source options. apps/web/src/api/compareTemplates.ts and pages/ComparePage.tsx send
-  only templates. The CLI diff is also template-only.
-- apps/api/src/historyService.ts compare reads retained input.template and drops retained source.
-  Source retention is opt-in; raw inputs expire after seven days. Expiry/ownership/deletion enforcement
-  must remain intact. Saved reports remain readable after input expiry; they are not raw-input backups.
-- DiffReport in packages/shared/src/index.ts and the Compare UI summarize resources/findings only.
-  A code-only AWS operation change can affect least-privilege suggestions without changing either list.
-- apps/web/src/components/report/ApplySuggestionsPanel.tsx navigates to Compare with only the
-  original/generated templates. Do not lose source context when wiring Analyze -> Apply -> Compare.
+- POST /diff keeps oldTemplate/newTemplate strings and accepts optional independent oldSource/newSource
+  objects with sourceFiles/mappings/exclusions. Each side uses existing normalization and source analysis.
+  Defaults: 100 files/side, 256 KiB/file, 2 MiB combined source, 1 MiB/template, 4 MiB serialized request.
+- Analysis reports include optional sourceAnalysis metadata; DiffReport adds source and suggestions
+  deltas. Code-only GetCommand -> PutCommand changes produce before/after suggestions and evidence
+  without resource/finding changes. Missing source differs from a provided empty tree. Inference is
+  explicitly not effective IAM permissions; disappearing observations do not prove unused permission.
+- Compare has independent source folder/files uploads, mappings and exclusions. Markdown export and
+  saved comparison use the same evidence semantics. Analyze -> Apply -> Compare carries source to both
+  sides, including reopened opted-in saved inputs. CLI remains template-only and passes existing tests.
+- History compares only authorized retained inputs, preserving source when opted in and unexpired.
+  OpenSavedRun adds optional input while keeping template compatibility. Unretained source is missing;
+  history offers template-only available-input comparison or reupload. Empty opted-in trees are retained.
+  Expiry/deletion/ownership are rechecked after artifact reads; expired reports remain readable.
 
-Next feature should preserve template-only compatibility, support independent old/new source context
-through API/UI/saved comparison, and explain material source-inferred AWS action/IAM suggestion changes
-with evidence, confidence and warnings. Missing/unretained source must be explicit; expired inputs
-require reupload. Reuse existing source normalization/upload helpers. Do not add unrelated analyzer
-rules or infrastructure services. Start with an unchanged-template fixture whose source changes an AWS
-read into a write; cover it with analyzer/shared/API adapter tests before UI integration. Agree on report
-semantics and request limits; details/acceptance criteria are in the roadmap.
+October 11 verification: 603 offline tests passed (187 API, 17 CLI, 289 analyzer, 21 shared, 89 CDK),
+plus npm run typecheck, npm run build and git diff --check. Sandbox loopback restrictions required
+an approved offline API rerun. Existing Vite >500 kB warning remains. No AWS deployment, hosted tests,
+live-storage tests or manual browser checks ran. Test deployment/publishing and browser acceptance
+still need explicit authorization before milestone 1.5 can be declared hosted-verified.
+
+The latest user-reported browser attempt used local React against the AWS test API and returned
+"Source comparison metadata unavailable". The local upload/serialization/API pipeline was rechecked
+with the actual browser fixtures and produced the expected delta, including with @ts-nocheck.
+The AWS test backend update and successful browser acceptance have not been reported complete.
 
 Milestone 2 still needs run summaries, analyzer/schema version metadata, compatibility for existing
 records, apply-to-child provenance and explicit reanalysis. Basic two-run template comparison already

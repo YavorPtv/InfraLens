@@ -15,6 +15,14 @@ export interface AnalyzeApiRequest extends SourceAnalysisInput {
   template: string;
 }
 
+/** Each source context belongs exclusively to its template side. */
+export interface DiffApiRequest {
+  oldTemplate: string;
+  newTemplate: string;
+  oldSource?: SourceAnalysisInput;
+  newSource?: SourceAnalysisInput;
+}
+
 export class SourcePathError extends Error {}
 
 export function normalizeSourceFilePath(path: string): string {

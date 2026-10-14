@@ -103,7 +103,10 @@ including inline `Code.ZipFile`, remain part of analysis reports. Action inferen
 the completeness of uploaded files and the lightweight supported import/SDK patterns. Explicit
 mapping associates a handler; it cannot restore missing import paths or missing helper files.
 
-`POST /diff` still accepts templates only; it has no separate old/new source-project input.
+`POST /diff` accepts independent optional `oldSource` and `newSource` contexts, each using
+the source fields above. Compare supports uploads/mappings on each side, and Apply preserves
+the original source context for both template versions. See [source comparison](SOURCE_COMPARISON.md)
+for availability semantics, deltas, limits and retention behavior.
 
 See [the nested project fixture](../examples/nested-source-project/README.md) and
 [Workflow testing](TESTING.md) for non-browser verification.

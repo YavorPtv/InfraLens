@@ -1,0 +1,12 @@
+{
+  "oldTemplate": "{\"Resources\":{\"OrdersTable\":{\"Type\":\"AWS::DynamoDB::Table\"},\"AppRole\":{\"Type\":\"AWS::IAM::Role\",\"Properties\":{\"Policies\":[{\"PolicyName\":\"Orders\",\"PolicyDocument\":{\"Statement\":{\"Effect\":\"Allow\",\"Action\":\"dynamodb:*\",\"Resource\":\"*\"}}}]}},\"AppFunction\":{\"Type\":\"AWS::Lambda::Function\",\"Properties\":{\"Handler\":\"handler.handler\",\"Role\":{\"Fn::GetAtt\":[\"AppRole\",\"Arn\"]},\"Environment\":{\"Variables\":{\"TABLE_NAME\":{\"Ref\":\"OrdersTable\"}}}}}}}",
+  "newTemplate": "{\"Resources\":{\"OrdersTable\":{\"Type\":\"AWS::DynamoDB::Table\"},\"AppRole\":{\"Type\":\"AWS::IAM::Role\",\"Properties\":{\"Policies\":[{\"PolicyName\":\"Orders\",\"PolicyDocument\":{\"Statement\":{\"Effect\":\"Allow\",\"Action\":\"dynamodb:*\",\"Resource\":\"*\"}}}]}},\"AppFunction\":{\"Type\":\"AWS::Lambda::Function\",\"Properties\":{\"Handler\":\"handler.handler\",\"Role\":{\"Fn::GetAtt\":[\"AppRole\",\"Arn\"]},\"Environment\":{\"Variables\":{\"TABLE_NAME\":{\"Ref\":\"OrdersTable\"}}}}}}}",
+  "oldSource": {
+    "sourceFiles": { "src/handler.ts": "import { GetCommand } from '@aws-sdk/lib-dynamodb'; await client.send(new GetCommand({ TableName: process.env.TABLE_NAME }));" },
+    "sourceFileMappings": { "src/handler.ts": "AppFunction" }
+  },
+  "newSource": {
+    "sourceFiles": { "src/handler.ts": "import { PutCommand } from '@aws-sdk/lib-dynamodb'; await client.send(new PutCommand({ TableName: process.env.TABLE_NAME }));" },
+    "sourceFileMappings": { "src/handler.ts": "AppFunction" }
+  }
+}

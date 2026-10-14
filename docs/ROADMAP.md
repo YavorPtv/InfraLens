@@ -1,6 +1,6 @@
 # InfraLens Portfolio And AWS Engineering Roadmap
 
-Last updated: October 11, 2026.
+Last updated: October 14, 2026.
 Verified repository baseline: main at cf2363e includes AWS environment separation and test workflows
 (#55), saved projects/history (#53), analyzer coverage (#52) and template validation (#51).
 The persistent AWS test stack and frontend are deployed according to the user, who also reports
@@ -32,7 +32,7 @@ See [HANDOFF](../HANDOFF.md) for current behavior and [analyzer limits](ANALYZER
 | --- | --- |
 | Saved projects/history foundation (milestone 1) | Implemented and deployed to test; retain the remaining browser acceptance checklist |
 | Explicit AWS environments and scoped test operations | Merged; test deployment, storage checks and frontend publishing exercised by the user |
-| Source-aware comparison (milestone 1.5 below) | Recommended next development task |
+| Source-aware comparison (milestone 1.5 below) | Implemented and verified offline; browser/hosted acceptance pending |
 | Make history useful (milestone 2) | Next after comparison can preserve source context |
 | Queues, reliable dispatch and operations (milestones 3–5) | Planned; implement in sequence when the preceding workflow works |
 | Production application deployment | Deferred; separate readiness decision, not the next milestone |
@@ -41,6 +41,12 @@ Before closing the remaining milestone 1 acceptance notes, check localhost again
 and record fresh-session report reopening and two-user isolation through the UI. Passing HTTP smoke
 or direct storage tests does not establish those browser behaviors. These small verification tasks
 can happen alongside the next comparison feature; they do not require production infrastructure.
+
+October 14 frontend loading follow-up is implemented on the existing feature branch: five application
+pages load on demand, with a Suspense status inside the persistent layout. Web typecheck, local and
+guarded offline hosted-test frontend builds passed; manifest inspection verified the lazy routes.
+Hosted initial JavaScript decreased from about 536 kB to 248 kB, and neither build emits the previous
+500 kB warning. This does not establish browser/hosted acceptance; no publishing or AWS changes ran.
 
 ## Chosen Architecture
 
@@ -131,18 +137,29 @@ it or obtain its artifacts; duplicate saves yield one run; failed writes recover
 storage integration checks pass. Verify against the persistent AWS test environment as well as local
 adapters before declaring hosted persistence complete.
 
-## Milestone 1.5: Compare Templates With Source Context — Next
+## Milestone 1.5: Compare Templates With Source Context — Implemented Offline
 
 **Outcome:** compare two analysis inputs, each with its own template, optional source tree, mappings
 and exclusions, and explain material changes in source-derived AWS/IAM evidence.
 
-Current gap verified in the repository: analyzeTemplateDiff already accepts independent oldTemplate
-and newTemplate analysis options and returns both reports. However, POST /diff parses/passes only
-template strings, ComparePage uploads only templates, the CLI uses template-only diff, and saved-run
-comparison discards retained source by reading only input.template. DiffReport and its UI summarize
-resource/finding changes without an explicit source/action/suggestion delta. Merely forwarding source
-files is insufficient: changing code from a DynamoDB read to a write can change the suggested IAM
-actions while leaving the CloudFormation resources and template-rule findings unchanged.
+Implemented on feature/source-aware-comparison: POST /diff accepts optional independent oldSource
+and newSource contexts; Compare supports source files/folders, mappings and exclusions; Apply keeps
+source context on both sides. Saved comparison uses authorized opted-in, unexpired source inputs.
+Additive source/action/evidence and before/after suggestion deltas are shown in UI and Markdown.
+The unchanged-template GetCommand -> PutCommand fixture demonstrates a suggested IAM action change
+with no resource/finding delta. The CLI remains template-only and existing reports remain readable.
+See [comparison semantics, request limits and retention](SOURCE_COMPARISON.md).
+
+October 11 verification: 603 offline Mocha/Chai tests passed, including analyzer/shared/API adapters,
+Apply serialization and saved retention/ownership cases; workspace typechecks/builds and diff checks
+passed. Existing Vite >500 kB warning remains. Manual browser acceptance and updating/testing the
+persistent AWS test deployment have not run; those authorized checks remain before hosted closure.
+The implemented acceptance scope is below.
+
+October 12: added tiny browser-upload fixtures (`examples/compare/before/project` and
+`after/project`, one tiny handler each with `// @ts-nocheck`) and a shared source-action-template.json. Folder upload
+instructions are in examples/compare/README.md. Direct analyzer verification confirmed the expected
+action/suggestion delta with no resource/finding changes. Browser/hosted acceptance remains pending.
 
 - Extend the shared/API comparison contract with independent source files, mappings and exclusions
   for each side. Reuse existing normalization and source analysis; preserve template-only requests.
@@ -356,8 +373,6 @@ ownership, API, UI, then failure/hosted verification. Write a brief architecture
 consequential choices, not a large speculative framework. Keep Mocha/Chai and existing workspace
 conventions; add CDK assertions and real adapter checks where they establish behavior.
 
-The recommended next development task is milestone 1.5. Start with a small code-only AWS action
-change fixture and a backward-compatible API contract, then carry independent source context through
-the UI, apply navigation, saved-run comparison and export. Agree on the comparison semantics before
-extending report fields. Finish remaining milestone 1 browser checks and then proceed to milestone 2.
+Milestone 1.5 is implemented and verified offline. Next, authorize its browser/hosted-test acceptance
+and finish remaining milestone 1 browser checks, then proceed to milestone 2 history improvements.
 No production deployment, queue or broad analyzer expansion is needed for this next slice.

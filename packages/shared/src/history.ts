@@ -30,6 +30,8 @@ export interface OpenSavedRun {
   run: SavedRun;
   report: AnalysisReport;
   template?: string;
+  /** Only opted-in, unexpired raw inputs; never reconstructed from report evidence. */
+  input?: AnalyzeApiRequest;
 }
 
 export type SavedArtifact = "report" | "markdown" | "input";

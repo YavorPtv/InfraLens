@@ -8,7 +8,7 @@ import { ReportPage } from "./ReportPage";
 
 export function SavedReportPage() {
   const { projectId = "", runId = "" } = useParams();
-  const { setReport, setOriginalTemplateInput } = useAnalysisReport();
+  const { setReport, setOriginalTemplateInput, setOriginalSource } = useAnalysisReport();
   const [run, setRun] = useState<SavedRun | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -17,7 +17,9 @@ export function SavedReportPage() {
     setError(null);
     setReport(null);
     setOriginalTemplateInput(null);
+    setOriginalSource(undefined);
     void restoreSavedReport(historyClient, projectId, runId, {
+      setOriginalSource: (source) => { if (active) setOriginalSource(source); },
       setReport: (report) => {
         if (active) {
           setReport(report);
@@ -43,7 +45,7 @@ export function SavedReportPage() {
     return () => {
       active = false;
     };
-  }, [projectId, runId, setReport, setOriginalTemplateInput]);
+  }, [projectId, runId, setReport, setOriginalTemplateInput, setOriginalSource]);
   if (error) {
     return (
       <section className="page-section">

@@ -101,6 +101,12 @@ export function analyzeTemplate(
   const templateFixes = generateTemplateFixes(template, findings, leastPrivilegeSuggestions);
 
   return {
+    sourceAnalysis: {
+      status: options.sourceFiles === undefined ? "missing" : "provided",
+      fileCount: Object.keys(options.sourceFiles ?? {}).length,
+      actions: sourceAnalysis.inferences,
+      warnings: sourceAnalysis.warnings
+    },
     iamAnalysis: buildIamAnalysis(template),
     sourceAnalysisWarnings: sourceAnalysis.warnings,
     analysisStatus: "completed",

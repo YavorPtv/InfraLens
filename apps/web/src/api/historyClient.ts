@@ -71,16 +71,21 @@ export function createHistoryClient(baseUrl: string, fetcher: typeof fetch) {
 }
 
 export async function restoreSavedReport(
-  client: ReturnType<typeof createHistoryClient>,
+  client: Pick<ReturnType<typeof createHistoryClient>, "open">,
   projectId: string,
   runId: string,
   state: {
     setReport: (report: OpenSavedRun["report"]) => void;
     setOriginalTemplateInput: (template: string | null) => void;
+    setOriginalSource?: (source: import("@infralens/shared").SourceAnalysisInput | undefined) => void;
   }
 ): Promise<OpenSavedRun> {
   const result = await client.open(projectId, runId);
   state.setReport(result.report);
   state.setOriginalTemplateInput(result.template ?? null);
+  state.setOriginalSource?.(result.input === undefined ? undefined : {
+    sourceFiles: result.input.sourceFiles, sourceFileMappings: result.input.sourceFileMappings,
+    sourceFileExclusions: result.input.sourceFileExclusions
+  });
   return result;
 }
