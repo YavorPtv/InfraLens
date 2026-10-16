@@ -1,133 +1,89 @@
 # InfraLens handoff
 
-Updated: October 14, 2026. Read AGENTS.md first, then inspect Git and the relevant code.
+Updated: October 16, 2026. Read [AGENTS.md](AGENTS.md), inspect Git, then read the relevant code.
 
-October 12 fixture addition: examples/compare/before/project and after/project each contain one
-tiny handler (two source lines plus `// @ts-nocheck`) for manual browser upload. Use source-action-template.json on both sides and
-explicit AppFunction mappings for high confidence. Auto detect also shows the delta, with manual-review
-suggestions. The analyzer verified the GetItem -> PutItem action/suggestion delta
-with no resource/finding changes. Instructions are in examples/compare/README.md; browser acceptance
-remains pending.
+## Current state
 
-October 14 frontend follow-up: Analyze, Compare, Report, Projects and SavedReport routes now use
-React.lazy on the existing feature branch. AppLayout wraps its Outlet in Suspense, keeping the
-navigation, page heading and analysis provider mounted while page code loads. The home/sign-in/
-callback code stays eager. No dependencies, chunk-size limits or deployment settings changed.
-Web typecheck, local production build and guarded offline hosted-test frontend build passed.
-The build manifest confirmed all five pages are dynamic entries outside the initial static import
-graph. Hosted initial JavaScript fell from 535,850 to 247,746 bytes (about 54%); the report/graph
-chunk is about 236 kB. Both builds finish without the previous >500 kB warning. Browser navigation
-and publishing this follow-up remain unverified; no AWS writes ran.
+- Current checkout: `main` at `6b75915`, source-aware comparison and frontend lazy loading merged
+  in PR #57. The working tree was clean before this documentation update.
+- Milestone 1 provides saved projects/runs, server-generated reports, idempotent saves, authorized
+  artifacts, quotas, retention and deletion. Milestone 1.5 adds independent source-aware comparison
+  across API, UI, saved runs, Apply navigation and Markdown export. The CLI remains template-only.
+- On October 16 the user confirmed both the updated AWS test API and hosted frontend are deployed
+  and the browser GetItem -> PutItem comparison works. Earlier authenticated smoke, direct storage
+  tests and frontend publishing also have successful user reports. These are not new live checks
+  performed by the assistant.
+- Five application pages now load on demand. The verified offline hosted build reduced initial
+  JavaScript from about 536 kB to 248 kB and removed the 500 kB warning.
+- Previous implementation checks passed: 603 offline tests, workspace typechecks/builds, and local/
+  hosted frontend builds. This documentation update does not rerun them or perform AWS operations.
 
-## Repository and boundaries
+## Next task: milestone 2 - make history useful
 
-- Feature checkout: feature/source-aware-comparison, based on main. The baseline includes Feature/separate aws environments (#55), hosted-test
-  workflows and scoped storage/frontend publishing. Milestone 1.5 changes are on this feature branch;
-  inspect Git for the latest revision and any subsequent changes.
-- Keep npm workspaces, TypeScript, Mocha/Chai and the existing layout. Analyzer logic stays independent
-  of AWS/React in packages/analyzer; shared contracts in packages/shared; API/UI in apps/api and apps/web;
-  infrastructure/workflows in infra/cdk. Ask before restructuring; preserve unrelated changes.
-- Update docs/ROADMAP.md whenever a task completes or changes milestone status, scope, priorities or
-  remaining work. Before handing off or committing, check that the roadmap and HANDOFF.md agree with
-  the implemented behavior and verified results; do not mark unverified work complete.
-- This task implemented milestone 1.5 on the focused feature branch. Offline verification passed.
-  Do not commit/push, deploy/bootstrap/destroy, modify IAM/Organizations or run browser/hosted/live-storage
-  tests without explicit authorization. Read-only AWS inspection with the supplied profiles is allowed
-  when needed, after verifying caller account. Never request secrets/tokens in chat.
+Proceed with [milestone 2 in the roadmap](docs/ROADMAP.md#milestone-2-make-history-useful).
+There is no known prerequisite code change before starting it. The user plans a separate chat.
 
-## Milestone 1.5 implemented; next: authorized acceptance checks, then milestone 2
+Implement run summaries, analyzer/schema version metadata with legacy compatibility, Apply-to-child
+provenance, and explicit reanalysis. Reuse the existing source-aware saved comparison.
 
-Read milestone 1.5 in docs/ROADMAP.md and docs/SOURCE_COMPARISON.md. Production remains deferred.
-Recommendation: browser/hosted acceptance for source-aware comparison -> milestone 2 history
-improvements -> later queue/operations work. Milestone 1's remaining browser checks are still pending.
+Start with these files:
 
-Verified current behavior:
+- `packages/shared/src/history.ts`: current saved-run/API contracts.
+- `apps/api/src/historyService.ts`, `historyStore.ts`, `historyRoutes.ts`: saves, artifacts, ownership,
+  retention, comparison and storage records. `StoredRecord.version` is for conditional writes;
+  it is not a report schema or analyzer version.
+- `apps/web/src/pages/ProjectsPage.tsx`, `SavedReportPage.tsx`, `ReportPage.tsx`,
+  `components/report/ApplySuggestionsPanel.tsx`, `api/historyClient.ts`: history and Apply flows.
+- `apps/api/test/history.integration.test.ts`, `sourceComparison.integration.test.ts`: existing
+  adapter/retention/ownership coverage. Use the established Mocha/Chai conventions.
 
-- POST /diff keeps oldTemplate/newTemplate strings and accepts optional independent oldSource/newSource
-  objects with sourceFiles/mappings/exclusions. Each side uses existing normalization and source analysis.
-  Defaults: 100 files/side, 256 KiB/file, 2 MiB combined source, 1 MiB/template, 4 MiB serialized request.
-- Analysis reports include optional sourceAnalysis metadata; DiffReport adds source and suggestions
-  deltas. Code-only GetCommand -> PutCommand changes produce before/after suggestions and evidence
-  without resource/finding changes. Missing source differs from a provided empty tree. Inference is
-  explicitly not effective IAM permissions; disappearing observations do not prove unused permission.
-- Compare has independent source folder/files uploads, mappings and exclusions. Markdown export and
-  saved comparison use the same evidence semantics. Analyze -> Apply -> Compare carries source to both
-  sides, including reopened opted-in saved inputs. CLI remains template-only and passes existing tests.
-- History compares only authorized retained inputs, preserving source when opted in and unexpired.
-  OpenSavedRun adds optional input while keeping template compatibility. Unretained source is missing;
-  history offers template-only available-input comparison or reupload. Empty opted-in trees are retained.
-  Expiry/deletion/ownership are rechecked after artifact reads; expired reports remain readable.
+Keep these guarantees:
 
-October 11 verification: 603 offline tests passed (187 API, 17 CLI, 289 analyzer, 21 shared, 89 CDK),
-plus npm run typecheck, npm run build and git diff --check. Sandbox loopback restrictions required
-an approved offline API rerun. Existing Vite >500 kB warning remains. No AWS deployment, hosted tests,
-live-storage tests or manual browser checks ran. Test deployment/publishing and browser acceptance
-still need explicit authorization before milestone 1.5 can be declared hosted-verified.
+- Saves analyze inputs on the server; browser report JSON is not authoritative. Preserve retry-safe
+  saves, quotas, ownership checks, immutable original runs and deletion enforcement.
+- Raw inputs expire after seven days; source retention is opt-in. `OpenSavedRun.input` exposes only
+  authorized, unexpired retained input. Expired inputs require reupload; never reconstruct raw source
+  from reports. Missing source needs reupload or an explicitly labeled template-only choice.
+- Comparisons recompute with the current analyzer. Preserve independent old/new source files,
+  mappings and exclusions; identify analyzer/schema differences rather than implying historical replay.
+- Source actions are static inferences, not effective IAM permissions. Missing or incomplete source
+  does not prove unused permissions. See [source comparison semantics](docs/SOURCE_COMPARISON.md).
 
-The latest user-reported browser attempt used local React against the AWS test API and returned
-"Source comparison metadata unavailable". The local upload/serialization/API pipeline was rechecked
-with the actual browser fixtures and produced the expected delta, including with @ts-nocheck.
-The AWS test backend update and successful browser acceptance have not been reported complete.
+Carry into milestone 2 acceptance: record fresh-session saved-report reopening, localhost test
+Cognito/API callback/CORS, two-user UI isolation, and the full save -> reopen -> apply -> save child
+-> compare -> export workflow. The confirmed code-only comparison does not establish all those cases.
+The broad UI refactor is deferred; limit UI work to the history feature and useful evidence.
 
-Milestone 2 still needs run summaries, analyzer/schema version metadata, compatibility for existing
-records, apply-to-child provenance and explicit reanalysis. Basic two-run template comparison already
-exists. Queues, Streams, Scheduler and asynchronous jobs are future work, not current infrastructure.
+## Environment and operating boundaries
 
-## AWS and frontend status
-
-| Environment | Account / region / stack | Status |
+| Environment | Account / region / stack | State |
 | --- | --- | --- |
-| Fully local | No AWS | React + Express, memory history and explicit fake local identity |
-| AWS test | 230944684535 / eu-central-1 / InfraLensTestStack | Persistent deployment and frontend working per user report |
-| Production | 609124256824 / proposed eu-central-1 / InfraLensProdStack | No application stack; region unconfirmed; deployment deferred |
+| Fully local | No AWS | React + Express, memory history, explicit local identity |
+| AWS test | `230944684535` / `eu-central-1` / `InfraLensTestStack` | Persistent API/frontend; current updates confirmed by user |
+| Production | `609124256824` / region unconfirmed / proposed `InfraLensProdStack` | Application deployment deferred |
 
-- Test resources are described in ignored infra/cdk/cdk-outputs.test.json. Never invent resource names
-  or commit outputs, generated .env files, passwords or tokens. Hosted authentication uses test Cognito;
-  health/OPTIONS are public, all analysis/history routes require authentication.
-- CloudFront and http://localhost:5173 both use test Cognito/API/data. Local React mode aws-test-local
-  needs no Express API or CLI credentials. Fully local mode remains a separate AWS-free option.
-- User reports authenticated GitHub smoke passed, all three direct storage tests passed, and guarded
-  frontend publishing worked. Localhost callback/CORS and granular fresh-session/two-user UI checks
-  have not been individually reported complete; do not claim they were independently verified.
-- infralens-test-admin and infralens-prod-admin are administrators, not restricted deployment identities.
-  Dedicated test profiles/permission sets: infralens-test-deploy / InfraLensTestDeploy,
-  infralens-test-storage / InfraLensTestStorage, infralens-test-frontend / InfraLensTestFrontend.
-  Storage access covers only reserved test-* owner namespaces; frontend access covers its bucket/cache.
-- Test CDKToolkit is customized: version 32, qualifier hnb659fds, variant InfraLensTestScopedV1, with an
-  administrator-owned application boundary. Do not run default bootstrap over it. Leave production
-  CDKToolkit unchanged. Policy details and old repair history belong in docs/TEST_DEPLOYMENT_PERMISSIONS.md.
-- Test CloudTrail infralens-test-audit was verified read-only October 4: active multi-region management
-  logging. It stays separate from the app. Management-account $1 budget scope/alerts are unverified.
-  Production permissions, audit, cost monitoring and recovery need a later readiness review.
+- Keep the existing workspaces: analyzer in `packages/analyzer` independent of AWS/React, contracts
+  in `packages/shared`, API/UI in `apps/api` and `apps/web`, CLI in `apps/cli`, infrastructure in
+  `infra/cdk`. Ask before restructuring. Update this handoff and the roadmap when scope/status changes.
+- Commits/pushes, deployments, IAM changes and browser/hosted/live-storage tests require explicit
+  authorization. Production remains deferred. Read-only AWS inspection is allowed when needed after
+  verifying caller account. Never request secrets in chat or commit generated outputs/environment files.
+- Use scoped profiles: `infralens-test-deploy`, `infralens-test-frontend`, `infralens-test-storage`.
+  Administrator profiles are not routine deployment identities. Keep the persistent stack deployed.
+- Test `CDKToolkit` is customized (`InfraLensTestScopedV1`, qualifier `hnb659fds`, version 32,
+  application permissions boundary). Do not overwrite it with default bootstrap. Leave production
+  bootstrap unchanged. Old repair procedures are historical, not setup steps to repeat.
+- Use the existing guarded deployment/publishing and live-test workflows. Frontend-only changes need
+  frontend publishing; API/analyzer changes need a backend deployment. Local React in `aws-test-local`
+  mode calls test Cognito/API directly; fully local mode is a separate AWS-free workflow.
 
-## Verification and workflow entry points
+## Reference documents
 
-- Normal npm tests/typechecks/builds and synthesis are credential-free; live files are outside *.test.ts
-  discovery. Use guarded commands, not direct Mocha invocation of live suites. Keep the stack deployed
-  between runs; no automatic teardown or bucket emptying. Retained resources need intentional cleanup.
-- Recent October 10 checks passed: 39 related offline guard/policy tests, workspace typechecks, hosted
-  Vite build, policy validation and read-only IAM simulations. Existing Vite >500 kB warning remains.
-  These do not prove every browser/live case. This documentation refresh ran no AWS or live tests.
-- infra/cdk/src/deployment-workflow.ts: explicit target synthesis/preflight/diff/deploy/frontend config.
-  Online commands verify actual caller account and intended region/stack; profile names are not proof.
-- infra/cdk/src/hosted-test-workflow.ts: test-only test:smoke, test:hosted, test:aws, test:users:setup.
-  Hosted/storage writes require matching live outputs/profile and --allow-test-data true; setup requires
-  --allow-user-setup true. Storage checks do not need Cognito credentials.
-- apps/api/test/testUserAuthentication.ts obtains fresh OAuth/PKCE tokens and refreshes in memory for
-  two persistent confirmed Cognito fixtures. Credentials live in protected process/GitHub secrets;
-  manual access-token variables are retired. Routine runs do not provision users/reset passwords.
-- .github/workflows/deployed-smoke.yml is manual, environment aws-test, authenticated by default.
-  Authenticated mode includes public checks; skipping the public-only step is expected. After merging,
-  allow main in environment branch rules and run from main; completion of that change/run is unverified.
-- infra/cdk/src/test-storage-permissions.ts and test-frontend-workflow.ts generate offline policy files.
-  Frontend publisher rebuilds with pinned test settings, uploads assets before index, preserves old
-  files and waits for CloudFront invalidation. No backend/storage deployment is needed for publishing.
-
-## Documentation to consult
-
-- docs/ROADMAP.md: priority/order and source-comparison acceptance criteria.
-- docs/TESTING.md: offline/live commands, fixture setup and scoped storage permission set instructions.
-- docs/PRODUCTION_DEPLOYMENT.md: environment setup, localhost modes and guarded frontend publishing.
-- docs/SAVED_PROJECTS.md: ownership, idempotency, retention, deletion and cleanup behavior.
-- docs/SOURCE_UPLOADS.md and docs/ANALYZER_COVERAGE.md: source normalization/mapping and inference limits.
-- docs/TEST_DEPLOYMENT_PERMISSIONS.md: custom bootstrap/policy design; read only if relevant to AWS work.
+- [Roadmap](docs/ROADMAP.md): scope, order and acceptance criteria.
+- [Saved projects](docs/SAVED_PROJECTS.md): storage, ownership, idempotency, retention and cleanup.
+- [Source comparison](docs/SOURCE_COMPARISON.md), [uploads](docs/SOURCE_UPLOADS.md) and
+  [analyzer coverage](docs/ANALYZER_COVERAGE.md): contracts, inference limits and evidence semantics.
+- [Testing](docs/TESTING.md): offline/live commands and persistent Cognito fixtures.
+- [Deployment](docs/PRODUCTION_DEPLOYMENT.md): environment configuration and guarded commands.
+- [Test permissions](docs/TEST_DEPLOYMENT_PERMISSIONS.md): custom bootstrap/policy details, if needed.
+- [Tiny comparison fixture](examples/compare/README.md): template and before/after source folders.
