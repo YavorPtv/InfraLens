@@ -345,6 +345,9 @@ export function addAnalysisApiRoutes(
     runs.addMethod(method, integration, methodOptions);
   }
   const run = runs.addResource("{runId}");
+  for (const action of ["apply", "reanalyze"]) {
+    run.addResource(action).addMethod("POST", integration, methodOptions);
+  }
   for (const method of ["GET", "DELETE"]) {
     run.addMethod(method, integration, methodOptions);
   }

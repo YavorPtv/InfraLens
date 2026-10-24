@@ -255,6 +255,10 @@ export function ProjectsPage() {
                     <Link to={`/projects/${projectId}/runs/${run.runId}`}>
                       {new Date(run.createdAt).toLocaleString()}
                     </Link>
+                    <p>{run.summary ? `${run.resourceCount} resources · ${run.summary.totalFindings} findings · Score ${run.score}/100` : "Legacy run: summary unavailable; open the stored report."}</p>
+                    {run.summary && <p className="muted-note">{Object.entries(run.summary.bySeverity).map(([severity, count]) => `${count} ${severity}`).join(" · ")}</p>}
+                    <p className="muted-note">Analyzer {run.analyzerVersion ?? "unknown"} · Schema {run.schemaVersion ?? "unknown"}</p>
+                    {run.provenance && <p>{run.provenance.kind === "apply" ? "Applied fixes" : "Reanalysis"} · {run.provenance.inputMode} · <Link to={`/projects/${projectId}/runs/${run.provenance.parentRun.runId}`}>Parent run</Link></p>}
                     <p className="muted-note">
                       Inputs expire {new Date(run.inputExpiresAt).toLocaleString()}. Source{" "}
                       {run.sourceRetained ? "retained" : "not retained"}. Retained input:{" "}

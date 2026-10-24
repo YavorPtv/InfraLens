@@ -11,8 +11,11 @@ import { applySuggestions } from "../../api/applySuggestions";
 import { downloadTextFile } from "../../downloadTextFile";
 import { createApplyComparison } from "../../compareInput";
 import type { SourceAnalysisInput } from "@infralens/shared";
+import type { SavedRun } from "@infralens/shared";
+import { historyClient, saveRequestKey } from "../../api/history";
 
 interface ApplySuggestionsPanelProps {
+  savedRun?: SavedRun;
   fixes: TemplateFix[];
   originalTemplateInput: string | null;
   originalSource?: SourceAnalysisInput;
@@ -21,13 +24,16 @@ interface ApplySuggestionsPanelProps {
 export function ApplySuggestionsPanel({
   fixes,
   originalTemplateInput,
-  originalSource
+  originalSource,
+  savedRun
 }: ApplySuggestionsPanelProps) {
   const [selectedFixIds, setSelectedFixIds] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<ApplySuggestionsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isApplying, setIsApplying] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const [retainSource, setRetainSource] = useState(false);
+  const [templateOnly, setTemplateOnly] = useState(false);
   const navigate = useNavigate();
   const applicableFixes = fixes.filter((fix) => fix.applicability === "applicable");
   const manualFixes = fixes.filter((fix) => fix.applicability === "manual-review");
@@ -63,6 +69,25 @@ export function ApplySuggestionsPanel({
           ? applyError.message
           : "Applying selected suggestions failed."
       );
+    } finally {
+      setIsApplying(false);
+    }
+  }
+
+  async function saveChild(): Promise<void> {
+    if (!savedRun || isApplying) return;
+    setIsApplying(true);
+    setError(null);
+    try {
+      const selection = { parent: savedRun.runId, fixIds: selectedFixes.map(fix => fix.id), templateOnly };
+      const idempotencyKey = await saveRequestKey(savedRun.projectId, { kind: "apply", ...selection }, retainSource);
+      const child = await historyClient.apply(savedRun.projectId, savedRun.runId, {
+        fixIds: selection.fixIds, templateOnly, retainSource, idempotencyKey
+      });
+      sessionStorage.removeItem(`infralens-save-${savedRun.projectId}`);
+      navigate(`/projects/${savedRun.projectId}/runs/${child.run.runId}`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Saving child run failed.");
     } finally {
       setIsApplying(false);
     }
@@ -170,6 +195,31 @@ export function ApplySuggestionsPanel({
         >
           {isApplying ? "Applying and validating..." : `Apply selected suggestions (${selectedFixes.length})`}
         </button>
+        {savedRun && (
+          <div>
+            <p>Save selected fixes as a linked child. The server regenerates and validates the template; the original report stays available.</p>
+            {!savedRun.sourceRetained && (
+              <p><label>
+                <input type="checkbox" checked={templateOnly} onChange={event => setTemplateOnly(event.target.checked)} />{" "}
+                Apply with template-only analysis (source unavailable)
+              </label></p>
+            )}
+            {savedRun.sourceRetained && (
+              <p><label>
+                <input type="checkbox" checked={retainSource} onChange={event => setRetainSource(event.target.checked)} />{" "}
+                Retain source in child for 7 days
+              </label></p>
+            )}
+            <button
+              className="primary-button"
+              type="button"
+              disabled={isApplying || selectedFixes.length === 0 || originalTemplateInput === null || result === null || !canDownload || result.failedFixCount > 0}
+              onClick={() => void saveChild()}
+            >
+              Save selected fixes as child run
+            </button>
+          </div>
+        )}
       </div>
 
       {error !== null ? (

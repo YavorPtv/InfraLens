@@ -233,6 +233,10 @@ function TemplateInputPanel({
 export function DiffReportView({ report }: { report: DiffReport }) {
   return (
     <div className="diff-report">
+      {report.savedComparison && <div className="muted-note">
+        <p>Historical versions: old {report.savedComparison.old.analyzerVersion} / schema {report.savedComparison.old.schemaVersion}; new {report.savedComparison.new.analyzerVersion} / schema {report.savedComparison.new.schemaVersion}. Recomputed with {report.savedComparison.current.analyzerVersion} / schema {report.savedComparison.current.schemaVersion}.</p>
+        {report.savedComparison.warnings.map(warning => <p key={warning}>{warning}</p>)}
+      </div>}
       <div className="report-export-bar">
         <div>
           <h2>Diff Report</h2>

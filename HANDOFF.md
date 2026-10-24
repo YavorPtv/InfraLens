@@ -1,11 +1,11 @@
 # InfraLens handoff
 
-Updated: October 16, 2026. Read [AGENTS.md](AGENTS.md), inspect Git, then read the relevant code.
+Updated: October 24, 2026. Read [AGENTS.md](AGENTS.md), inspect Git, then read the relevant code.
 
 ## Current state
 
-- Current checkout: `main` at `6b75915`, source-aware comparison and frontend lazy loading merged
-  in PR #57. The working tree was clean before this documentation update.
+- Milestone 2 is implemented on `main` and deployed to AWS test. Its starting point was
+  `217481a`, the handoff/roadmap refresh after source-aware comparison and lazy loading in PR #57.
 - Milestone 1 provides saved projects/runs, server-generated reports, idempotent saves, authorized
   artifacts, quotas, retention and deletion. Milestone 1.5 adds independent source-aware comparison
   across API, UI, saved runs, Apply navigation and Markdown export. The CLI remains template-only.
@@ -15,16 +15,38 @@ Updated: October 16, 2026. Read [AGENTS.md](AGENTS.md), inspect Git, then read t
   performed by the assistant.
 - Five application pages now load on demand. The verified offline hosted build reduced initial
   JavaScript from about 536 kB to 248 kB and removed the 500 kB warning.
-- Previous implementation checks passed: 603 offline tests, workspace typechecks/builds, and local/
-  hosted frontend builds. This documentation update does not rerun them or perform AWS operations.
+- Milestone 2 adds analyzer/report-schema versions, run summaries, linked Apply/reanalysis children,
+  source evidence and historical-versus-recomputed comparison labels. On October 24 the assistant
+  deployed the backend through the guarded test workflow, published the frontend (including the
+  Apply CSS fix), and verified CloudFront invalidation completion. The stack is UPDATE_COMPLETE.
+- Offline verification: 609 Mocha/Chai tests passed, workspace typechecks and builds passed.
+  The local Vite build's initial JavaScript is about 247 kB, with no chunk-size warning.
+- October 24 live verification: 18 public HTTP smoke checks and four real DynamoDB/S3 tests passed.
+  Browser acceptance passed hosted save/source -> fresh-session reopen -> preview two fixes ->
+  save child -> compare -> download Markdown; findings fell from 4 to 2 and score rose 45 -> 85.
+  Retained-source, missing-source/template-only and reuploaded-source reanalysis passed, as did
+  localhost test Cognito callback/CORS, saving/reopening/logout and two-user UI isolation both ways.
+  An existing October 10 legacy report remained readable with unknown versions; expired inputs
+  disabled reanalysis and were absent from the reupload form. That existing project was not changed.
+  See [testing](docs/TESTING.md#october-24-2026-milestone-2-acceptance) for evidence and limits.
 
-## Next task: milestone 2 - make history useful
+## Next task: milestone 3, when requested
 
-Proceed with [milestone 2 in the roadmap](docs/ROADMAP.md#milestone-2-make-history-useful).
-There is no known prerequisite code change before starting it. The user plans a separate chat.
+[Milestone 2](docs/ROADMAP.md#milestone-2-make-history-useful) is implemented, deployed to test and
+accepted in the browser. Milestone 3 remains planned; no queue implementation has started.
 
-Implement run summaries, analyzer/schema version metadata with legacy compatibility, Apply-to-child
-provenance, and explicit reanalysis. Reuse the existing source-aware saved comparison.
+New reports use analyzer `0.2.0` and report schema `2`. Legacy metadata/report fields stay readable
+and explicitly unknown; historical objects are not rewritten. Bump the analyzer constant in
+`packages/analyzer/src/analyzeTemplate.ts` when behavior changes and the schema constant in shared
+history contracts when the report format changes.
+
+`POST /projects/:projectId/runs/:runId/apply` accepts selected fix IDs; the server regenerates current
+fixes, rejects stale selections, validates the generated template and saves a child. `/reanalyze`
+explicitly saves a current-analyzer child from retained or reuploaded inputs. Missing/unknown source
+requires reupload or `templateOnly: true`. Reuploaded Apply inputs must match stored digests; expired
+legacy inputs without digests must first be reanalyzed. Parent checks participate in reservation and
+publication transactions. The original report/artifacts stay immutable; only the conditional-write
+version of a parent is advanced to serialize against deletion.
 
 Start with these files:
 
@@ -49,17 +71,24 @@ Keep these guarantees:
 - Source actions are static inferences, not effective IAM permissions. Missing or incomplete source
   does not prove unused permissions. See [source comparison semantics](docs/SOURCE_COMPARISON.md).
 
-Carry into milestone 2 acceptance: record fresh-session saved-report reopening, localhost test
-Cognito/API callback/CORS, two-user UI isolation, and the full save -> reopen -> apply -> save child
--> compare -> export workflow. The confirmed code-only comparison does not establish all those cases.
-The broad UI refactor is deferred; limit UI work to the history feature and useful evidence.
+The guarded hosted HTTP suite is extended for child Apply, retries, comparison/export and reanalysis.
+It and authenticated scripted smoke were not run on October 24: credentials were not injected, and
+the user instead signed in manually for the real browser checks. Public smoke's one authenticated
+case was explicitly pending, not passed. No credentials/tokens were extracted or stored. This is
+separate from the successful browser and direct-storage evidence. The user subsequently authorized
+committing milestone 2 directly to `main`, pushing it and synchronizing the local checkout.
+The broad UI refactor and production remain deferred.
+
+The browser acceptance project `Milestone 2 acceptance 2026-10-24` was left for review under user A
+with seven small fixture runs. Direct storage tests cleaned their own random test-owner records
+and artifacts. The temporary localhost AWS-test Vite process was stopped after verification.
 
 ## Environment and operating boundaries
 
 | Environment | Account / region / stack | State |
 | --- | --- | --- |
 | Fully local | No AWS | React + Express, memory history, explicit local identity |
-| AWS test | `230944684535` / `eu-central-1` / `InfraLensTestStack` | Persistent API/frontend; current updates confirmed by user |
+| AWS test | `230944684535` / `eu-central-1` / `InfraLensTestStack` | Milestone 2 deployed and browser-verified October 24 |
 | Production | `609124256824` / region unconfirmed / proposed `InfraLensProdStack` | Application deployment deferred |
 
 - Keep the existing workspaces: analyzer in `packages/analyzer` independent of AWS/React, contracts

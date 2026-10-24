@@ -1,5 +1,7 @@
 import type {
   CompareSavedRunsRequest,
+  DeriveRunRequest,
+  ApplySavedRunRequest,
   SaveAnalysisRequest,
   SavedRunReference
 } from "@infralens/shared";
@@ -159,6 +161,10 @@ export async function routeHistory(
   }
   const runId = pathParts[3];
   if (pathParts[2] === "runs" && runId && isValidRunId(runId)) {
+    if (pathParts.length === 5 && method === "POST" && (pathParts[4] === "apply" || pathParts[4] === "reanalyze")) {
+      const kind = pathParts[4] === "apply" ? "apply" : "reanalysis";
+      return jsonResponse(await service.derive(owner, projectId, runId, kind, parseDeriveRequest(body, kind)), 201);
+    }
     if (pathParts.length === 4) {
       if (method === "GET") {
         return jsonResponse(await service.open(owner, projectId, runId));
@@ -187,7 +193,13 @@ export async function routeHistory(
 
 function parseSaveRequest(body: Record<string, unknown>): SaveAnalysisRequest {
   assertAllowedFields(body, ["input", "idempotencyKey", "retainSource"]);
-  const input = requireRecord(body.input);
+  validateInputShape(body.input);
+  validateSaveOptions(body);
+  return body as unknown as SaveAnalysisRequest;
+}
+
+function validateInputShape(value: unknown): void {
+  const input = requireRecord(value);
   assertAllowedFields(input, [
     "template",
     "sourceFiles",
@@ -197,6 +209,9 @@ function parseSaveRequest(body: Record<string, unknown>): SaveAnalysisRequest {
   if (typeof input.template !== "string" || !input.template.trim()) {
     invalidRequest("input.template must be a non-empty string.");
   }
+}
+
+function validateSaveOptions(body: Record<string, unknown>): void {
   if (
     typeof body.idempotencyKey !== "string" ||
     !/^[A-Za-z0-9_-]{8,128}$/.test(body.idempotencyKey)
@@ -206,5 +221,16 @@ function parseSaveRequest(body: Record<string, unknown>): SaveAnalysisRequest {
   if (body.retainSource !== undefined && typeof body.retainSource !== "boolean") {
     invalidRequest("retainSource must be boolean.");
   }
-  return body as unknown as SaveAnalysisRequest;
+}
+
+function parseDeriveRequest(body: Record<string, unknown>, kind: "apply" | "reanalysis"): DeriveRunRequest | ApplySavedRunRequest {
+  assertAllowedFields(body, ["idempotencyKey", "retainSource", "input", "templateOnly", ...(kind === "apply" ? ["fixIds"] : [])]);
+  validateSaveOptions(body);
+  if (body.input !== undefined) validateInputShape(body.input);
+  if (body.templateOnly !== undefined && typeof body.templateOnly !== "boolean") invalidRequest("templateOnly must be boolean.");
+  if (kind === "apply" && (!Array.isArray(body.fixIds) || body.fixIds.length < 1 || body.fixIds.length > 100 ||
+    body.fixIds.some(id => typeof id !== "string" || !id || id.length > 1024) || new Set(body.fixIds).size !== body.fixIds.length)) {
+    invalidRequest("fixIds must contain 1–100 unique fix IDs.");
+  }
+  return body as unknown as DeriveRunRequest | ApplySavedRunRequest;
 }

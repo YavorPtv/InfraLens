@@ -939,7 +939,19 @@ h2 {
 
 .apply-suggestions-actions {
   display: flex;
-  justify-content: flex-start;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.apply-suggestions-actions > div {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
+.apply-suggestions-actions > div > p {
+  margin: 0;
 }
 
 .generated-template-review {

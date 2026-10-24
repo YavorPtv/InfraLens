@@ -22,6 +22,8 @@ hosted authentication adapter. See [deployment separation](PRODUCTION_DEPLOYMENT
 | PATCH / DELETE | `/projects/:projectId` | Rename with `{name}` / delete project and revoke children |
 | POST / GET | `/projects/:projectId/runs` | Analyze and save / chronological history |
 | GET / DELETE | `/projects/:projectId/runs/:runId` | Reopen report / revoke run and clean artifacts |
+| POST | `/projects/:projectId/runs/:runId/apply` | Regenerate/validate selected fixes and save a linked child |
+| POST | `/projects/:projectId/runs/:runId/reanalyze` | Explicit current-analyzer reanalysis saved as a linked child |
 | GET | `/projects/:projectId/runs/:runId/artifacts/:artifact` | Authorized `report`, `markdown`, or retained `input` download |
 | POST | `/projects/compare` | Compare `{oldRun: {projectId, runId}, newRun: {projectId, runId}}` |
 | POST | `/projects/cleanup` | Retry owner-scoped physical deletion and discard expired pending saves |
@@ -51,6 +53,47 @@ snapshot includes source only when retention was explicitly enabled. No owner or
 The web client keeps only a request fingerprint and retry key in sessionStorage during a save,
 not the submitted inputs. Successful saves clear that retry key. Fresh-session restoration fetches
 the report by project/run URL and does not depend on surviving React state.
+
+## Versions, summaries and linked runs
+
+New reports and run metadata carry `analyzerVersion` (`0.2.0`) and `schemaVersion` (`2`). These are
+independent of the storage conditional-write `version`. Increment the analyzer constant when its
+behavior changes; increment the shared schema constant for report format changes. Missing legacy
+versions are explicitly `unknown` on open/list and in UI/export, never inferred from the current
+release. Existing S3 objects remain immutable, including legacy downloads. Legacy summary metadata
+is unavailable in list results; opening the stored report still shows its findings without running
+the analyzer or performing a mass artifact backfill.
+
+New run metadata includes the saved severity summary, score, resource count and source availability,
+so chronological history can show useful summaries without downloading every report. Comparison
+recomputes both available inputs using the current analyzer. Its `savedComparison` metadata and
+Markdown show the two historical version pairs, the current pair and interpretation warnings.
+Differences from current versions, or unknown legacy versions, mean historical finding counts may
+reflect analyzer changes as well as input changes; a comparison is not historical replay.
+
+Both child endpoints accept `{idempotencyKey, retainSource?, input?, templateOnly?}`. Apply additionally
+requires `fixIds`, containing 1–100 unique selected IDs. The server controls `provenance` with `kind`,
+`parentRun`, `inputMode` and, for Apply, `appliedFixIds`. Parents must belong to the authenticated owner
+and the same project. Reservation and publication conditionally write the parent's unchanged data
+with an advanced storage version, serializing against deletion. Reports, inputs and public parent
+metadata remain unchanged. A completed matching retry returns the same child, even after input expiry;
+deleted children/parents stay inaccessible. Pending children use the existing lease/recovery protocol.
+
+Omitted `input` uses authorized retained inputs only. Expired templates return 410 even when
+`templateOnly` is true. Unretained or unknown source requires an explicit template-only choice or
+reupload; reports are never used to reconstruct raw source. Reuploaded reanalysis inputs may differ
+and are labeled `reuploaded`; unchanged retained inputs keep files, mappings and exclusions.
+`templateOnly` deliberately omits all source context, reflected in the child's source status. Source
+retention is a fresh opt-in for every child and expires seven days after its save.
+
+Apply reads selected fixes from the parent's stored report, independently regenerates fixes using
+the current analyzer and requires exact matches before patching. Unknown/manual/stale selections,
+conflicts and invalid generated templates fail without publishing a child. Existing local validation
+and review-required semantics apply; this is not a deployment. Reuploaded Apply templates must match
+the original template digest, and full-context Apply must also match the original normalized-input
+digest. Expired legacy inputs have no digest: explicitly reanalyze the reupload first, then apply to
+that new run. If missing source changes a source-dependent fix, template-only Apply rejects that fix.
+The UI offers reupload through linked reanalysis and supports preview -> save child -> compare/export.
 
 ## DynamoDB keys and access patterns
 

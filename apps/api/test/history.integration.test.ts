@@ -23,6 +23,7 @@ import { createApiApp } from "../src/index";
 import type { AddressInfo } from "node:net";
 import { example } from "./workflowFixtures";
 import type { DiffApiRequest, DiffReport } from "@infralens/shared";
+import { exportAnalysisReportToMarkdown, exportDiffReportToMarkdown } from "@infralens/shared";
 
 const template = JSON.stringify({ Resources: { Bucket: { Type: "AWS::S3::Bucket" } } });
 
@@ -85,6 +86,184 @@ async function rejects(action: Promise<unknown>, status: number) {
 }
 
 describe("saved projects and analysis history", () => {
+  it("saves summaries/versions and completes fresh-client reopen -> apply child -> compare -> export", async () => {
+    const context = setup();
+    const fetcher: typeof fetch = async (url, init) => {
+      const result = await context.handler({ path: new URL(String(url)).pathname,
+        httpMethod: init?.method ?? "GET", body: init?.body as string | undefined,
+        requestContext: { authorizer: { claims: { sub: "alice" } } } });
+      return new Response(result.body, { status: result.statusCode });
+    };
+    const first = createHistoryClient("https://api.example", fetcher);
+    const project = await first.create("child workflow");
+    const source = { sourceFiles: { "handler.ts": example("shared-source-import-graph/sharedDb.ts") },
+      sourceFileMappings: { "handler.ts": "OrderHandler" }, sourceFileExclusions: [] };
+    const original = await first.save(project.projectId, { input: { template: example("order-service-risky-template.json"), ...source }, retainSource: true, idempotencyKey: "parent-workflow" });
+    const fresh = createHistoryClient("https://api.example", fetcher);
+    const reopened = await fresh.open(project.projectId, original.run.runId);
+    const listed = (await fresh.runs(project.projectId)).items[0];
+    expect(listed.summary).to.deep.equal(reopened.report.summary);
+    expect(listed.resourceCount).to.equal(reopened.report.resources.length);
+    expect(listed.analyzerVersion).to.equal("0.2.0");
+    expect(listed.schemaVersion).to.equal("2");
+    const fixIds = reopened.report.templateFixes!.filter(fix => fix.applicability === "applicable" &&
+      (fix.source.kind === "least-privilege" || fix.source.ruleId === "DYNAMODB_MISSING_PITR")).map(fix => fix.id);
+    expect(fixIds).to.have.length(2);
+    const body = { fixIds, retainSource: true, idempotencyKey: "child-workflow" };
+    const child = await fresh.apply(project.projectId, original.run.runId, body);
+    expect(child.run.provenance).to.deep.equal({ kind: "apply", parentRun: { projectId: project.projectId, runId: original.run.runId }, inputMode: "retained", appliedFixIds: fixIds });
+    expect(child.run.runId).to.not.equal(original.run.runId);
+    expect(child.input!.sourceFiles).to.deep.equal(source.sourceFiles);
+    expect(child.input!.sourceFileMappings).to.deep.equal(source.sourceFileMappings);
+    expect(child.input!.sourceFileExclusions).to.deep.equal(source.sourceFileExclusions);
+    expect((await fresh.apply(project.projectId, original.run.runId, body)).run.runId).to.equal(child.run.runId);
+    expect((await fresh.open(project.projectId, original.run.runId)).report).to.deep.equal(original.report);
+    const reference = (run: typeof child.run) => ({ projectId: run.projectId, runId: run.runId });
+    const diff = await fresh.compare(reference(original.run), reference(child.run));
+    expect(diff.resources.changed.map(resource => resource.resourceId)).to.have.members(["OrdersTable", "OrderHandlerRole"]);
+    expect(diff.source!.unchanged).to.have.length.greaterThan(0);
+    expect(diff.findings.resolved.some(finding => finding.ruleId === "DYNAMODB_MISSING_PITR")).to.equal(true);
+    expect(exportDiffReportToMarkdown(diff)).to.include("does not replay historical saved output");
+    expect(exportAnalysisReportToMarkdown(child.report)).to.include("Analyzer: 0.2.0; report schema: 2");
+    context.advance(7 * 86400_000);
+    expect((await fresh.apply(project.projectId, original.run.runId, body)).run.runId).to.equal(child.run.runId);
+  });
+
+  it("keeps legacy records/reports readable with explicitly unknown versions and comparison warnings", async () => {
+    const context = setup();
+    const project = await context.history.createProject("alice", "legacy");
+    const saved = await context.history.save("alice", project.projectId, request("legacy-parent"));
+    const key = { pk: `OWNER#alice#PROJECT#${project.projectId}`, sk: `RUN#${saved.run.runId}` };
+    const record = (await context.store.runs.get<RunRecord>(key))!;
+    const legacy = { ...record };
+    for (const field of ["analyzerVersion", "schemaVersion", "summary", "score", "resourceCount", "inputDigest", "templateDigest", "sourceStatus"] as const) delete legacy[field];
+    await context.store.commit([{ table: "runs", item: { ...legacy, version: record.version + 1 }, expected: record.version }]);
+    const report = { ...saved.report };
+    delete report.analyzerVersion;
+    delete report.schemaVersion;
+    await context.artifacts.put(record.artifacts.report, JSON.stringify(report));
+    const reopened = await context.history.open("alice", project.projectId, saved.run.runId);
+    expect(reopened.report.analyzerVersion).to.equal("unknown");
+    expect(reopened.report.schemaVersion).to.equal("unknown");
+    expect((await context.history.listRuns("alice", project.projectId, 20)).items[0]).to.include({ analyzerVersion: "unknown", schemaVersion: "unknown" });
+    const current = await context.history.save("alice", project.projectId, request("current-version"));
+    const comparison = await context.history.compare("alice", saved.run, current.run);
+    expect(comparison.savedComparison!.old.analyzerVersion).to.equal("unknown");
+    expect(comparison.savedComparison!.warnings.join(" ")).to.include("Historical finding counts");
+    expect(comparison.newReport.analyzerVersion).to.equal("0.2.0");
+  });
+
+  it("explicitly reanalyzes, preserves retained context and requires reupload or template-only for missing source", async () => {
+    const context = setup();
+    const fixture: DiffApiRequest = JSON.parse(example("compare/source-action-change.json"));
+    const project = await context.history.createProject("alice", "reanalysis");
+    const input = { template: fixture.oldTemplate, ...fixture.oldSource };
+    const retained = await context.history.save("alice", project.projectId, { input, retainSource: true, idempotencyKey: "retained-reanalysis" });
+    const child = await context.history.derive("alice", project.projectId, retained.run.runId, "reanalysis", { idempotencyKey: "new-reanalysis", retainSource: true });
+    expect(child.input).to.deep.equal(retained.input);
+    expect(child.run.provenance!.kind).to.equal("reanalysis");
+    expect(child.run.analyzerVersion).to.equal("0.2.0");
+    const unretained = await context.history.save("alice", project.projectId, { input, idempotencyKey: "unretained-reanalysis" });
+    const path = `/projects/${project.projectId}/runs/${unretained.run.runId}/reanalyze`;
+    expect((await context.api("alice", "POST", path, { idempotencyKey: "source-missing" })).status).to.equal(400);
+    const templateOnly = await context.api("alice", "POST", path, { idempotencyKey: "template-only", templateOnly: true });
+    expect(templateOnly.status).to.equal(201);
+    expect(templateOnly.body.report.sourceAnalysis.status).to.equal("missing");
+    expect(templateOnly.body.run.provenance.inputMode).to.equal("template-only");
+    const uploaded = await context.api("alice", "POST", path, { idempotencyKey: "source-reuploaded", input, retainSource: true });
+    expect(uploaded.status).to.equal(201);
+    expect(uploaded.body.input).to.deep.equal(retained.input);
+    expect(uploaded.body.run.provenance.inputMode).to.equal("reuploaded");
+    context.advance(7 * 86400_000);
+    expect((await context.api("alice", "POST", path, { idempotencyKey: "expired-reanalysis", templateOnly: true })).status).to.equal(410);
+    expect((await context.api("alice", "POST", path, { idempotencyKey: "expired-reupload", input, retainSource: true })).status).to.equal(201);
+  });
+
+  it("rejects cross-owner/deleted parents, fabricated/stale fixes, extra fields and changed Apply reuploads", async () => {
+    const context = setup();
+    const project = await context.history.createProject("alice", "protected parent");
+    const saved = await context.history.save("alice", project.projectId, request("protected-parent"));
+    const fixIds = saved.report.templateFixes!.filter(fix => fix.applicability === "applicable").map(fix => fix.id);
+    const path = `/projects/${project.projectId}/runs/${saved.run.runId}/apply`;
+    const body = { idempotencyKey: "protected-child", fixIds };
+    expect(fixIds.length).to.be.greaterThan(0);
+    expect((await context.api("bob", "POST", path, body)).status).to.equal(404);
+    for (const extra of [{ report: saved.report }, { parentRun: saved.run }, { fixes: saved.report.templateFixes }, { templateOnly: "yes" }, { fixIds: [] }, { fixIds: [fixIds[0], fixIds[0]] }, { input: null }]) {
+      expect((await context.api("alice", "POST", path, { ...body, ...extra })).status).to.equal(400);
+    }
+    expect((await context.api("alice", "POST", path, { ...body, fixIds: ["invented"] })).status).to.equal(409);
+    expect((await context.api("alice", "POST", path, { ...body, input: { template: template + " " } })).status).to.equal(409);
+    const key = { pk: `OWNER#alice#PROJECT#${project.projectId}`, sk: `RUN#${saved.run.runId}` };
+    const record = (await context.store.runs.get<RunRecord>(key))!;
+    const staleReport = structuredClone(saved.report);
+    staleReport.templateFixes!.find(fix => fix.id === fixIds[0])!.patches[0].value = false;
+    await context.artifacts.put(record.artifacts.report, JSON.stringify(staleReport));
+    expect((await context.api("alice", "POST", path, body)).status).to.equal(409);
+    await context.history.deleteRun("alice", project.projectId, saved.run.runId);
+    expect((await context.api("alice", "POST", path, body)).status).to.equal(404);
+  });
+
+  it("keeps child saves quota-bound, retry-safe after failed uploads and inaccessible during parent deletion", async () => {
+    const limited = setup({ quotas: { runsPerProject: 1 } });
+    const project = await limited.history.createProject("alice", "quota");
+    const parent = await limited.history.save("alice", project.projectId, request("quota-parent"));
+    await rejects(limited.history.derive("alice", project.projectId, parent.run.runId, "reanalysis", { idempotencyKey: "quota-child" }), 409);
+    expect((await limited.history.listRuns("alice", project.projectId, 20)).items).to.have.length(1);
+
+    const context = setup();
+    const p = await context.history.createProject("alice", "recovery");
+    const original = await context.history.save("alice", p.projectId, request("recovery-parent"));
+    const put = context.artifacts.put.bind(context.artifacts);
+    context.artifacts.put = async () => { throw new Error("Temporary upload failure"); };
+    try { await context.history.derive("alice", p.projectId, original.run.runId, "reanalysis", { idempotencyKey: "recovery-child" }); expect.fail("Expected upload failure"); }
+    catch (error) { expect((error as Error).message).to.equal("Temporary upload failure"); }
+    expect((await context.history.listRuns("alice", p.projectId, 20)).items).to.have.length(1);
+    context.artifacts.put = put;
+    context.advance(120_001);
+    const recovered = await context.history.derive("alice", p.projectId, original.run.runId, "reanalysis", { idempotencyKey: "recovery-child" });
+    expect((await context.history.listRuns("alice", p.projectId, 20)).items).to.have.length(2);
+    expect((await context.history.derive("alice", p.projectId, original.run.runId, "reanalysis", { idempotencyKey: "recovery-child" })).run.runId).to.equal(recovered.run.runId);
+    await rejects(context.history.derive("alice", p.projectId, original.run.runId, "reanalysis", { idempotencyKey: "recovery-child", templateOnly: true }), 409);
+    let deleted = false;
+    context.artifacts.put = async (key, body) => {
+      await put(key, body);
+      if (!deleted) {
+        deleted = true;
+        await context.history.deleteRun("alice", p.projectId, original.run.runId);
+      }
+    };
+    await rejects(context.history.derive("alice", p.projectId, original.run.runId, "reanalysis", { idempotencyKey: "deleted-parent-child" }), 404);
+    expect((await context.history.listRuns("alice", p.projectId, 20)).items.map(run => run.runId)).to.deep.equal([recovered.run.runId]);
+    context.advance(120_001);
+    await context.history.cleanup("alice", 20);
+    await context.history.deleteRun("alice", p.projectId, recovered.run.runId);
+    expect(context.artifacts.objects.size).to.equal(0);
+  });
+
+  it("requires original source for source-dependent Apply and verifies expired reuploads without reviving deleted children", async () => {
+    const context = setup();
+    const fixture: DiffApiRequest = JSON.parse(example("compare/source-action-change.json"));
+    const project = await context.history.createProject("alice", "expired apply");
+    const input = { template: fixture.oldTemplate, ...fixture.oldSource };
+    const saved = await context.history.save("alice", project.projectId, { input, idempotencyKey: "source-apply-parent" });
+    const fixIds = saved.report.templateFixes!.filter(fix => fix.source.kind === "least-privilege" && fix.applicability === "applicable").map(fix => fix.id);
+    expect(fixIds.length).to.be.greaterThan(0);
+    const path = `/projects/${project.projectId}/runs/${saved.run.runId}/apply`;
+    expect((await context.api("alice", "POST", path, { fixIds, idempotencyKey: "missing-source-apply" })).status).to.equal(400);
+    expect((await context.api("alice", "POST", path, { fixIds, idempotencyKey: "template-source-apply", templateOnly: true })).status).to.equal(409);
+    context.advance(7 * 86400_000);
+    expect((await context.api("alice", "POST", path, { fixIds, idempotencyKey: "expired-source-apply", templateOnly: true })).status).to.equal(410);
+    const body = { fixIds, idempotencyKey: "reuploaded-source-apply", input, retainSource: true };
+    const response = await context.api("alice", "POST", path, body);
+    expect(response.status).to.equal(201);
+    const child = response.body as OpenSavedRun;
+    expect(child.run.provenance!.inputMode).to.equal("reuploaded");
+    expect(child.input!.sourceFiles).to.deep.equal(input.sourceFiles);
+    expect((await context.history.open("alice", project.projectId, saved.run.runId)).input).to.equal(undefined);
+    await context.history.deleteRun("alice", project.projectId, child.run.runId);
+    expect((await context.api("alice", "POST", path, body)).status).to.equal(410);
+  });
+
   it("compares retained source independently, labels unretained source and rejects expiry/other owners/deletion", async () => {
     const context = setup();
     const fixture: DiffApiRequest = JSON.parse(example("compare/source-action-change.json"));
@@ -828,6 +1007,11 @@ describe("saved projects and analysis history", () => {
       expect((await client.open(project.projectId, result.run.runId)).report).to.deep.equal(
         result.report
       );
+      const fixIds = result.report.templateFixes!.filter(fix => fix.applicability === "applicable").map(fix => fix.id);
+      const child = await client.apply(project.projectId, result.run.runId, { fixIds, idempotencyKey: "express-child" });
+      const reanalyzed = await client.reanalyze(project.projectId, child.run.runId, { idempotencyKey: "express-reanalysis" });
+      expect(reanalyzed.run.provenance!.parentRun.runId).to.equal(child.run.runId);
+      expect(reanalyzed.run.analyzerVersion).to.equal(result.run.analyzerVersion);
       expect((await client.rename(project.projectId, "renamed")).name).to.equal("renamed");
       const preflight = await fetch(`${base}/projects/${project.projectId}`, {
         method: "OPTIONS",

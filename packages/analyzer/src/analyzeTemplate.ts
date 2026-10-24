@@ -8,6 +8,10 @@ import type {
   SeverityCounts
 } from "@infralens/shared";
 import type { SourceAnalysisInput } from "@infralens/shared";
+import { REPORT_SCHEMA_VERSION } from "@infralens/shared";
+
+// Bump whenever analyzer behavior changes; independent of storage conditional-write versions.
+export const ANALYZER_VERSION = "0.2.0";
 import { createAnalysisContext } from "./analysisContext";
 import { applyContextualSeverityAdjustments } from "./contextualSeverity";
 import { validateTemplate, TemplateValidationError, templateToResourceNodes } from "./parseTemplate";
@@ -101,6 +105,8 @@ export function analyzeTemplate(
   const templateFixes = generateTemplateFixes(template, findings, leastPrivilegeSuggestions);
 
   return {
+    analyzerVersion: ANALYZER_VERSION,
+    schemaVersion: REPORT_SCHEMA_VERSION,
     sourceAnalysis: {
       status: options.sourceFiles === undefined ? "missing" : "provided",
       fileCount: Object.keys(options.sourceFiles ?? {}).length,

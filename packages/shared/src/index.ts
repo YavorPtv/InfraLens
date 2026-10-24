@@ -279,6 +279,8 @@ export interface PublicExposure {
 }
 
 export interface AnalysisReport extends AnalysisGraph, PublicExposure {
+  analyzerVersion?: string;
+  schemaVersion?: string;
   sourceAnalysis?: SourceAnalysisReport;
   iamAnalysis?: IamAnalysis;
   sourceAnalysisWarnings?: string[];
@@ -310,6 +312,12 @@ export interface FindingDiffSummary {
 }
 
 export interface DiffReport {
+  savedComparison?: {
+    old: import("./history").AnalysisVersions;
+    new: import("./history").AnalysisVersions;
+    current: import("./history").AnalysisVersions;
+    warnings: string[];
+  };
   oldReport: AnalysisReport;
   newReport: AnalysisReport;
   resources: ResourceDiffSummary;

@@ -114,6 +114,8 @@ Resources:
     const report: AnalysisReport = analyzeTemplate(rawTemplate);
 
     expect(Object.keys(report)).to.have.members([
+      "analyzerVersion",
+      "schemaVersion",
       "sourceAnalysis",
       "iamAnalysis",
       "sourceAnalysisWarnings",
@@ -129,6 +131,7 @@ Resources:
       "leastPrivilegeSuggestions",
       "templateFixes"
     ]);
+    expect(report).to.include({ analyzerVersion: "0.2.0", schemaVersion: "2" });
   });
 
   it("returns publicly reachable resource ids", () => {

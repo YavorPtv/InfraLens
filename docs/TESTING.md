@@ -30,6 +30,7 @@ build before `npm test`, as normal CI already does. No test suite is reorganized
 | `sourceProject.integration.test.ts` | Real web upload transformation and serialization -> Express/Lambda -> analyzer -> exports. Duplicate basenames, selected folder prefixes, normalized raw API paths, nested/circular imports, shared actions, isolated roles, preserved confidence and full-path evidence. |
 | `templateValidation.integration.test.ts` | Express/Lambda parity for parse/structure failures, internal analyzer failures, AWS valid/invalid/unavailable mappings, validated apply/compare and deliberately corrupted generated output. No live AWS calls. |
 | `sourcePathContract.integration.test.ts` | Both adapters reject unsafe paths and normalized collisions and retain source/request count and byte limits for nested paths. |
+| `history.integration.test.ts` | Fresh-client save/reopen -> server Apply child -> source-aware compare -> Markdown export, summary/version metadata, legacy unknown versions, explicit retained/reuploaded/template-only reanalysis, stale/fabricated selections, cross-owner/deleted parents, quotas, failed child uploads and parent-deletion races. Exercises Lambda and local Express; these are offline adapter tests, not browser or persistent AWS acceptance. |
 
 `sourceUpload.test.ts` exercises the actual frontend helper's replacements, mapping preservation,
 removal, re-addition, folder filtering and read failures without a browser. These tests live in the
@@ -70,6 +71,46 @@ See [Template validation](TEMPLATE_VALIDATION.md) for the stage contract and lim
 
 ## Persistent AWS test workflows
 
+Milestone 2 was deployed and browser-verified on October 24. The guarded `hostedHistory.hosted.ts`
+suite also checks Apply child provenance/retries, comparison export, explicit reanalysis and two-user
+denial of the child action endpoints. Its credential-driven execution remains separate from the
+manual-sign-in browser evidence recorded below.
+
+### October 24, 2026 milestone 2 acceptance
+
+Authorized test target: account `230944684535`, `eu-central-1`, `InfraLensTestStack`. The guarded
+deployment verified the scoped deployment identity/bootstrap and completed UPDATE_COMPLETE.
+The reviewed diff updated Lambda code and added the two protected history actions, their OPTIONS
+methods and API Gateway invocation permissions. Data stores were not replaced; bootstrap and
+production were not modified. Guarded frontend publishing used `infralens-test-frontend`, uploaded
+the hosted build and completed CloudFront invalidation. Initial hosted JavaScript: about 248 kB.
+
+| Check | Observed result |
+| --- | --- |
+| Public `test:smoke -- --target test` | 18 passed, including missing authentication on both new actions; the authenticated analysis case was explicitly pending. |
+| `test:aws` with `infralens-test-storage` and `--allow-test-data true` | Four passed against real DynamoDB/S3. Includes parent/child transactions, Apply retry identity, fresh service reopening, unchanged original report, comparison, reanalysis and cross-owner denial. Random test-owner metadata/artifacts cleaned by the suite. |
+| Hosted source save/reopen/Apply | Uploaded the existing `source-action-template.json` and before `handler.ts`, explicitly mapped to AppFunction, retained source, then reopened in a new browser tab/session and completed real Cognito sign-in. Selected PITR and IAM narrowing; generated validation passed; saved a linked child retaining source. Original: 4 findings, score 45. Child: 2 findings, score 85. Original remained unchanged on later reopen. |
+| Saved comparison/export | Compared parent -> child: 2 changed resources, 2 resolved risks, 0 introduced, unchanged GetItem evidence. Clicked Download Markdown and inspected the downloaded file for historical/current versions, 45 -> 85 score, resolved PITR and GetItem evidence. |
+| Explicit reanalysis | Retained source produced a linked current-version run; omitting source retention produced the expected unavailable-source rejection on the next reanalysis. Explicit template-only succeeded and showed missing source. Reuploading handler.ts with an explicit mapping restored provided evidence in a linked reuploaded run. |
+| Localhost AWS-test frontend | Started Vite in aws-test-local mode at localhost:5173. Real Cognito localhost callback completed; browser read the same persistent project, saved a tiny queue template, reopened after reload and logged out. This exercises real API CORS, not the memory API. Temporary Vite process stopped afterward. |
+| Two-user UI isolation | The user manually signed in as different A/B accounts. B's project list omitted A's acceptance project; directly opening A's saved-report URL as B returned Project or run not found. Opening B's project as A returned the same denial. |
+| Legacy and expired input | Read an existing October 10 report under B without changing it. Versions were unknown; the October 17 input expiry left the stored report readable, disabled retained-input reanalysis and opened an empty reupload template rather than reconstructing source/template from report evidence. |
+| CSS fix | Viewed the deployed Apply panel: normal-size Apply button, child-save explanation and retention control stacked below with spacing. |
+
+The test user passwords were entered manually by the user, not copied into tool arguments, source,
+environment files or logs. Credential-driven authenticated smoke and `test:hosted` were **not run**
+because the four protected credential variables were not available. Do not count them as passed or
+equate the public smoke's pending case with the successful manual browser checks. No tokens were
+extracted from browser storage. No uploaded example architecture was deployed.
+
+The project `Milestone 2 acceptance 2026-10-24` was left under user A for review with seven small
+fixture runs; its retained inputs expire October 31. Existing B data was read-only. The browser
+comparison is available at the [test acceptance project](https://d1xro8tkvlsdz9.cloudfront.net/projects/f794736d-a635-48ca-bd75-075952a7896e)
+after signing in as A. This browser project was intentionally not deleted. Offline verification
+remains 609 passing tests; the API test typecheck and hosted frontend build also passed during
+this deployment/acceptance work. The user subsequently authorized committing these changes to
+main, pushing and synchronizing locally.
+
 Live checks use the existing InfraLensTestStack in test account 230944684535, eu-central-1.
 They stay outside normal *.test.ts discovery and never deploy, bootstrap or destroy infrastructure.
 Resource details come from ignored infra/cdk/cdk-outputs.test.json, which must contain only the test
@@ -102,7 +143,7 @@ Ambient AWS credentials, role overrides and endpoints are cleared before pinning
 Profile names are not evidence of account identity. Missing/invalid mandatory configuration fails;
 explicit commands do not silently skip an entire suite. Normal tests remain credential-free.
 
-Smoke checks public health, unauthenticated rejection for all 14 analysis/history methods, an invalid
+Smoke checks public health, unauthenticated rejection for all 16 analysis/history methods, an invalid
 bearer token, and optionally authenticated analysis. It reads validated local outputs and performs
 HTTP calls only; it does not contact STS or independently establish live account ownership. A stale
 URL fails its HTTP assertions. Use --authenticated true for automatic two-user sign-in and authenticated
@@ -404,7 +445,7 @@ report restoration without a browser. These checks are included in normal tests 
 
 Live storage and hosted Cognito checks use the guarded persistent-test workflows described above.
 See [Saved projects verification](SAVED_PROJECTS.md#persistent-aws-test-checks). Production is prohibited.
-No browser E2E, hosted smoke or live storage tests were run for this refactor.
+See the dated acceptance record above for the live/browser work performed after this refactor.
 
 ## Deployment separation checks
 
@@ -414,7 +455,7 @@ confirmation, bootstrap failures, output isolation, credential environment isola
 diff and deployment command construction. No operational command reaches AWS in these tests.
 
 `infra/cdk/test/infralens-stack.test.ts` synthesizes both real stack definitions and checks account,
-resource isolation, all 14 protected API methods, public preflight, matching origins/Cognito URLs,
+resource isolation, all 16 protected API methods, public preflight, matching origins/Cognito URLs,
 Lambda runtime settings, separate outputs and retention. `apps/api/test/environmentConfiguration.test.ts`
 checks frontend configuration, session isolation, exact CORS and working local Express memory history
 with an explicit fake identity and no AWS configuration. Frontend helpers run under Mocha without a browser.

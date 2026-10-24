@@ -25,6 +25,8 @@ export interface ProjectRecord extends StoredRecord, SavedProject {
 }
 
 export interface RunRecord extends StoredRecord, SavedRun {
+  inputDigest?: string;
+  templateDigest?: string;
   expiresAt?: number;
   state: "pending" | "completed" | "deleted";
   leaseUntil: number;

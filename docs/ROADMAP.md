@@ -1,6 +1,6 @@
 # InfraLens roadmap
 
-Updated: October 16, 2026. Repository baseline: `main` at `6b75915` (PR #57).
+Updated: October 24, 2026. Milestone 2 starting point: `main` at `217481a`, after PR #57.
 
 ## Goal and scope
 
@@ -13,27 +13,30 @@ The full UI refactor and production deployment remain deferred.
 
 | Work | Status |
 | --- | --- |
-| Milestone 1: saved projects/history | Implemented; deployed to test; remaining browser cases below |
+| Milestone 1: saved projects/history | Implemented; deployed to test; carried browser cases verified October 24 |
 | Milestone 1.5: source-aware comparison | Merged; API/frontend deployed and code-only browser comparison confirmed by user |
 | Frontend lazy loading | Merged and deployed per user; offline hosted initial JavaScript about 248 kB, down from 536 kB |
-| Milestone 2: useful history | Next development task |
+| Milestone 2: useful history | Implemented on main, deployed to test and browser-accepted October 24 |
 | Milestones 3-5: queues, dispatch, operations | Planned; implement in sequence |
 | Production application | Deferred; region/readiness decision still required |
 
 The user confirmed the current test API/frontend updates and working GetItem -> PutItem browser
 comparison on October 16. Earlier authenticated smoke and direct storage tests also have successful
-user reports. Previous offline verification passed 603 tests, workspace typechecks/builds and
-frontend builds without the old chunk-size warning. This documentation update runs no live checks.
+user reports. The previous baseline passed 603 offline tests. Milestone 2 verification now passes
+609 tests and all workspace typechecks/builds, with no frontend chunk-size warning. On October 24
+the assistant deployed the backend, published the frontend, passed public smoke and direct storage
+tests, and completed hosted/localhost browser acceptance with manual test-user sign-in.
 
-Proceed with milestone 2. Carry these unrecorded browser checks into its acceptance: localhost
-test Cognito/API callback/CORS, reopening a saved report in a fresh session, two-user UI isolation,
-and the complete saved Apply/compare/export flow. Passing API/storage tests alone does not prove them.
+Localhost test Cognito/API callback/CORS, fresh-session reopening, two-user UI isolation and the
+complete saved Apply/compare/export flow now have browser evidence. The scripted authenticated
+HTTP suites were not run without injected credentials; this is recorded separately in
+[testing](TESTING.md#october-24-2026-milestone-2-acceptance).
 
 ## Architecture and invariants
 
 Current system: React via CloudFront, Cognito, REST API Gateway/Lambda, two DynamoDB metadata tables
 and a private S3 artifact bucket. Local Express/in-memory adapters support AWS-free development.
-Run summaries, analyzer/schema versions and parent-child provenance are milestone 2 additions.
+Run summaries, analyzer/schema versions and parent-child provenance are deployed in milestone 2.
 SQS, Streams and Scheduler are future work.
 
 - Derive owners from trusted Cognito claims and authorize every project, run, artifact and comparison.
@@ -70,8 +73,37 @@ See [comparison contracts, limits and semantics](SOURCE_COMPARISON.md) and
 
 ## Milestone 2: Make History Useful
 
-**Next development task. Outcome:** a project explains how its architecture and analysis changed
+**Implemented, deployed to test and accepted October 24. Outcome:** a project explains how its architecture and analysis changed
 across saved runs.
+
+Implemented: analyzer `0.2.0` / report schema `2`, explicitly unknown legacy versions, metadata-only
+history summaries, historical/recomputed comparison labels in UI/Markdown, server-validated Apply
+children, explicit linked reanalysis, retained/reuploaded/template-only choices, and saved source
+evidence with inference limits. The original report/artifacts stay unchanged. Child saves reuse
+quotas, retention, retry keys and publication recovery, with transactional parent deletion checks.
+See [saved projects](SAVED_PROJECTS.md) for contracts and compatibility choices.
+Offline verification: 609 tests passed, all workspace typechecks/builds passed; the local frontend
+initial JavaScript is about 247 kB with no chunk-size warning. No hosted behavior is inferred from this.
+
+Acceptance completed after explicit user authorization:
+
+- Backend UPDATE_COMPLETE; new authenticated API Gateway action routes deployed. Frontend published
+  with CloudFront invalidation complete and the small Apply-button CSS fix visually checked.
+- Guarded public HTTP smoke: 18 passing, one authenticated case pending. Direct storage: four
+  passing, including linked Apply/reanalysis, real parent transactions, retries and cleanup.
+- Browser: manual A/B sign-in, both-way isolation, hosted source save -> fresh-session reopen ->
+  preview two fixes -> save child -> compare -> download export. Findings 4 -> 2; score 45 -> 85;
+  source inference remained available and the original report stayed unchanged.
+- Retained-source reanalysis, unavailable-source rejection, explicit template-only reanalysis and
+  source reupload succeeded. An existing expired legacy report was read without modification:
+  versions unknown, retained reanalysis disabled, reupload template empty.
+- Localhost AWS-test mode: real Cognito callback, API CORS, save/reopen and logout succeeded.
+
+The credential-driven authenticated smoke/hosted HTTP suites were not run: the user chose manual
+browser sign-in instead of injecting credentials. Keep that distinction when reporting results.
+The small browser acceptance project remains under user A for review; direct storage fixtures were
+cleaned. The user subsequently authorized committing to main, pushing and local synchronization.
+Production and milestone 3 remain outside the current work.
 
 1. Add analyzer/schema version metadata with a compatibility path for existing records/reports.
    Legacy versions must be explicitly unknown, not assumed current. Storage's conditional-write

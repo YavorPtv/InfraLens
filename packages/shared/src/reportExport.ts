@@ -21,6 +21,8 @@ export function exportAnalysisReportToMarkdown(report: AnalysisReport): string {
   return [
     "# InfraLens Analysis Report",
     "",
+    `Analyzer: ${report.analyzerVersion ?? "unknown"}; report schema: ${report.schemaVersion ?? "unknown"}.`,
+    "",
     "## Template validation",
     "",
     ...formatValidationSummary(report.validation, report.analysisStatus).map(line => `- ${line}`),
@@ -60,6 +62,12 @@ export function exportDiffReportToMarkdown(report: DiffReport): string {
   return [
     "# InfraLens Diff Report",
     "",
+    ...(report.savedComparison ? [
+      `Historical old: analyzer ${report.savedComparison.old.analyzerVersion}, schema ${report.savedComparison.old.schemaVersion}.`,
+      `Historical new: analyzer ${report.savedComparison.new.analyzerVersion}, schema ${report.savedComparison.new.schemaVersion}.`,
+      `Recomputed with: analyzer ${report.savedComparison.current.analyzerVersion}, schema ${report.savedComparison.current.schemaVersion}.`,
+      ...report.savedComparison.warnings, ""
+    ] : []),
     "## Original template validation",
     ...formatValidationSummary(report.oldReport.validation, report.oldReport.analysisStatus),
     "",

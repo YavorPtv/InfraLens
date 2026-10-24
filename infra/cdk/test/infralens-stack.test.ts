@@ -174,7 +174,7 @@ describe("InfraLensStack", () => {
     const protectedMethods = methods.filter(
       (method) => method.Properties.Integration?.Type === "AWS_PROXY"
     );
-    expect(protectedMethods.length).to.equal(14);
+    expect(protectedMethods.length).to.equal(16);
     expect(
       protectedMethods.every(
         (method) => method.Properties.AuthorizationType === "COGNITO_USER_POOLS"
@@ -302,7 +302,7 @@ describe("InfraLensStack", () => {
       }
       const methods = Object.values(template.findResources("AWS::ApiGateway::Method"));
       const protectedMethods = methods.filter((method) => method.Properties.Integration?.Type === "AWS_PROXY");
-      expect(protectedMethods).to.have.length(14);
+      expect(protectedMethods).to.have.length(16);
       const authorizerId = Object.keys(template.findResources("AWS::ApiGateway::Authorizer"))[0];
       for (const method of protectedMethods) {
         expect(method.Properties.AuthorizationType).to.equal("COGNITO_USER_POOLS");

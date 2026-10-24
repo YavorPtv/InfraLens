@@ -7,6 +7,7 @@ import type {
   DiffReport,
   SavedRunReference
 } from "@infralens/shared";
+import type { ApplySavedRunRequest, DeriveRunRequest } from "@infralens/shared";
 
 export class HistoryRequestError extends Error {
   constructor(
@@ -60,6 +61,10 @@ export function createHistoryClient(baseUrl: string, fetcher: typeof fetch) {
     save: (projectId: string, body: SaveAnalysisRequest) =>
       request<OpenSavedRun>(`/${projectId}/runs`, "POST", body),
     open: (projectId: string, runId: string) => request<OpenSavedRun>(runPath(projectId, runId)),
+    apply: (projectId: string, runId: string, body: ApplySavedRunRequest) =>
+      request<OpenSavedRun>(`${runPath(projectId, runId)}/apply`, "POST", body),
+    reanalyze: (projectId: string, runId: string, body: DeriveRunRequest) =>
+      request<OpenSavedRun>(`${runPath(projectId, runId)}/reanalyze`, "POST", body),
     deleteRun: (projectId: string, runId: string) =>
       request<{ cleanupPending: boolean }>(runPath(projectId, runId), "DELETE"),
     compare: (oldRun: SavedRunReference, newRun: SavedRunReference) =>

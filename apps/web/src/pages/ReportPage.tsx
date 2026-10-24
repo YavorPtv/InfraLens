@@ -1,6 +1,6 @@
 import { TemplateValidationPanel } from "../components/report/TemplateValidationPanel";
 import { Link } from "react-router-dom";
-import { exportAnalysisReportToJson, exportAnalysisReportToMarkdown } from "@infralens/shared";
+import { exportAnalysisReportToJson, exportAnalysisReportToMarkdown, type SavedRun } from "@infralens/shared";
 import { useAnalysisReport } from "../reportState";
 import { ArchitectureGraph } from "../components/report/ArchitectureGraph";
 import { ApplySuggestionsPanel } from "../components/report/ApplySuggestionsPanel";
@@ -10,7 +10,7 @@ import { ScoreOverview } from "../components/report/ScoreOverview";
 import { SeveritySummary } from "../components/report/SeveritySummary";
 import { downloadTextFile } from "../downloadTextFile";
 
-export function ReportPage() {
+export function ReportPage({ savedRun }: { savedRun?: SavedRun }) {
   const { originalTemplateInput, originalSource, report } = useAnalysisReport();
 
   if (report === null) {
@@ -38,6 +38,7 @@ export function ReportPage() {
         <div>
           <h2>Analysis Report</h2>
           <p className="muted-note">Download the current analysis report for sharing or review.</p>
+          <p className="muted-note">Analyzer {report.analyzerVersion ?? "unknown"} · Schema {report.schemaVersion ?? "unknown"}</p>
         </div>
         <div className="report-export-actions">
           <button
@@ -82,6 +83,7 @@ export function ReportPage() {
         fixes={report.templateFixes ?? []}
         originalTemplateInput={originalTemplateInput}
         originalSource={originalSource}
+        savedRun={savedRun}
       />
 
       <div className="report-grid">

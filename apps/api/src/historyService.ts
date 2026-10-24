@@ -1,6 +1,11 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import {
+  analysisVersions,
+  canDownloadGeneratedTemplate,
   exportAnalysisReportToMarkdown,
+  type ApplySavedRunRequest,
+  type DeriveRunRequest,
+  type RunProvenance,
   type AnalysisReport,
   type AnalyzeApiRequest,
   type HistoryPage,
@@ -14,6 +19,7 @@ import {
 import {
   ApiRequestError,
   analyzeValidatedBody,
+  applyValidatedBody,
   diffCloudFormationBody,
   parseAnalyzeApiRequest
 } from "./analyzeRequest";
@@ -48,6 +54,8 @@ export interface HistoryServiceOptions {
 }
 
 interface RunReservation {
+  report: AnalysisReport;
+  derivation?: Derivation;
   ownerId: string;
   projectId: string;
   idempotencyKey: RecordKey;
@@ -58,6 +66,11 @@ interface RunReservation {
   retainedBody: string;
   attempt: string;
   runId: string;
+}
+
+interface Derivation {
+  provenance: RunProvenance;
+  identity: unknown;
 }
 
 export const defaultHistoryQuotas: HistoryQuotas = {
@@ -140,6 +153,12 @@ function toSavedProject(projectRecord: ProjectRecord): SavedProject {
 
 function toSavedRun(runRecord: RunRecord): SavedRun {
   return {
+    ...analysisVersions(runRecord),
+    summary: runRecord.summary,
+    resourceCount: runRecord.resourceCount,
+    score: runRecord.score,
+    sourceStatus: runRecord.sourceStatus ?? "unknown",
+    provenance: runRecord.provenance,
     projectId: runRecord.projectId,
     runId: runRecord.runId,
     createdAt: runRecord.createdAt,
@@ -326,15 +345,20 @@ export class HistoryService {
     };
   }
 
-  async save(
+  async save(ownerId: string, projectId: string, request: SaveAnalysisRequest): Promise<OpenSavedRun> {
+    return this.saveRun(ownerId, projectId, request);
+  }
+
+  private async saveRun(
     ownerId: string,
     projectId: string,
-    request: SaveAnalysisRequest
+    request: SaveAnalysisRequest,
+    derivation?: Derivation
   ): Promise<OpenSavedRun> {
     const limits = this.options.limits ?? defaultApiRequestLimits;
     const input = parseAnalyzeApiRequest(JSON.stringify(request.input), limits);
     const requestHash = hashRequestValue(
-      canonicalizeRequest({
+      canonicalizeRequest(derivation?.identity ?? {
         project: projectId,
         input,
         retainSource: request.retainSource === true
@@ -387,6 +411,8 @@ export class HistoryService {
       requestHash,
       previousSave,
       input,
+      report,
+      derivation,
       retainSource: request.retainSource,
       retainedBody,
       attempt,
@@ -400,8 +426,90 @@ export class HistoryService {
     return {
       run: toSavedRun(run),
       report,
-      template: input.template
+      template: input.template,
+      input: retained
     };
+  }
+
+  private checkDerivedExpiry(parent?: RunRecord, provenance?: RunProvenance): void {
+    if (parent && provenance?.inputMode !== "reuploaded" && this.now() >= Date.parse(parent.inputExpiresAt)) {
+      throwHistoryError(410, "INPUT_EXPIRED", "Retained inputs expired. Reupload the template and source to continue.");
+    }
+  }
+
+  /** Derivations accept selections and inputs, never browser reports or generated patches. */
+  async derive(
+    ownerId: string,
+    projectId: string,
+    runId: string,
+    kind: "apply" | "reanalysis",
+    request: DeriveRunRequest | ApplySavedRunRequest
+  ): Promise<OpenSavedRun> {
+    const parent = await this.getCompletedRun(ownerId, projectId, runId);
+    if (kind === "apply") {
+      const ids = (request as ApplySavedRunRequest).fixIds;
+      if (!Array.isArray(ids) || ids.length < 1 || ids.length > 100 || ids.some(id => typeof id !== "string" || !id) || new Set(ids).size !== ids.length) {
+        throwHistoryError(400, "INVALID_REQUEST", "Select 1–100 unique fix IDs.");
+      }
+    }
+    const identity = { project: projectId, parent: runId, kind, request };
+    const previous = await this.store.projects.get<IdempotencyRecord>({
+      pk: ownerPartitionKey(ownerId), sk: `IDEMPOTENCY#${hashRequestValue(request.idempotencyKey)}`
+    });
+    if (previous) {
+      if (previous.hash !== hashRequestValue(canonicalizeRequest(identity))) {
+        throwHistoryError(409, "CONFLICT", "Idempotency key already used for a different request.");
+      }
+      const child = await this.store.runs.get<RunRecord>(runKey(ownerId, projectId, previous.runId));
+      if (!child || child.state === "deleted") throwHistoryError(410, "GONE", "Child run was deleted. Use a new key.");
+      if (child.state === "completed") return this.open(ownerId, projectId, child.runId);
+      if (child.leaseUntil > this.now()) return throwSaveConflict();
+    }
+    const limits = this.options.limits ?? defaultApiRequestLimits;
+    const saved = await this.open(ownerId, projectId, runId);
+    let input = request.input === undefined ? saved.input : parseAnalyzeApiRequest(JSON.stringify(request.input), limits);
+    if (!input) throwHistoryError(410, "INPUT_EXPIRED", "Retained inputs expired. Reupload the template and source to continue.");
+    const sourceWasProvided = (parent.sourceStatus ?? saved.report.sourceAnalysis?.status ?? "unknown") !== "missing";
+    if (sourceWasProvided && input.sourceFiles === undefined && request.templateOnly !== true) {
+      throwHistoryError(400, "INVALID_REQUEST", "Source is unavailable or unknown. Reupload source or explicitly choose template-only analysis.");
+    }
+    if (request.templateOnly) {
+      input = { template: input.template };
+    }
+    const provenance: RunProvenance = {
+      kind, parentRun: { projectId, runId },
+      inputMode: request.input ? "reuploaded" : request.templateOnly ? "template-only" : "retained"
+    };
+    if (kind === "apply") {
+      const fixIds = (request as ApplySavedRunRequest).fixIds;
+      // A reupload must match the original bytes/context. Legacy records can use retained input;
+      // without a digest an expired legacy template must first be explicitly reanalyzed.
+      const templateMatches = parent.templateDigest === hashRequestValue(input.template);
+      const contextMatches = parent.inputDigest === hashRequestValue(canonicalizeRequest(input));
+      if (request.input && (!templateMatches || (!request.templateOnly && !contextMatches))) {
+        throwHistoryError(409, "CONFLICT", "Reuploaded input differs from the original or cannot be verified. Reanalyze before applying fixes.");
+      }
+      const current = await analyzeValidatedBody(JSON.stringify(input), undefined, limits);
+      const fixes = fixIds.map(id => {
+        const original = saved.report.templateFixes?.find(fix => fix.id === id);
+        const fresh = current.templateFixes?.find(fix => fix.id === id);
+        if (!original || !fresh || fresh.applicability !== "applicable" || canonicalizeRequest(original) !== canonicalizeRequest(fresh)) {
+          return throwHistoryError(409, "CONFLICT", "Selected fixes are stale or unavailable. Reanalyze before applying fixes.");
+        }
+        return fresh;
+      });
+      const applied = await applyValidatedBody(JSON.stringify({ template: input.template, fixes }), undefined, limits);
+      if (applied.failedFixCount || !canDownloadGeneratedTemplate(applied.validation)) {
+        throwHistoryError(409, "CONFLICT", "Selected fixes conflict or the generated template is invalid. Reanalyze and review the fixes.");
+      }
+      provenance.appliedFixIds = fixIds;
+      input = { ...input, template: JSON.stringify(applied.modifiedTemplate, null, 2) + "\n" };
+    }
+    return this.saveRun(ownerId, projectId, {
+      input,
+      idempotencyKey: request.idempotencyKey,
+      retainSource: request.retainSource
+    }, { provenance, identity });
   }
 
   private reserveRun(reservation: RunReservation): Promise<RunRecord> {
@@ -412,6 +520,8 @@ export class HistoryService {
       requestHash,
       previousSave,
       input,
+      report,
+      derivation,
       retainSource,
       retainedBody,
       attempt,
@@ -420,6 +530,8 @@ export class HistoryService {
 
     return this.commitWithRetry(async () => {
       const projectRecord = await this.getProject(ownerId, projectId);
+      const parent = derivation ? await this.getCompletedRun(ownerId, projectId, derivation.provenance.parentRun.runId) : undefined;
+      this.checkDerivedExpiry(parent, derivation?.provenance);
       const ownerRecord = await this.getOrCreateOwner(ownerId);
       const idempotencyRecord = await this.store.projects.get<IdempotencyRecord>(idempotencyKey);
       if (idempotencyRecord && idempotencyRecord.hash !== requestHash) {
@@ -442,6 +554,14 @@ export class HistoryService {
       }
       const prefix = `owners/${encodeURIComponent(ownerId)}/projects/${projectId}/runs/${runId}/${attempt}`;
       const runRecord: RunRecord = {
+        ...analysisVersions(report),
+        summary: report.summary,
+        resourceCount: report.resources.length,
+        score: report.score,
+        sourceStatus: report.sourceAnalysis?.status ?? "unknown",
+        ...(derivation ? { provenance: derivation.provenance } : {}),
+        inputDigest: hashRequestValue(canonicalizeRequest(input)),
+        templateDigest: hashRequestValue(input.template),
         ...runKey(ownerId, projectId, runId),
         version: 0,
         projectId: projectId,
@@ -471,6 +591,7 @@ export class HistoryService {
           projectRecord
         )
       ];
+      if (parent) writes.push(write("runs", parent, parent));
       if (!idempotencyRecord) {
         const newIdempotencyRecord: IdempotencyRecord = {
           ...idempotencyKey,
@@ -533,9 +654,12 @@ export class HistoryService {
       ) {
         return throwSaveConflict();
       }
+      const parent = current.provenance ? await this.getCompletedRun(ownerId, projectId, current.provenance.parentRun.runId) : undefined;
+      this.checkDerivedExpiry(parent, current.provenance);
       return {
         value: undefined,
         writes: [
+          ...(parent ? [write("runs", parent, parent)] : []),
           write(
             "runs",
             {
@@ -569,6 +693,7 @@ export class HistoryService {
     const report = JSON.parse(
       await this.artifacts.get(runRecord.artifacts.report)
     ) as AnalysisReport;
+    Object.assign(report, analysisVersions(report));
     let input: AnalyzeApiRequest | undefined;
     if (this.now() < Date.parse(runRecord.inputExpiresAt)) {
       const retained = JSON.parse(await this.artifacts.get(runRecord.artifacts.input)) as AnalyzeApiRequest;
@@ -644,7 +769,7 @@ export class HistoryService {
     if (this.now() >= Math.min(Date.parse(oldRecord.inputExpiresAt), Date.parse(newRecord.inputExpiresAt))) {
       throwHistoryError(410, "INPUT_EXPIRED", "Retained inputs expired. Reupload templates and source on Compare.");
     }
-    return diffCloudFormationBody(
+    const result = diffCloudFormationBody(
       JSON.stringify({
         oldTemplate: oldInput.template,
         newTemplate: newInput.template,
@@ -656,6 +781,24 @@ export class HistoryService {
       undefined,
       this.options.limits ?? defaultApiRequestLimits
     );
+    const oldVersions = analysisVersions(oldRecord);
+    const newVersions = analysisVersions(newRecord);
+    const currentVersions = analysisVersions(result.newReport);
+    const versionsDiffer = [oldVersions, newVersions].some(versions =>
+      versions.analyzerVersion !== currentVersions.analyzerVersion ||
+      versions.schemaVersion !== currentVersions.schemaVersion
+    );
+    result.savedComparison = {
+      old: oldVersions,
+      new: newVersions,
+      current: currentVersions,
+      warnings: [
+        "Comparison recomputes both inputs with the current analyzer; it does not replay historical saved output.",
+        ...(versionsDiffer
+          ? ["Saved analyzer/schema versions differ or are unknown. Historical finding counts may reflect analyzer changes as well as input changes."] : [])
+      ]
+    };
+    return result;
   }
 
   async deleteRun(

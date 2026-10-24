@@ -104,6 +104,31 @@ describe("persistent test stack AWS DynamoDB/S3 persistence", function () {
     }
   });
 
+  it("persists linked Apply/reanalysis children using real parent transactions and retained artifacts", async () => {
+    const { project, saved } = fixture();
+    const fixIds = saved.report.templateFixes!.filter(fix => fix.applicability === "applicable").map(fix => fix.id);
+    expect(fixIds.length).to.be.greaterThan(0);
+    const request = { fixIds, idempotencyKey: "aws-apply-child" };
+    const child = await service.derive(owner, project.projectId, saved.run.runId, "apply", request);
+    expect(child.run.provenance!.parentRun.runId).to.equal(saved.run.runId);
+    expect((await service.derive(owner, project.projectId, saved.run.runId, "apply", request)).run.runId).to.equal(child.run.runId);
+    const fresh = new HistoryService(new AwsHistoryStore({ projects, runs }, client), artifacts);
+    expect((await fresh.open(owner, project.projectId, child.run.runId)).report).to.deep.equal(child.report);
+    expect((await fresh.open(owner, project.projectId, saved.run.runId)).report).to.deep.equal(saved.report);
+    const diff = await fresh.compare(owner, saved.run, child.run);
+    expect(diff.findings.resolved.length).to.be.greaterThan(0);
+    expect(diff.savedComparison!.current.analyzerVersion).to.equal(child.run.analyzerVersion);
+    const reanalyzed = await fresh.derive(owner, project.projectId, child.run.runId, "reanalysis", { idempotencyKey: "aws-reanalysis-child" });
+    expect(reanalyzed.run.provenance!.kind).to.equal("reanalysis");
+    expect(reanalyzed.report.analyzerVersion).to.equal(child.report.analyzerVersion);
+    try {
+      await fresh.derive(otherOwner, project.projectId, child.run.runId, "reanalysis", { idempotencyKey: "aws-foreign-child" });
+      expect.fail("Cross-owner derivation succeeded");
+    } catch (error) {
+      expect((error as { statusCode?: number }).statusCode).to.equal(404);
+    }
+  });
+
   it("issues a short-lived working S3 download only after authorization", async () => {
     const { project, saved } = fixture();
     const download = await service.download(owner, project.projectId, saved.run.runId, "report");

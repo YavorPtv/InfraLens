@@ -1,6 +1,7 @@
 import { TemplateValidationPanel } from "../components/report/TemplateValidationPanel";
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import type { AnalyzeApiRequest } from "@infralens/shared";
 import { historyClient, saveRequestKey } from "../api/history";
 import { HistoryRequestError } from "../api/historyClient";
 import { analyzeTemplate, TemplateAnalysisError } from "../api/analyzeTemplate";
@@ -16,9 +17,17 @@ const acceptedTemplateExtensions = [".json", ".yaml", ".yml"];
 export function AnalyzePage() {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get("project");
+  const parentRunId = searchParams.get("reanalyze");
+  const location = useLocation();
+  const initialInput = (location.state as { input?: AnalyzeApiRequest } | null)?.input;
+  const [templateOnly, setTemplateOnly] = useState(false);
   const [retainSource, setRetainSource] = useState(false);
-  const [templateInput, setTemplateInput] = useState("");
-  const [sourceFiles, setSourceFiles] = useState<SourceFileInput[]>([]);
+  const [templateInput, setTemplateInput] = useState(initialInput?.template ?? "");
+  const [sourceFiles, setSourceFiles] = useState<SourceFileInput[]>(() => Object.entries(initialInput?.sourceFiles ?? {}).map(([path, content]) => ({
+    path, content, uploadStatus: "added", mappingSelection: initialInput?.sourceFileExclusions?.includes(path)
+      ? sharedSourceMappingValue : initialInput?.sourceFileMappings?.[path] ? manualMappingValue : autoDetectMappingValue,
+    manualLambdaFunctionId: initialInput?.sourceFileMappings?.[path]
+  })));
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<TemplateAnalysisError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -89,7 +98,7 @@ export function AnalyzePage() {
     try {
       const analysisInput = {
         templateInput,
-        sourceFiles: toSourceFileMap(sourceFiles),
+        sourceFiles: toSourceFileMap(sourceFiles) ?? (initialInput?.sourceFiles !== undefined && Object.keys(initialInput.sourceFiles).length === 0 ? {} : undefined),
         sourceFileMappings: toSourceFileMappings(sourceFiles, lambdaLogicalIds),
         sourceFileExclusions: toSourceFileExclusions(sourceFiles, lambdaLogicalIds)
       };
@@ -101,8 +110,8 @@ export function AnalyzePage() {
           sourceFileMappings: analysisInput.sourceFileMappings,
           sourceFileExclusions: analysisInput.sourceFileExclusions
         };
-        const idempotencyKey = await saveRequestKey(projectId, input, retainSource);
-        const saved = await historyClient.save(projectId, {
+        const idempotencyKey = await saveRequestKey(projectId, { input, parentRunId, templateOnly }, retainSource);
+        const saved = parentRunId ? await historyClient.reanalyze(projectId, parentRunId, { input, templateOnly, idempotencyKey, retainSource }) : await historyClient.save(projectId, {
           input,
           idempotencyKey,
           retainSource
@@ -144,6 +153,8 @@ export function AnalyzePage() {
           <p>
             Saving a server-generated report to this project. Template input is retained for 7 days.
           </p>
+          {parentRunId && <div><p>Explicit reanalysis linked to the original run. Reupload template/source as needed; source mappings and exclusions are preserved when available.</p>
+            <label><input type="checkbox" checked={templateOnly} onChange={event => setTemplateOnly(event.target.checked)} /> Analyze template only, omitting source context</label></div>}
           <label>
             <input
               type="checkbox"
