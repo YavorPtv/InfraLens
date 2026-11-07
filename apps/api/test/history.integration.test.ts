@@ -420,7 +420,8 @@ describe("saved projects and analysis history", () => {
     const first = await context.history.listRuns("alice", project.projectId, 1);
     expect(first.items.map((result) => result.runId)).to.deep.equal(runs.slice(0, 1));
     expect(first.nextCursor).to.be.a("string");
-    expect(Buffer.from(first.nextCursor!, "base64url").toString()).not.to.contain("OWNER#");
+    const cursorBytes = Buffer.from(first.nextCursor!, "base64url");
+    expect(cursorBytes.toString()).not.to.contain("OWNER#");
     await rejects(
       context.history.listRuns("alice", secondProject.projectId, 1, first.nextCursor),
       400
@@ -428,8 +429,9 @@ describe("saved projects and analysis history", () => {
     const bp = await context.history.createProject("bob", "b");
     await rejects(context.history.listRuns("bob", bp.projectId, 1, first.nextCursor), 400);
     await rejects(context.history.listProjects("alice", 1, first.nextCursor), 400);
+    cursorBytes[0] ^= 1;
     await rejects(
-      context.history.listRuns("alice", project.projectId, 1, "x" + first.nextCursor!.slice(1)),
+      context.history.listRuns("alice", project.projectId, 1, cursorBytes.toString("base64url")),
       400
     );
     const second = await context.history.listRuns("alice", project.projectId, 1, first.nextCursor);
