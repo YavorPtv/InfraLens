@@ -1,6 +1,38 @@
 # InfraLens handoff
 
-Updated: October 24, 2026. Read [AGENTS.md](AGENTS.md), inspect Git, then read the relevant code.
+Updated: November 7, 2026. Read [AGENTS.md](AGENTS.md), inspect Git, then read the relevant code.
+
+## Milestone 3 implementation on this branch
+
+- Working branch: `feature/milestone-3-async-analysis`. Existing milestone 2 history guarantees
+  remain required. On November 7 the user authorized the remaining scoped IAM review, test
+  deployment, and live/browser acceptance. Commits/pushes and production remain separate.
+- Async submission/status/linked retry, queued UI polling, fenced worker claims, durable dispatch
+  recovery, DLQ handling, pending quotas and scoped SQS/worker/recovery CDK resources are implemented.
+  Synchronous saves, Apply/reanalysis and stateless analysis remain available. Queue payloads pin
+  IDs and input hashes/artifact references. Analyzer `0.2.0` / report schema `2` are unchanged.
+- Offline verification: **635 Mocha/Chai tests passed**, all workspace typechecks/builds passed,
+  including CDK synthesis assertions. The initial sandbox run hit localhost/rename/symlink
+  restrictions; unrestricted offline checks resolved those environment restrictions. Coverage
+  includes resumed-upload writer leases during deletion. Initial Vite JavaScript remains about
+  247 kB with no chunk-size warning. No live-suite result is inferred from offline tests.
+- Read [asynchronous analysis](docs/ASYNC_ANALYSIS.md) for contracts and acceptance. The
+  [async permissions preparation](docs/TEST_DEPLOYMENT_PERMISSIONS.md#milestone-3-async-analysis-permissions)
+  passed offline synthesis, 28 policy tests, and a full offline rerun of 637 tests. Renewed SSO
+  sessions identified the expected test account. The live IAM documents matched the recorded
+  baseline and IAM Access Analyzer found no issues in the two candidate policies. The reviewed
+  three-resource change set completed on `CDKToolkit` without replacements. The test Lambda quota
+  is 10, so the job functions use shared capacity. SQS caps the worker at two invocations.
+- The milestone 3 test backend deployed through `infralens-test-deploy` on November 7 and reached
+  `UPDATE_COMPLETE`. The frontend was published and CloudFront invalidation completed. Public smoke
+  passed 21 checks. After the `JobRecovery` index reached `ACTIVE`, all six live storage tests
+  passed, including recovery through the deployed scheduler and SQS worker. Eight live IAM
+  simulations matched the expected allows and implicit denies.
+- Browser acceptance with both Cognito test users passed saved-report refresh, linked retry after
+  invalid input, cross-owner report denial in both directions, and retained-source comparison and
+  Markdown export. Two small browser fixture projects remain available for review. The separate
+  credential-driven smoke and hosted HTTP suite were unrun locally. See
+  [milestone 3 evidence](docs/TESTING.md#november-7-2026-milestone-3-rollout).
 
 ## Current state
 
@@ -30,10 +62,11 @@ Updated: October 24, 2026. Read [AGENTS.md](AGENTS.md), inspect Git, then read t
   disabled reanalysis and were absent from the reupload form. That existing project was not changed.
   See [testing](docs/TESTING.md#october-24-2026-milestone-2-acceptance) for evidence and limits.
 
-## Next task: milestone 3, when requested
+## Milestone 3 context
 
 [Milestone 2](docs/ROADMAP.md#milestone-2-make-history-useful) is implemented, deployed to test and
-accepted in the browser. Milestone 3 remains planned; no queue implementation has started.
+accepted in the browser. Milestone 3 is implemented on the branch above and accepted on AWS test.
+Streams/Scheduler transfer work remains milestone 4. Production remains deferred.
 
 New reports use analyzer `0.2.0` and report schema `2`. Legacy metadata/report fields stay readable
 and explicitly unknown; historical objects are not rewritten. Bump the analyzer constant in
@@ -49,6 +82,11 @@ publication transactions. The original report/artifacts stay immutable; only the
 version of a parent is advanced to serialize against deletion.
 
 Start with these files:
+
+- `apps/api/src/analysisQueue.ts`, `analysisQueueAws.ts`, `analysisWorker.ts`, `analysisRecovery.ts`:
+  pinned messages, SQS delivery, partial batch failure and scheduled recovery entry points.
+- Async methods in `historyService.ts`, `historyStore.ts`/`historyAws.ts` recovery index, and
+  `infra/cdk/src/infralens-stack.ts`: state/leases/manifests/quotas, bounded recovery and scoped roles.
 
 - `packages/shared/src/history.ts`: current saved-run/API contracts.
 - `apps/api/src/historyService.ts`, `historyStore.ts`, `historyRoutes.ts`: saves, artifacts, ownership,
@@ -88,7 +126,7 @@ and artifacts. The temporary localhost AWS-test Vite process was stopped after v
 | Environment | Account / region / stack | State |
 | --- | --- | --- |
 | Fully local | No AWS | React + Express, memory history, explicit local identity |
-| AWS test | `230944684535` / `eu-central-1` / `InfraLensTestStack` | Milestone 2 deployed and browser-verified October 24 |
+| AWS test | `230944684535` / `eu-central-1` / `InfraLensTestStack` | Milestone 3 deployed and accepted November 7 |
 | Production | `609124256824` / region unconfirmed / proposed `InfraLensProdStack` | Application deployment deferred |
 
 - Keep the existing workspaces: analyzer in `packages/analyzer` independent of AWS/React, contracts

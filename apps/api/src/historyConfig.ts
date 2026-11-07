@@ -5,6 +5,7 @@ import { MemoryHistoryStore, MemoryArtifactStore } from "./historyStore";
 import { analyzeValidatedBody } from "./analyzeRequest";
 import { createCloudFormationValidator } from "./cloudFormationValidation";
 import { getApiRequestLimits } from "./requestLimits";
+import { SqsAnalysisQueue } from "./analysisQueueAws";
 
 export function configuredHistory(
   hosted: boolean,
@@ -41,7 +42,14 @@ export function configuredHistory(
     environment.NODE_ENV !== "production" &&
     !environment.AWS_LAMBDA_FUNCTION_NAME
   ) {
-    return new HistoryService(new MemoryHistoryStore(), new MemoryArtifactStore(), options);
+    // Fully local mode is AWS-free and intentionally in-memory. Match the queued UI workflow.
+    const history = new HistoryService(new MemoryHistoryStore(), new MemoryArtifactStore(), {
+      ...options, queue: { send: async message => {
+        setTimeout(() => { void history.processJob(message).catch(() => {}); }, 0).unref();
+      } }
+    });
+    setInterval(() => { void history.reconcileJobs().catch(() => {}); }, 30_000).unref();
+    return history;
   }
   if (adapterMode !== "aws") {
     throw new Error("History memory adapter is explicitly local-only.");
@@ -58,7 +66,8 @@ export function configuredHistory(
       runs: runsTable
     }),
     new S3ArtifactStore(artifactBucket),
-    options
+    { ...options, ...(environment.INFRALENS_ANALYSIS_QUEUE_URL
+      ? { queue: new SqsAnalysisQueue(environment.INFRALENS_ANALYSIS_QUEUE_URL) } : {}) }
   );
 }
 

@@ -16,7 +16,7 @@ export function analysisVersions(value: Partial<AnalysisVersions>): AnalysisVers
 }
 
 export interface RunProvenance {
-  kind: "apply" | "reanalysis";
+  kind: "apply" | "reanalysis" | "retry";
   parentRun: SavedRunReference;
   inputMode: "retained" | "reuploaded" | "template-only";
   appliedFixIds?: string[];
@@ -42,6 +42,8 @@ export interface SavedProject {
 }
 
 export interface SavedRun {
+  /** Absent on legacy and synchronous runs. */
+  job?: AnalysisJobStatus;
   analyzerVersion?: string;
   schemaVersion?: string;
   summary?: AnalysisSummary;
@@ -55,6 +57,19 @@ export interface SavedRun {
   inputExpiresAt: string;
   sourceRetained: boolean;
   retainedInputBytes: number;
+}
+
+export type AnalysisJobState = "PENDING_DISPATCH" | "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED";
+
+export interface AnalysisJobStatus {
+  status: AnalysisJobState;
+  attempts: number;
+  updatedAt: string;
+  failure?: "INVALID_INPUT" | "INPUT_EXPIRED" | "RETRIES_EXHAUSTED" | "DEAD_LETTER" | "DISPATCH_TIMEOUT" | "PARENT_DELETED";
+}
+
+export interface SubmittedAnalysis {
+  run: SavedRun;
 }
 
 export interface HistoryPage<T> {

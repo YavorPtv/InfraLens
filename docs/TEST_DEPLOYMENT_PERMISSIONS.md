@@ -595,3 +595,40 @@ References:
 - [API Gateway tag policy examples](https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-tagging-iam-policy.html)
 - [CloudFront actions, resources and conditions](https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudfront.html)
 - [IAM simulator behavior and limits](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_testing-policies.html)
+## Milestone 3 async analysis permissions
+
+November 7 review. `--prepare-async-analysis` takes a fresh parsed snapshot of the stable
+`CDKToolkit` in account `230944684535`, region `eu-central-1`. It requires `InfraLensTestScopedV1`,
+qualifier `hnb659fds`, version 32 and the recorded milestone 2 policy documents. It stops if the
+baseline or existing execution-role attachments differ. Use the existing
+[snapshot export procedure](#export-the-bootstrap-snapshot-read-only-aws).
+
+```powershell
+npm.cmd run prepare-test-permissions --workspace @infralens/cdk -- cdk.out/test-bootstrap-snapshot.json cdk.out/milestone3-bootstrap.template.json --prepare-async-analysis
+```
+
+The offline review copy generated from the historical logging-corrected baseline is
+`infra/cdk/cdk.out/milestone3-review-only.template.json`. Regenerate the deployment candidate from
+live state. The change set must contain these three resource changes:
+
+| Resource | Change |
+| --- | --- |
+| `InfraLensTestApplicationBoundary` | Adds grants for the API and recovery to send to the analysis queue, the worker to consume from it, and recovery to consume from the DLQ. Role and queue prefixes, region and account scope the grants. |
+| `InfraLensTestExecutionAsyncAnalysis` | Adds provisioning permissions for the two new functions and queues, the worker event source mapping and the recovery rule. Function and tag conditions scope the mapping and an EventBridge target condition limits the rule to the recovery function. Only the two new runtime roles can be passed to Lambda by this policy. |
+| `CloudFormationExecutionRole` | Attaches the new policy alongside the three existing execution policies. |
+
+The existing DynamoDB provisioning grant covers the additive GSI update. The application boundary's
+runs-table resource wildcard already covers the index ARN. Only the recovery runtime role receives
+an inline Query grant for `JobRecovery`. The preparation leaves the existing bootstrap parameters,
+trusts, policies, version and publishing resources intact.
+
+Before executing the change set, verify the test caller account, validate the two generated policy
+documents through IAM Access Analyzer and compare the live attached policies with the reviewed baseline.
+The test region has 10 unreserved executions. The worker uses its SQS event source mapping to cap
+concurrency at two without a function-level reservation.
+Review a bootstrap change set built using `UsePreviousValue` for its existing parameters. Confirm
+that the only changes are the three above and there are no replacements. Then use the scoped
+deployment profile for the application diff and deployment and the frontend profile for publishing.
+The [Lambda IAM reference](https://docs.aws.amazon.com/service-authorization/latest/reference/list_lambda.html)
+and [EventBridge target restrictions](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-use-conditions.html)
+describe the service-specific conditions used here.

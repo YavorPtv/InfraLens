@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { resolveDeploymentTarget, validateDeploymentTarget } from "../src/deployment-target";
 import {
   prepareTestBootstrapTemplate, prepareTestFilePublishingPolicyRepair, prepareTestBootstrapVersionReadRepair,
-  prepareTestApiTagPolicyRepair, prepareTestApiLoggingBoundaryRepair, readTestPolicies, testPolicyNames,
+  prepareTestApiTagPolicyRepair, prepareTestApiLoggingBoundaryRepair, prepareTestAsyncAnalysisPermissions, readTestPolicies, testPolicyNames,
   type BootstrapSnapshot, type PolicyDocument
 } from "../src/test-permissions";
 
@@ -397,6 +397,38 @@ describe("offline test bootstrap policy preparation", () => {
     statement(broaderPolicies["application-boundary"], "ApiGatewayAccountLogging").Condition!.ArnLike["aws:PrincipalArn"] = "*";
     expect(() => prepareTestApiLoggingBoundaryRepair(snapshotWithApiLoggingRestriction(), broaderPolicies))
       .to.throw("restricted to the test API Gateway role and region");
+  });
+
+  it("prepares only three bootstrap resource changes for async analysis", () => {
+    const snapshot = snapshotWithApiLoggingRestriction();
+    snapshot.TemplateBody = prepareTestApiLoggingBoundaryRepair(snapshot, policies);
+    const baseline = structuredClone(snapshot);
+    const result = prepareTestAsyncAnalysisPermissions(snapshot, policies);
+    const changed = Object.keys(result.Resources).filter(key =>
+      JSON.stringify(result.Resources[key]) !== JSON.stringify(baseline.TemplateBody.Resources[key]));
+    expect(changed).to.have.members([
+      "CloudFormationExecutionRole", "InfraLensTestApplicationBoundary", "InfraLensTestExecutionAsyncAnalysis"
+    ]);
+    expect(result.Parameters).to.deep.equal(baseline.TemplateBody.Parameters);
+    expect(snapshot).to.deep.equal(baseline);
+    const execution = result.Resources.InfraLensTestExecutionAsyncAnalysis.Properties.PolicyDocument as PolicyDocument;
+    const boundary = result.Resources.InfraLensTestApplicationBoundary.Properties.PolicyDocument as PolicyDocument;
+    expect(boundary.Statement.slice(0, policies["application-boundary"].Statement.length)).to.deep.equal(policies["application-boundary"].Statement);
+    for (const policy of [execution, boundary]) {
+      expect(JSON.stringify(policy).length).to.be.at.most(6144);
+      expect(JSON.stringify(policy)).not.to.include("609124256824");
+    }
+    expect(statement(execution, "PassJobRolesOnlyToLambda").Condition?.StringEquals["iam:PassedToService"]).to.equal("lambda.amazonaws.com");
+    expect(statement(execution, "ManageWorkerMapping").Condition?.ArnLike["lambda:FunctionArn"]).to.include("InfraLensTestStack-AnalysisWorker");
+    expect(statement(boundary, "ConsumeAnalysisJobs").Action).not.to.include("sqs:SendMessage");
+    expect(statement(boundary, "SendAnalysisJobs").Action).not.to.include("sqs:ReceiveMessage");
+  });
+
+  it("refuses to prepare async permissions from a changed baseline or another account", () => {
+    const snapshot = snapshotWithApiLoggingRestriction();
+    expect(() => prepareTestAsyncAnalysisPermissions(snapshot, policies)).to.throw("differs from the audited baseline");
+    snapshot.Stacks[0].StackId = snapshot.Stacks[0].StackId.replace(account, "609124256824");
+    expect(() => prepareTestAsyncAnalysisPermissions(snapshot, policies)).to.throw("healthy CDKToolkit snapshot");
   });
 });
 

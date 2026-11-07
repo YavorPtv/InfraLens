@@ -1,5 +1,10 @@
 # AWS test and production deployment
 
+Milestone 3 deployed to AWS test on November 7 after a scoped update to the existing custom
+bootstrap. See [rollout evidence](TESTING.md#november-7-2026-milestone-3-rollout) for live acceptance
+status and [async operating boundaries](ASYNC_ANALYSIS.md#infrastructure-and-operating-runbook) for
+recovery and test procedures. Production remains deferred.
+
 InfraLens has three independent modes: local Express/React, persistent AWS test, and AWS production.
 Deployment identity is defined in `infra/cdk/src/deployment-target.ts`, never inferred from
 `NODE_ENV`, `INFRALENS_ENVIRONMENT`, `CDK_DEFAULT_ACCOUNT`, or active credentials.

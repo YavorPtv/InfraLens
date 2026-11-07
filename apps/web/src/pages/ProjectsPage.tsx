@@ -247,7 +247,7 @@ export function ProjectsPage() {
                       <input
                         type="checkbox"
                         checked={selected}
-                        disabled={isBusy || selectionLimitReached}
+                        disabled={isBusy || selectionLimitReached || Boolean(run.job && run.job.status !== "SUCCEEDED")}
                         onChange={(event) => handleRunSelection(run.runId, event.target.checked)}
                       />{" "}
                       Select
@@ -255,10 +255,10 @@ export function ProjectsPage() {
                     <Link to={`/projects/${projectId}/runs/${run.runId}`}>
                       {new Date(run.createdAt).toLocaleString()}
                     </Link>
-                    <p>{run.summary ? `${run.resourceCount} resources · ${run.summary.totalFindings} findings · Score ${run.score}/100` : "Legacy run: summary unavailable; open the stored report."}</p>
+                    <p>{run.job && run.job.status !== "SUCCEEDED" ? `Analysis ${run.job.status.replaceAll("_", " ")} · ${run.job.attempts} worker attempts` : run.summary ? `${run.resourceCount} resources · ${run.summary.totalFindings} findings · Score ${run.score}/100` : "Legacy run: summary unavailable; open the stored report."}</p>
                     {run.summary && <p className="muted-note">{Object.entries(run.summary.bySeverity).map(([severity, count]) => `${count} ${severity}`).join(" · ")}</p>}
                     <p className="muted-note">Analyzer {run.analyzerVersion ?? "unknown"} · Schema {run.schemaVersion ?? "unknown"}</p>
-                    {run.provenance && <p>{run.provenance.kind === "apply" ? "Applied fixes" : "Reanalysis"} · {run.provenance.inputMode} · <Link to={`/projects/${projectId}/runs/${run.provenance.parentRun.runId}`}>Parent run</Link></p>}
+                    {run.provenance && <p>{run.provenance.kind === "apply" ? "Applied fixes" : run.provenance.kind === "retry" ? "Retried analysis" : "Reanalysis"} · {run.provenance.inputMode} · <Link to={`/projects/${projectId}/runs/${run.provenance.parentRun.runId}`}>Parent run</Link></p>}
                     <p className="muted-note">
                       Inputs expire {new Date(run.inputExpiresAt).toLocaleString()}. Source{" "}
                       {run.sourceRetained ? "retained" : "not retained"}. Retained input:{" "}
@@ -277,7 +277,7 @@ export function ProjectsPage() {
             })}
           </ul>
 
-          {!isBusy && runs.items.length === 0 && <p>No completed runs on this page.</p>}
+          {!isBusy && runs.items.length === 0 && <p>No runs on this page.</p>}
           {runs.nextCursor && (
             <button className="secondary-button" disabled={isBusy} onClick={handleLoadMoreRuns}>
               Load more runs

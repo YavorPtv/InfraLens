@@ -137,7 +137,10 @@ describe("InfraLensStack", () => {
       "s3:GetObject",
       "s3:PutObject",
       "s3:PutObjectTagging",
-      "s3:DeleteObject"
+      "s3:DeleteObject",
+      "sqs:SendMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:GetQueueUrl"
     ]);
     const storageStatements = statements.filter((statement) => {
       const actions = JSON.stringify(statement.Action);
@@ -151,7 +154,9 @@ describe("InfraLensStack", () => {
     const tables = template.findResources("AWS::DynamoDB::Table");
     for (const table of Object.values(tables)) {
       expect(table.DeletionPolicy).to.equal("Retain");
-      expect(table.Properties.GlobalSecondaryIndexes).to.equal(undefined);
+      if (table.Properties.GlobalSecondaryIndexes) {
+        expect(table.Properties.GlobalSecondaryIndexes.map((index: { IndexName: string }) => index.IndexName)).to.deep.equal(["JobRecovery"]);
+      }
       expect(table.Properties.SSESpecification.SSEEnabled).to.equal(true);
     }
     template.hasResourceProperties("AWS::S3::Bucket", {
@@ -174,7 +179,7 @@ describe("InfraLensStack", () => {
     const protectedMethods = methods.filter(
       (method) => method.Properties.Integration?.Type === "AWS_PROXY"
     );
-    expect(protectedMethods.length).to.equal(16);
+    expect(protectedMethods.length).to.equal(19);
     expect(
       protectedMethods.every(
         (method) => method.Properties.AuthorizationType === "COGNITO_USER_POOLS"
@@ -200,7 +205,7 @@ describe("InfraLensStack", () => {
       ]),
       StageName: "production"
     });
-    template.resourceCountIs("AWS::CloudWatch::Alarm", 4);
+    template.resourceCountIs("AWS::CloudWatch::Alarm", 9);
     template.resourceCountIs("AWS::Budgets::Budget", 1);
     template.resourceCountIs("AWS::SNS::Topic", 1);
     template.hasResourceProperties("AWS::Logs::LogGroup", { RetentionInDays: 30 });
@@ -214,6 +219,54 @@ describe("InfraLensStack", () => {
         target: { ...resolveDeploymentTarget("production"), cognitoDomainPrefix: "" }
       })
     ).to.throw("Invalid Cognito domain prefix");
+  });
+
+  it("synthesizes scoped asynchronous jobs, bounded workers, recovery and queue safeguards", () => {
+    const stack = new InfraLensStack(new cdk.App(), "AsyncStack", { target: resolveDeploymentTarget("test") });
+    const template = Template.fromStack(stack);
+    template.resourceCountIs("AWS::SQS::Queue", 2);
+    template.hasResourceProperties("AWS::SQS::Queue", {
+      SqsManagedSseEnabled: true, VisibilityTimeout: 360, MessageRetentionPeriod: 345600,
+      RedrivePolicy: { deadLetterTargetArn: Match.anyValue(), maxReceiveCount: 5 }
+    });
+    template.hasResourceProperties("AWS::SQS::Queue", { MessageRetentionPeriod: 1209600 });
+    template.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
+      BatchSize: 1, FunctionResponseTypes: ["ReportBatchItemFailures"], ScalingConfig: { MaximumConcurrency: 2 }
+    });
+    template.hasResourceProperties("AWS::Events::Rule", { ScheduleExpression: "rate(2 minutes)" });
+    template.hasResourceProperties("AWS::DynamoDB::Table", {
+      GlobalSecondaryIndexes: [{ IndexName: "JobRecovery", KeySchema: [
+        { AttributeName: "recoveryShard", KeyType: "HASH" }, { AttributeName: "recoveryAt", KeyType: "RANGE" }
+      ], Projection: { ProjectionType: "ALL" } }]
+    });
+    const functions = template.findResources("AWS::Lambda::Function");
+    const worker = Object.entries(functions).find(([key]) => key.startsWith("AnalysisWorker"))!;
+    const recovery = Object.entries(functions).find(([key]) => key.startsWith("AnalysisRecovery"))!;
+    const api = Object.entries(functions).find(([key]) => key.startsWith("AnalysisApiFunction"))!;
+    for (const jobFunction of [worker, recovery]) {
+      expect(jobFunction[1].Properties.Timeout).to.equal(60);
+      expect(jobFunction[1].Properties).not.to.have.property("ReservedConcurrentExecutions");
+    }
+    expect(worker[1].Properties.Role).not.to.deep.equal(api[1].Properties.Role);
+    expect(recovery[1].Properties.Role).not.to.deep.equal(worker[1].Properties.Role);
+    expect(worker[1].Properties.Environment.Variables).not.to.have.property("INFRALENS_ANALYSIS_QUEUE_URL");
+    const policies = template.findResources("AWS::IAM::Policy");
+    const workerPolicy = Object.entries(policies).find(([key]) => key.startsWith("AnalysisWorkerRole"))![1];
+    const serialized = JSON.stringify(workerPolicy);
+    expect(serialized).to.include("sqs:ReceiveMessage");
+    expect(serialized).not.to.include("sqs:SendMessage");
+    expect(serialized).not.to.include("dynamodb:Scan");
+    const apiPolicy = Object.entries(policies).find(([key]) => key.startsWith("AnalysisFunctionRole"))![1];
+    expect(JSON.stringify(apiPolicy)).to.include("sqs:SendMessage");
+    expect(JSON.stringify(apiPolicy)).not.to.include("sqs:ReceiveMessage");
+    for (const resource of Object.values(template.findResources("AWS::SQS::Queue"))) {
+      expect(resource.DeletionPolicy).to.equal("Retain");
+    }
+    const resources = template.toJSON().Resources as Record<string, SynthesizedResource>;
+    for (const [path, method] of [["async", "POST"], ["status", "GET"], ["retry", "POST"]]) {
+      const route = findApiResource(resources, path);
+      expect(findApiMethod(resources, route.logicalId, method).Properties?.AuthorizationType).to.equal("COGNITO_USER_POOLS");
+    }
   });
 
   it("rejects reserved Cognito domain terms before deployment", () => {
@@ -260,7 +313,7 @@ describe("InfraLensStack", () => {
       template.resourceCountIs("AWS::DynamoDB::Table", 2);
       template.resourceCountIs("AWS::S3::Bucket", 2);
       const applicationRoles = Object.values(template.findResources("AWS::IAM::Role"));
-      expect(applicationRoles).to.have.length(2);
+      expect(applicationRoles).to.have.length(4);
       for (const role of applicationRoles) {
         expect(role.Properties.PermissionsBoundary).to.equal(target.applicationPermissionsBoundaryArn);
       }
@@ -302,7 +355,7 @@ describe("InfraLensStack", () => {
       }
       const methods = Object.values(template.findResources("AWS::ApiGateway::Method"));
       const protectedMethods = methods.filter((method) => method.Properties.Integration?.Type === "AWS_PROXY");
-      expect(protectedMethods).to.have.length(16);
+      expect(protectedMethods).to.have.length(19);
       const authorizerId = Object.keys(template.findResources("AWS::ApiGateway::Authorizer"))[0];
       for (const method of protectedMethods) {
         expect(method.Properties.AuthorizationType).to.equal("COGNITO_USER_POOLS");

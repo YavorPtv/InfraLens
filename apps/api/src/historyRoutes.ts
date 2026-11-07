@@ -159,8 +159,17 @@ export async function routeHistory(
       return jsonResponse(await service.save(owner, projectId, saveRequest), 201);
     }
   }
+  if (pathParts[2] === "runs" && pathParts.length === 4 && pathParts[3] === "async" && method === "POST") {
+    return jsonResponse(await service.submit(owner, projectId, parseSaveRequest(body)), 202);
+  }
   const runId = pathParts[3];
   if (pathParts[2] === "runs" && runId && isValidRunId(runId)) {
+    if (pathParts.length === 5 && pathParts[4] === "status" && method === "GET") {
+      return jsonResponse(await service.status(owner, projectId, runId));
+    }
+    if (pathParts.length === 5 && pathParts[4] === "retry" && method === "POST") {
+      return jsonResponse(await service.submit(owner, projectId, parseSaveRequest(body), runId), 202);
+    }
     if (pathParts.length === 5 && method === "POST" && (pathParts[4] === "apply" || pathParts[4] === "reanalyze")) {
       const kind = pathParts[4] === "apply" ? "apply" : "reanalysis";
       return jsonResponse(await service.derive(owner, projectId, runId, kind, parseDeriveRequest(body, kind)), 201);

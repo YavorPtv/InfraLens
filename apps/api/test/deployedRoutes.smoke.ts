@@ -37,9 +37,12 @@ describe("existing deployed InfraLens API (HTTP smoke only)", function () {
     ["GET", "projects"], ["POST", "projects"], ["POST", "projects/cleanup"], ["POST", "projects/compare"],
     ["PATCH", "projects/test-project"], ["DELETE", "projects/test-project"],
     ["GET", "projects/test-project/runs"], ["POST", "projects/test-project/runs"],
+    ["POST", "projects/test-project/runs/async"],
     ["GET", "projects/test-project/runs/test-run"], ["DELETE", "projects/test-project/runs/test-run"],
     ["POST", "projects/test-project/runs/test-run/apply"],
     ["POST", "projects/test-project/runs/test-run/reanalyze"],
+    ["GET", "projects/test-project/runs/test-run/status"],
+    ["POST", "projects/test-project/runs/test-run/retry"],
     ["GET", "projects/test-project/runs/test-run/artifacts/report"]
   ]) {
     it(`rejects ${method} /${path} without authentication`, async () => {
