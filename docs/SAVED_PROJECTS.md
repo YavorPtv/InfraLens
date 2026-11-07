@@ -21,6 +21,9 @@ hosted authentication adapter. See [deployment separation](PRODUCTION_DEPLOYMENT
 | POST / GET | `/projects` | Create with `{name}` / list owner projects |
 | PATCH / DELETE | `/projects/:projectId` | Rename with `{name}` / delete project and revoke children |
 | POST / GET | `/projects/:projectId/runs` | Analyze and save / chronological history |
+| POST | `/projects/:projectId/runs/async` | Stage validated request inputs, reserve dispatch intent, return `202 {run}` |
+| GET | `/projects/:projectId/runs/:runId/status` | Owner-authorized job/public run metadata |
+| POST | `/projects/:projectId/runs/:runId/retry` | Reupload inputs for a failed job and queue a linked new run |
 | GET / DELETE | `/projects/:projectId/runs/:runId` | Reopen report / revoke run and clean artifacts |
 | POST | `/projects/:projectId/runs/:runId/apply` | Regenerate/validate selected fixes and save a linked child |
 | POST | `/projects/:projectId/runs/:runId/reanalyze` | Explicit current-analyzer reanalysis saved as a linked child |
@@ -29,7 +32,7 @@ hosted authentication adapter. See [deployment separation](PRODUCTION_DEPLOYMENT
 | POST | `/projects/cleanup` | Retry owner-scoped physical deletion and discard expired pending saves |
 
 Lists and cleanup accept `limit` (1–50, default 20) and `cursor`. Follow `nextCursor` even if a page
-is empty: pending/deleted records do not appear, but still advance the underlying query. Runs sort
+is empty: synchronous pending saves and deleted records do not appear, but still advance the underlying query. Async jobs appear throughout their lifecycle. Runs sort
 oldest first by server timestamp, then UUID. Each comparison reference is independently authorized;
 retained source, mappings and exclusions are passed independently to the source-aware diff engine.
 Unretained source is explicitly missing; the UI offers comparison of available inputs or reupload.
@@ -53,6 +56,14 @@ snapshot includes source only when retention was explicitly enabled. No owner or
 The web client keeps only a request fingerprint and retry key in sessionStorage during a save,
 not the submitted inputs. Successful saves clear that retry key. Fresh-session restoration fetches
 the report by project/run URL and does not depend on surviving React state.
+
+Async submission accepts this same input body and returns public metadata without a report until
+processing succeeds. It reserves the existing quotas plus five pending jobs per user by default.
+Reports and retained-input access keep the same guarantees below. Execution source is staged
+temporarily even without retention opt-in, never exposed through artifact APIs, and removed after
+terminal processing/writer leases. See [asynchronous analysis](ASYNC_ANALYSIS.md) for fencing,
+recovery, failure/retry contracts, scoped infrastructure and operating boundaries. This is implemented
+in the November 7 AWS test rollout. See [rollout evidence](TESTING.md#november-7-2026-milestone-3-rollout).
 
 ## Versions, summaries and linked runs
 
@@ -188,6 +199,7 @@ endpoint instead of inventing an S3 URL.
 | `runsPerUser` | 500 | `INFRALENS_QUOTA_RUNS_PER_USER` |
 | `retainedInputBytes` | 3 MiB per run | `INFRALENS_QUOTA_RETAINED_INPUT_BYTES` |
 | `saveKeysPerUser` | 10,000 lifetime reservations | `INFRALENS_QUOTA_SAVE_KEYS_PER_USER` |
+| `pendingJobsPerUser` | 5 asynchronous jobs | `INFRALENS_QUOTA_PENDING_JOBS_PER_USER` |
 
 Existing template/source/request limits still apply. Quotas reject explicitly; they never silently
 evict reports. Integer quotas must be 1–100,000; the input byte quota must be 1 byte–4 MiB. The lifetime

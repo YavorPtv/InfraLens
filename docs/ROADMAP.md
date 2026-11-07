@@ -1,6 +1,6 @@
 # InfraLens roadmap
 
-Updated: October 24, 2026. Milestone 2 starting point: `main` at `217481a`, after PR #57.
+Updated: October 26, 2026. Milestone 2 starting point: `main` at `217481a`, after PR #57.
 
 ## Goal and scope
 
@@ -17,7 +17,8 @@ The full UI refactor and production deployment remain deferred.
 | Milestone 1.5: source-aware comparison | Merged; API/frontend deployed and code-only browser comparison confirmed by user |
 | Frontend lazy loading | Merged and deployed per user; offline hosted initial JavaScript about 248 kB, down from 536 kB |
 | Milestone 2: useful history | Implemented on main, deployed to test and browser-accepted October 24 |
-| Milestones 3-5: queues, dispatch, operations | Planned; implement in sequence |
+| Milestone 3: asynchronous analysis | Complete on the feature branch and AWS test. Scoped IAM review, deployment, live recovery, and browser acceptance completed November 7. |
+| Milestones 4-5: dispatch, operations | Planned; implement in sequence |
 | Production application | Deferred; region/readiness decision still required |
 
 The user confirmed the current test API/frontend updates and working GetItem -> PutItem browser
@@ -37,7 +38,8 @@ HTTP suites were not run without injected credentials; this is recorded separate
 Current system: React via CloudFront, Cognito, REST API Gateway/Lambda, two DynamoDB metadata tables
 and a private S3 artifact bucket. Local Express/in-memory adapters support AWS-free development.
 Run summaries, analyzer/schema versions and parent-child provenance are deployed in milestone 2.
-SQS, Streams and Scheduler are future work.
+SQS jobs and scheduled recovery are implemented on the milestone 3 branch with offline evidence.
+AWS test has milestone 3. Streams and Scheduler remain future work.
 
 - Derive owners from trusted Cognito claims and authorize every project, run, artifact and comparison.
   Local fake identity must never become a hosted bypass. Use bounded queries, quotas and opaque cursors.
@@ -103,7 +105,7 @@ The credential-driven authenticated smoke/hosted HTTP suites were not run: the u
 browser sign-in instead of injecting credentials. Keep that distinction when reporting results.
 The small browser acceptance project remains under user A for review; direct storage fixtures were
 cleaned. The user subsequently authorized committing to main, pushing and local synchronization.
-Production and milestone 3 remain outside the current work.
+Production remains deferred. Milestone 3 branch implementation is recorded below.
 
 1. Add analyzer/schema version metadata with a compatibility path for existing records/reports.
    Legacy versions must be explicitly unknown, not assumed current. Storage's conditional-write
@@ -131,6 +133,26 @@ Run offline checks first, then verify the authorized test deployment and browser
 the remaining milestone 1 checklist. See [testing](TESTING.md) for existing adapters and live guards.
 
 ## Milestone 3: asynchronous analysis with SQS
+
+Implemented October 26 on `feature/milestone-3-async-analysis`: `202` submission, authorized
+status/history, backoff polling, explicit reuploaded linked retries, durable API dispatch intent,
+SQS worker claims/leases/fencing, bounded due-index recovery and DLQ reconciliation, three-attempt
+limits, per-user pending quotas, deletion/cleanup manifests and separate scoped CDK roles/alarms.
+Synchronous history/stateless routes and legacy/retention/source/comparison guarantees are preserved.
+See [contracts, recovery/runbook and evidence](ASYNC_ANALYSIS.md).
+
+Offline verification: **635 tests passed**, all workspace typechecks/builds passed, including
+CDK synthesis assertions. Controlled cases include resumed-upload writer leases during deletion.
+The Vite build's initial JavaScript remains about 247 kB with no chunk-size warning.
+The November 7 rollout passed 637 offline tests, including the new permission preparation checks.
+Renewed SSO enabled comparison with the live baseline. Access Analyzer reported no findings for the
+two proposed policies, and the three-resource custom-bootstrap change set reached `UPDATE_COMPLETE`.
+The test Lambda quota is 10. The worker cap of two is configured on the SQS integration rather than
+through reserved account concurrency. Backend and frontend deployments completed. Public smoke
+passed 21 checks. All six AWS storage tests passed, including real scheduled recovery of missed
+sends and an expired worker claim. Signed-in browser checks passed for both test users, including
+linked retry, report refresh, owner isolation, and retained-source comparison/export. See
+[rollout evidence and coverage limits](TESTING.md#november-7-2026-milestone-3-rollout).
 
 **Outcome:** submit analysis, leave/refresh, then return to its persistent status and result.
 This is a learning/burst-handling extension, not a claim the current analyzer is too slow.

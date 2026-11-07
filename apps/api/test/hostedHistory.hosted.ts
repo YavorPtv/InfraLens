@@ -4,6 +4,7 @@ import { exportDiffReportToMarkdown, type DiffReport, type OpenSavedRun, type Sa
 import { hostedTestRequest, readHostedTestConfiguration, requireTestDataWrites } from "./hostedTestHelpers";
 import { TestUserAuthentication } from "./testUserAuthentication";
 import type { TestUser } from "./testUserCredentials";
+import type { SavedRun, SubmittedAnalysis } from "@infralens/shared";
 
 // Separate from direct SDK tests: this suite uses Cognito-authenticated HTTP and temporary test data.
 describe("hosted test Cognito isolation", function () {
@@ -72,6 +73,88 @@ describe("hosted test Cognito isolation", function () {
       if (cleanup.cleanupPending) {
         throw new Error(`Test project ${project.projectId} has pending cleanup; preserve its recovery metadata.`);
       }
+    }
+  });
+
+  it("submits persistent jobs, polls from a fresh request, isolates users and links explicit retries", async function () {
+    this.timeout(360_000);
+    const configuration = readHostedTestConfiguration();
+    requireTestDataWrites(configuration);
+    authentication?.clear();
+    authentication = new TestUserAuthentication(configuration);
+    await authentication.assertDistinctUsers();
+    const call = async (user: TestUser, path: string, method = "GET", body?: unknown) => {
+      const token = await authentication!.accessToken(user);
+      return hostedTestRequest(configuration, path, { method,
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    };
+    const created = await call("A", "projects", "POST", { name: `Async acceptance ${randomUUID()}` });
+    expect(created.status).to.equal(201);
+    const project = await created.json() as SavedProject;
+    const base = `projects/${project.projectId}`;
+    const waitForTerminal = async (runId: string): Promise<SavedRun> => {
+      const deadline = Date.now() + 90_000;
+      let delay = 2000;
+      while (Date.now() < deadline) {
+        const response = await call("A", `${base}/runs/${runId}/status`);
+        expect(response.status).to.equal(200);
+        const run = await response.json() as SavedRun;
+        if (run.job?.status === "SUCCEEDED" || run.job?.status === "FAILED") return run;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.min(10_000, delay * 2);
+      }
+      throw new Error(`Job ${runId} did not reach a terminal state within the acceptance window.`);
+    };
+    try {
+      const input = { template: '{"Resources":{"Bucket":{"Type":"AWS::S3::Bucket"}}}',
+        sourceFiles: { "fixture.ts": "// async acceptance source" } };
+      const body = { input, retainSource: true, idempotencyKey: randomUUID() };
+      expect((await call("B", `${base}/runs/async`, "POST", body)).status).to.equal(404);
+      const submittedResponse = await call("A", `${base}/runs/async`, "POST", body);
+      expect(submittedResponse.status).to.equal(202);
+      const submitted = await submittedResponse.json() as SubmittedAnalysis;
+      const path = `${base}/runs/${submitted.run.runId}`;
+      expect((await call("B", `${path}/status`)).status).to.equal(404);
+      expect((await call("B", `${path}/retry`, "POST", { ...body, idempotencyKey: randomUUID() })).status).to.equal(404);
+      expect((await call("B", `${path}/artifacts/report`)).status).to.equal(404);
+      const duplicate = await call("A", `${base}/runs/async`, "POST", body);
+      expect(duplicate.status).to.equal(202);
+      expect((await duplicate.json() as SubmittedAnalysis).run.runId).to.equal(submitted.run.runId);
+      expect((await waitForTerminal(submitted.run.runId)).job!.status).to.equal("SUCCEEDED");
+      const restored = await call("A", path);
+      expect(restored.status).to.equal(200);
+      const opened = await restored.json() as OpenSavedRun;
+      expect(opened.input).to.deep.equal(input);
+      expect(opened.run.analyzerVersion).not.to.equal("unknown");
+      const badResponse = await call("A", `${base}/runs/async`, "POST", {
+        input: { template: "invalid: [" }, idempotencyKey: randomUUID()
+      });
+      expect(badResponse.status).to.equal(202);
+      const bad = await badResponse.json() as SubmittedAnalysis;
+      const failure = await waitForTerminal(bad.run.runId);
+      expect(failure.job).to.include({ status: "FAILED", failure: "INVALID_INPUT" });
+      const retriedResponse = await call("A", `${base}/runs/${bad.run.runId}/retry`, "POST", {
+        input, idempotencyKey: randomUUID()
+      });
+      expect(retriedResponse.status).to.equal(202);
+      const retried = await retriedResponse.json() as SubmittedAnalysis;
+      expect(retried.run.provenance).to.include({ kind: "retry", inputMode: "reuploaded" });
+      expect(retried.run.provenance!.parentRun.runId).to.equal(bad.run.runId);
+      expect((await waitForTerminal(retried.run.runId)).job!.status).to.equal("SUCCEEDED");
+      expect((await waitForTerminal(bad.run.runId)).job).to.deep.equal(failure.job);
+      expect((await (await call("A", path)).json() as OpenSavedRun).report).to.deep.equal(opened.report);
+    } finally {
+      // Writers' hard lifetimes/leases apply to real storage too; never discard recovery manifests.
+      const deadline = Date.now() + 150_000;
+      let pending = true;
+      while (pending && Date.now() < deadline) {
+        const deleted = await call("A", base, "DELETE");
+        expect(deleted.status).to.equal(200);
+        pending = (await deleted.json() as { cleanupPending: boolean }).cleanupPending;
+        if (pending) await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+      expect(pending, `Only test project ${project.projectId} cleanup must finish; preserve recovery metadata if pending`).to.equal(false);
     }
   });
 });

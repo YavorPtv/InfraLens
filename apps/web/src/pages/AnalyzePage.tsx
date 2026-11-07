@@ -18,6 +18,9 @@ export function AnalyzePage() {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get("project");
   const parentRunId = searchParams.get("reanalyze");
+  const retryRunId = searchParams.get("retry");
+  const [queueAnalysis, setQueueAnalysis] = useState(true);
+  const queuesSavedJob = Boolean(projectId && !parentRunId && (queueAnalysis || retryRunId));
   const location = useLocation();
   const initialInput = (location.state as { input?: AnalyzeApiRequest } | null)?.input;
   const [templateOnly, setTemplateOnly] = useState(false);
@@ -110,8 +113,10 @@ export function AnalyzePage() {
           sourceFileMappings: analysisInput.sourceFileMappings,
           sourceFileExclusions: analysisInput.sourceFileExclusions
         };
-        const idempotencyKey = await saveRequestKey(projectId, { input, parentRunId, templateOnly }, retainSource);
-        const saved = parentRunId ? await historyClient.reanalyze(projectId, parentRunId, { input, templateOnly, idempotencyKey, retainSource }) : await historyClient.save(projectId, {
+        const idempotencyKey = await saveRequestKey(projectId, { input, parentRunId, retryRunId, templateOnly, queueAnalysis }, retainSource);
+        const saved = retryRunId ? await historyClient.retry(projectId, retryRunId, { input, idempotencyKey, retainSource })
+          : parentRunId ? await historyClient.reanalyze(projectId, parentRunId, { input, templateOnly, idempotencyKey, retainSource })
+          : await (queueAnalysis ? historyClient.submit : historyClient.save)(projectId, {
           input,
           idempotencyKey,
           retainSource
@@ -151,8 +156,11 @@ export function AnalyzePage() {
       {projectId ? (
         <div>
           <p>
-            Saving a server-generated report to this project. Template input is retained for 7 days.
+            Save a server-generated report to this project. Template input is retained for 7 days.
           </p>
+          {retryRunId && <p>Retry a failed job as a linked new run. Reupload the template and any source needed for this analysis.</p>}
+          {!parentRunId && !retryRunId && <p><label><input type="checkbox" checked={queueAnalysis} disabled={isLoading}
+            onChange={event => setQueueAnalysis(event.target.checked)} /> Queue analysis and return to persistent status</label></p>}
           {parentRunId && <div><p>Explicit reanalysis linked to the original run. Reupload template/source as needed; source mappings and exclusions are preserved when available.</p>
             <label><input type="checkbox" checked={templateOnly} onChange={event => setTemplateOnly(event.target.checked)} /> Analyze template only, omitting source context</label></div>}
           <label>
@@ -167,6 +175,7 @@ export function AnalyzePage() {
           <p className="muted-note">
             Reports and derived evidence remain until deletion. Expired inputs must be reuploaded
             for reanalysis or comparison.
+            {(!parentRunId && (queueAnalysis || retryRunId)) && " Uploaded source is temporarily staged for processing; retaining it afterward is optional. You can leave or refresh after submission."}
           </p>
           <Link to="/analyze">Analyze without saving</Link>
         </div>
@@ -376,7 +385,7 @@ export function AnalyzePage() {
           }}
           type="button"
         >
-          {isLoading ? "Analyzing..." : projectId ? "Analyze and save" : "Analyze"}
+          {isLoading ? queuesSavedJob ? "Submitting..." : "Analyzing..." : queuesSavedJob ? "Queue analysis and save" : projectId ? "Analyze and save" : "Analyze"}
         </button>
       </div>
 

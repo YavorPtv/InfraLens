@@ -278,10 +278,75 @@ export function prepareTestApiLoggingBoundaryRepair(snapshot: BootstrapSnapshot,
   return template;
 }
 
+/** Extend the audited bootstrap without rerunning any historical repair. */
+export function prepareTestAsyncAnalysisPermissions(snapshot: BootstrapSnapshot, policies: TestPolicies): BootstrapTemplate {
+  const template = validatedBootstrapTemplate(snapshot, "InfraLensTestScopedV1");
+  const { account, region, stackName } = resolveDeploymentTarget("test");
+  const role = template.Resources.CloudFormationExecutionRole.Properties;
+  const executionIds = ["InfraLensTestExecutionIam", "InfraLensTestExecutionStorageCompute", "InfraLensTestExecutionEdgeAuth"];
+  const expected = ["execution-iam", "execution-storage-compute", "execution-edge-auth", "application-boundary"] as const;
+  const boundaryId = "InfraLensTestApplicationBoundary";
+  const asyncId = "InfraLensTestExecutionAsyncAnalysis";
+  if (template.Resources[asyncId] || !Array.isArray(role.ManagedPolicyArns) ||
+      role.ManagedPolicyArns.length !== executionIds.length ||
+      !executionIds.every(id => role.ManagedPolicyArns.some((ref: unknown) => isDeepStrictEqual(ref, { Ref: id }))) || role.Policies) {
+    throw new Error("Expected only the audited execution policies and no existing async analysis grant.");
+  }
+  for (const [index, id] of [...executionIds, boundaryId].entries()) {
+    const resource = template.Resources[id];
+    if (resource?.Type !== "AWS::IAM::ManagedPolicy" || resource.Properties.ManagedPolicyName !== id ||
+        resource.Properties.Path !== "/" || !isDeepStrictEqual(resource.Properties.PolicyDocument, policies[expected[index]])) {
+      throw new Error(`Bootstrap policy ${id} differs from the audited baseline.`);
+    }
+  }
+
+  const worker = `arn:aws:lambda:${region}:${account}:function:${stackName}-AnalysisWorker*`;
+  const recovery = `arn:aws:lambda:${region}:${account}:function:${stackName}-AnalysisRecovery*`;
+  const queue = `arn:aws:sqs:${region}:${account}:${stackName}-AnalysisQueue*`;
+  const dlq = `arn:aws:sqs:${region}:${account}:${stackName}-AnalysisDeadLetterQueue*`;
+  const rule = `arn:aws:events:${region}:${account}:rule/${stackName}-AnalysisRecoverySchedule*`;
+  const mapping = `arn:aws:lambda:${region}:${account}:event-source-mapping:*`;
+  const runtimeRole = (name: string) => `arn:aws:iam::${account}:role/${stackName}-${name}*`;
+  const location = { "aws:RequestedRegion": region };
+  const tags = { "aws:ResourceTag/Environment": "test", "aws:ResourceTag/Project": "InfraLens" };
+  const requestTags = { "aws:RequestTag/Environment": "test", "aws:RequestTag/Project": "InfraLens" };
+  const allow = (Sid: string, Action: string[], Resource: string | string[], Condition: PolicyDocument["Statement"][number]["Condition"] = { StringEquals: location }): PolicyDocument["Statement"][number] => ({ Sid, Effect: "Allow", Action, Resource, Condition });
+  const consume = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes", "sqs:GetQueueUrl"];
+  const send = ["sqs:SendMessage", "sqs:GetQueueAttributes", "sqs:GetQueueUrl"];
+  const boundary = template.Resources[boundaryId].Properties.PolicyDocument as PolicyDocument;
+  boundary.Statement.push(
+    allow("SendAnalysisJobs", send, queue, { StringEquals: location, ArnLike: { "aws:PrincipalArn": [runtimeRole("AnalysisFunctionRole"), runtimeRole("AnalysisRecoveryRole")] } }),
+    allow("ConsumeAnalysisJobs", consume, queue, { StringEquals: location, ArnLike: { "aws:PrincipalArn": runtimeRole("AnalysisWorkerRole") } }),
+    allow("ReconcileDeadLetters", consume, dlq, { StringEquals: location, ArnLike: { "aws:PrincipalArn": runtimeRole("AnalysisRecoveryRole") } })
+  );
+  const originalFunctionGrant = policies["execution-storage-compute"].Statement.find(statement => statement.Sid === "ProvisionAnalysisFunction");
+  if (!originalFunctionGrant) throw new Error("Expected the audited Lambda provisioning grant.");
+  const unusedFunctionActions = ["lambda:AddPermission", "lambda:RemovePermission", "lambda:PutFunctionConcurrency", "lambda:DeleteFunctionConcurrency"];
+  const execution: PolicyDocument = { Version: "2012-10-17", Statement: [
+    allow("ProvisionJobFunctions", [...originalFunctionGrant.Action.filter(action => !unusedFunctionActions.includes(action)), "lambda:GetFunctionConcurrency"], [worker, recovery]),
+    allow("PermitScheduledRecovery", ["lambda:AddPermission"], recovery, { StringEquals: { ...location, "lambda:Principal": "events.amazonaws.com" } }),
+    allow("RemoveScheduledRecoveryPermission", ["lambda:RemovePermission"], recovery),
+    allow("PassJobRolesOnlyToLambda", ["iam:PassRole"], [runtimeRole("AnalysisWorkerRole"), runtimeRole("AnalysisRecoveryRole")], { StringEquals: { "iam:PassedToService": "lambda.amazonaws.com" } }),
+    allow("ProvisionAnalysisQueues", ["sqs:CreateQueue", "sqs:DeleteQueue", "sqs:GetQueueAttributes", "sqs:GetQueueUrl", "sqs:SetQueueAttributes", "sqs:ListQueueTags", "sqs:TagQueue", "sqs:UntagQueue"], [queue, dlq]),
+    allow("CreateWorkerMapping", ["lambda:CreateEventSourceMapping"], "*", { StringEquals: { ...location, ...requestTags }, ArnLike: { "lambda:FunctionArn": worker } }),
+    allow("ManageWorkerMapping", ["lambda:GetEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping"], mapping, { StringEquals: location, ArnLike: { "lambda:FunctionArn": worker } }),
+    allow("TagNewWorkerMapping", ["lambda:TagResource"], mapping, { StringEquals: { ...location, ...requestTags } }),
+    allow("ReadWorkerMappingTags", ["lambda:ListTags", "lambda:TagResource", "lambda:UntagResource"], mapping, { StringEquals: { ...location, ...tags } }),
+    allow("ProvisionRecoveryRule", ["events:PutRule", "events:DescribeRule", "events:DeleteRule", "events:EnableRule", "events:DisableRule", "events:ListTargetsByRule", "events:RemoveTargets", "events:ListTagsForResource", "events:TagResource", "events:UntagResource"], rule),
+    allow("TargetOnlyRecoveryFunction", ["events:PutTargets"], rule, { StringEquals: location, "ForAllValues:ArnLike": { "events:TargetArn": recovery }, Null: { "events:TargetArn": "false" } })
+  ] };
+  for (const policy of [boundary, execution]) {
+    if (JSON.stringify(policy).length > 6144) throw new Error("An async policy exceeds the IAM managed policy size limit.");
+  }
+  template.Resources[asyncId] = { Type: "AWS::IAM::ManagedPolicy", Properties: { ManagedPolicyName: asyncId, Path: "/", PolicyDocument: execution } };
+  role.ManagedPolicyArns.push({ Ref: asyncId });
+  return template;
+}
+
 if (require.main === module) {
   try {
     const [snapshotPath, outputPath, mode, ...extra] = process.argv.slice(2);
-    const repairModes = ["--repair-file-publishing-policy", "--repair-bootstrap-version-read", "--repair-api-ownership-tags", "--repair-api-logging-boundary"];
+    const repairModes = ["--repair-file-publishing-policy", "--repair-bootstrap-version-read", "--repair-api-ownership-tags", "--repair-api-logging-boundary", "--prepare-async-analysis"];
     if (!snapshotPath || !outputPath || extra.length || (mode && !repairModes.includes(mode))) {
       throw new Error(`Usage: prepare-test-permissions <parsed-snapshot.json> <review-template.json> [${repairModes.join(" | ")}] (offline, test only).`);
     }
@@ -300,6 +365,8 @@ if (require.main === module) {
       template = prepareTestApiTagPolicyRepair(snapshot, policies);
     } else if (mode === "--repair-api-logging-boundary") {
       template = prepareTestApiLoggingBoundaryRepair(snapshot, policies);
+    } else if (mode === "--prepare-async-analysis") {
+      template = prepareTestAsyncAnalysisPermissions(snapshot, policies);
     } else {
       template = prepareTestBootstrapTemplate(snapshot, policies);
     }

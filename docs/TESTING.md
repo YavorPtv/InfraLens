@@ -22,6 +22,19 @@ build before `npm test`, as normal CI already does. No test suite is reorganized
 
 ## Covered workflows and fixtures
 
+Milestone 3 offline coverage lives in `asyncAnalysis.integration.test.ts` (22 controlled workload
+cases) and `analysisQueue.test.ts` (three injected AWS command-boundary cases), plus CDK resource
+assertions. These use no credentials, hosted endpoints or browser. See
+[async recovery and operating evidence](ASYNC_ANALYSIS.md). The guarded public smoke now includes
+the async submission/status/retry routes. `hostedHistory.hosted.ts` has a prepared async acceptance
+case for persisted status/result, retained source, duplicate requests, two-user denial, terminal
+invalid input and linked retry, with lease-aware fixture cleanup. Those live extensions have not
+been run; they require separately authorized test deployment and the existing guards/credentials.
+
+October 26 milestone 3 offline result: **635 passing tests**, all workspace typechecks/builds passed,
+including CDK synth assertions. No new live/browser evidence was gathered. Existing October 24
+milestone 2 acceptance below remains historical evidence for the deployed test environment.
+
 | Suite | Boundaries and assertions |
 | --- | --- |
 | `workflow.integration.test.ts` | Analyze with source -> review actual structured fixes -> select IAM narrowing and DynamoDB PITR -> apply via HTTP -> analyze generated JSON -> compare via HTTP -> export. Checks object immutability at the real apply boundary, exact intended edits, retained intrinsics and unrelated properties, unselected applicable fixes, manual findings, changed resources, resolved/unchanged findings, and absence of introduced findings. JSON and Markdown exports preserve findings, evidence and suggestions without dumping uploaded source bodies. |
@@ -71,10 +84,39 @@ See [Template validation](TEMPLATE_VALIDATION.md) for the stage contract and lim
 
 ## Persistent AWS test workflows
 
+### November 7, 2026 milestone 3 rollout
+
+The test backend reached `UPDATE_COMPLETE` through `infralens-test-deploy`. The guarded diff added
+the `JobRecovery` index to the existing runs table in place and provisioned the queues, worker,
+recovery rule, alarms, and authenticated routes. The deployed SQS event source mapping is enabled,
+with a two-invocation cap, a batch size of one, and partial batch responses. The frontend was
+published through `infralens-test-frontend`, and CloudFront invalidation completed. The initial
+JavaScript bundle was 247.74 kB before compression.
+
+Public smoke passed **21** checks, including rejection of anonymous requests to all three async
+routes. The credential-driven smoke case remains pending. A stack can report `UPDATE_COMPLETE`
+while DynamoDB is still building its new GSI. In this rollout `JobRecovery` initially reported
+`CREATING` with `Backfilling=true`, and the scheduler logged the expected query rejection. Check
+the index has reached `ACTIVE` before measuring scheduled recovery. The guarded storage suite
+injects failures only for disposable `test-*` owners and uses the actual scheduler and worker to
+exercise recovery once the index is ready. Its original three-minute wait could expire before the
+120-second claim lease and the next two-minute recovery tick had both elapsed. The acceptance
+test now allows the full lease plus time for the next tick and result publication.
+
+| Check | Observed result |
+| --- | --- |
+| Live IAM review | IAM Access Analyzer returned no findings on the two candidate policies. The reviewed three-resource `CDKToolkit` change completed without replacement. Eight simulations against deployed roles matched the expected API/worker/recovery allows and implicit denies. |
+| Guarded `test:aws` | Six passed in four minutes after the index became active. The deployed scheduler and SQS worker recovered two missed sends (a successful report and a terminal `INVALID_INPUT`) and an expired claim (successful on attempt two). Replay preserved the published report. A paused worker using real storage could not publish after project deletion. The suite cleaned its disposable fixtures. |
+| Signed-in hosted browser | Queued reports opened and survived refresh. Malformed input showed `INVALID INPUT`. Reuploading valid input created a separate run linked to the failed original. Each Cognito user could open their own report and was denied the other user's direct report URL. A retained-source comparison removed `dynamodb:GetItem` and added `dynamodb:PutItem`; the downloaded Markdown contained both changes. |
+| Scope | DLQ reconciliation was exercised offline. The browser covered report isolation in both directions. The scripted authenticated smoke case and guarded `test:hosted` HTTP suite were unrun locally because their Cognito credentials were unavailable to the shell. |
+
+The browser fixture projects `Milestone 3 acceptance 2026-11-07` and
+`Milestone 3 isolation B 2026-11-07` remain available in their respective test accounts.
+
 Milestone 2 was deployed and browser-verified on October 24. The guarded `hostedHistory.hosted.ts`
 suite also checks Apply child provenance/retries, comparison export, explicit reanalysis and two-user
-denial of the child action endpoints. Its credential-driven execution remains separate from the
-manual-sign-in browser evidence recorded below.
+denial of the child action endpoints. Its credential-driven execution remains separate from
+manual-sign-in browser evidence.
 
 ### October 24, 2026 milestone 2 acceptance
 

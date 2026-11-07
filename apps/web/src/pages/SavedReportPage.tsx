@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { SavedRun } from "@infralens/shared";
 import { historyClient, saveRequestKey } from "../api/history";
-import { restoreSavedReport } from "../api/historyClient";
+import { analysisPollDelay, restoreSavedReport } from "../api/historyClient";
 import { useAnalysisReport } from "../reportState";
 import { ReportPage } from "./ReportPage";
 
@@ -18,6 +18,8 @@ export function SavedReportPage() {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let poll = 0;
     setRun(null);
     setError(null);
     setActionError(null);
@@ -26,32 +28,36 @@ export function SavedReportPage() {
     setReport(null);
     setOriginalTemplateInput(null);
     setOriginalSource(undefined);
-    void restoreSavedReport(historyClient, projectId, runId, {
-      setOriginalSource: (source) => { if (active) setOriginalSource(source); },
-      setReport: (report) => {
-        if (active) {
-          setReport(report);
+    async function load(): Promise<void> {
+      const status = await historyClient.status(projectId, runId);
+      if (!active) return;
+      if (status.job && status.job.status !== "SUCCEEDED") {
+        setRun(status);
+        if (status.job.status !== "FAILED") {
+          timer = setTimeout(() => { void load().catch(handleError); }, analysisPollDelay(poll++));
         }
-      },
-      setOriginalTemplateInput: (template) => {
-        if (active) {
-          setOriginalTemplateInput(template);
-        }
+        return;
       }
-    })
-      .then((result) => {
-        if (!active) {
-          return;
-        }
-        setRun(result.run);
-      })
-      .catch((error) => {
-        if (active) {
-          setError(error.message);
+      const result = await restoreSavedReport(historyClient, projectId, runId, {
+        setOriginalSource: (source) => { if (active) setOriginalSource(source); },
+        setReport: (report) => {
+          if (active) {
+            setReport(report);
+          }
+        },
+        setOriginalTemplateInput: (template) => {
+          if (active) {
+            setOriginalTemplateInput(template);
+          }
         }
       });
+      if (active) setRun(result.run);
+    }
+    function handleError(error: Error) { if (active) setError(error.message); }
+    void load().catch(handleError);
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [projectId, runId, setReport, setOriginalTemplateInput, setOriginalSource]);
   async function reanalyze(): Promise<void> {
@@ -72,6 +78,7 @@ export function SavedReportPage() {
     return (
       <section className="page-section">
         <p role="alert">{error}</p>
+        <button className="secondary-button" onClick={() => window.location.reload()}>Retry loading</button>{" "}
         <Link to="/projects">Saved projects</Link>
       </section>
     );
@@ -79,12 +86,23 @@ export function SavedReportPage() {
   if (!run || run.runId !== runId) {
     return <p role="status">Loading saved report…</p>;
   }
+  if (run.job && run.job.status !== "SUCCEEDED") {
+    return <section className="page-section">
+      <Link to={`/projects/${projectId}`}>Back to history</Link>
+      <h2>Saved analysis job</h2>
+      <p role="status">{run.job.status.replaceAll("_", " ")} · {run.job.attempts} worker attempts</p>
+      {run.job.status === "FAILED" ? <>
+        <p role="alert">Analysis failed: {run.job.failure?.replaceAll("_", " ") ?? "Unknown failure"}.</p>
+        <Link to={`/analyze?project=${projectId}&retry=${runId}`}>Reupload inputs and retry as a linked new run</Link>
+      </> : <p>This job is saved. You can leave or refresh and return from project history. Status checks slow down to every 30 seconds while waiting.</p>}
+    </section>;
+  }
   return (
     <>
       <section className="page-section">
         <Link to={`/projects/${projectId}`}>Back to history</Link>
         <p>Stored report from {new Date(run.createdAt).toLocaleString()}. Opening it does not run the analyzer again.</p>
-        {run.provenance && <p>{run.provenance.kind === "apply" ? "Applied fixes" : "Explicit reanalysis"} · {run.provenance.inputMode} inputs · <Link to={`/projects/${projectId}/runs/${run.provenance.parentRun.runId}`}>Original run</Link></p>}
+        {run.provenance && <p>{run.provenance.kind === "apply" ? "Applied fixes" : run.provenance.kind === "retry" ? "Retried analysis" : "Explicit reanalysis"} · {run.provenance.inputMode} inputs · <Link to={`/projects/${projectId}/runs/${run.provenance.parentRun.runId}`}>Original run</Link></p>}
         <p className="muted-note">
           Inputs expire {new Date(run.inputExpiresAt).toLocaleString()}. Source{" "}
           {run.sourceRetained ? "retained" : "not retained"}.

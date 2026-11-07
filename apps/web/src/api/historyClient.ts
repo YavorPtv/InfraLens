@@ -8,6 +8,7 @@ import type {
   SavedRunReference
 } from "@infralens/shared";
 import type { ApplySavedRunRequest, DeriveRunRequest } from "@infralens/shared";
+import type { SubmittedAnalysis } from "@infralens/shared";
 
 export class HistoryRequestError extends Error {
   constructor(
@@ -60,6 +61,11 @@ export function createHistoryClient(baseUrl: string, fetcher: typeof fetch) {
       request<HistoryPage<SavedRun>>(`/${projectId}/runs${pageQuery(cursor)}`),
     save: (projectId: string, body: SaveAnalysisRequest) =>
       request<OpenSavedRun>(`/${projectId}/runs`, "POST", body),
+    submit: (projectId: string, body: SaveAnalysisRequest) =>
+      request<SubmittedAnalysis>(`/${projectId}/runs/async`, "POST", body),
+    status: (projectId: string, runId: string) => request<SavedRun>(`${runPath(projectId, runId)}/status`),
+    retry: (projectId: string, runId: string, body: SaveAnalysisRequest) =>
+      request<SubmittedAnalysis>(`${runPath(projectId, runId)}/retry`, "POST", body),
     open: (projectId: string, runId: string) => request<OpenSavedRun>(runPath(projectId, runId)),
     apply: (projectId: string, runId: string, body: ApplySavedRunRequest) =>
       request<OpenSavedRun>(`${runPath(projectId, runId)}/apply`, "POST", body),
@@ -73,6 +79,10 @@ export function createHistoryClient(baseUrl: string, fetcher: typeof fetch) {
         newRun
       })
   };
+}
+
+export function analysisPollDelay(poll: number): number {
+  return Math.min(30_000, 2_000 * 2 ** Math.min(Math.max(0, poll), 4));
 }
 
 export async function restoreSavedReport(

@@ -61,7 +61,8 @@ function readHistoryQuotas(app: cdk.App): InfraLensStackProps["historyQuotas"] {
     "runsPerProject",
     "runsPerUser",
     "retainedInputBytes",
-    "saveKeysPerUser"
+    "saveKeysPerUser",
+    "pendingJobsPerUser"
   ] as const;
   const quotas: NonNullable<InfraLensStackProps["historyQuotas"]> = {};
 

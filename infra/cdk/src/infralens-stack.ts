@@ -7,13 +7,17 @@ import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as events from "aws-cdk-lib/aws-events";
+import * as eventTargets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
+import * as eventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import { join } from "node:path";
 import type { Construct } from "constructs";
 import {
@@ -43,6 +47,7 @@ export interface InfraLensStackProps extends Omit<cdk.StackProps, "env" | "stack
     runsPerUser?: number;
     retainedInputBytes?: number;
     saveKeysPerUser?: number;
+    pendingJobsPerUser?: number;
   };
   alertEmail?: string;
   monthlyBudgetUsd?: number;
@@ -112,6 +117,23 @@ export class InfraLensStack extends cdk.Stack {
       ]
     });
 
+    runsTable.addGlobalSecondaryIndex({
+      indexName: "JobRecovery",
+      partitionKey: { name: "recoveryShard", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "recoveryAt", type: dynamodb.AttributeType.NUMBER },
+      projectionType: dynamodb.ProjectionType.ALL
+    });
+    const analysisDlq = new sqs.Queue(this, "AnalysisDeadLetterQueue", {
+      encryption: sqs.QueueEncryption.SQS_MANAGED, enforceSSL: true,
+      retentionPeriod: cdk.Duration.days(14), removalPolicy: persistenceRemovalPolicy
+    });
+    const analysisQueue = new sqs.Queue(this, "AnalysisQueue", {
+      encryption: sqs.QueueEncryption.SQS_MANAGED, enforceSSL: true,
+      visibilityTimeout: cdk.Duration.minutes(6), retentionPeriod: cdk.Duration.days(4),
+      deadLetterQueue: { queue: analysisDlq, maxReceiveCount: 5 },
+      removalPolicy: persistenceRemovalPolicy
+    });
+
     const frontendBucket = new s3.Bucket(this, "FrontendBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
@@ -157,6 +179,7 @@ export class InfraLensStack extends cdk.Stack {
         resources: [lambdaLogGroup.logGroupArn, `${lambdaLogGroup.logGroupArn}:*`]
       })
     );
+    analysisQueue.grantSendMessages(analysisFunctionRole);
 
     // ValidateTemplate has no resource-level IAM scope; it cannot create or update stacks.
     analysisFunctionRole.addToPolicy(
@@ -197,6 +220,7 @@ export class InfraLensStack extends cdk.Stack {
         INFRALENS_PROJECTS_TABLE: projectsTable.tableName,
         INFRALENS_RUNS_TABLE: runsTable.tableName,
         INFRALENS_ARTIFACT_BUCKET: artifactBucket.bucketName,
+        INFRALENS_ANALYSIS_QUEUE_URL: analysisQueue.queueUrl,
         ...toHistoryQuotaEnvironment(props.historyQuotas),
         ...toRequestLimitEnvironment(props.requestLimits)
       },
@@ -210,6 +234,57 @@ export class InfraLensStack extends cdk.Stack {
       role: analysisFunctionRole,
       runtime: lambda.Runtime.NODEJS_22_X,
       timeout: cdk.Duration.seconds(30)
+    });
+
+    const jobEnvironment = {
+      INFRALENS_ENVIRONMENT: target.runtimeEnvironment,
+      INFRALENS_HISTORY_ADAPTER: "aws",
+      INFRALENS_PROJECTS_TABLE: projectsTable.tableName,
+      INFRALENS_RUNS_TABLE: runsTable.tableName,
+      INFRALENS_ARTIFACT_BUCKET: artifactBucket.bucketName,
+      ...toHistoryQuotaEnvironment(props.historyQuotas), ...toRequestLimitEnvironment(props.requestLimits)
+    };
+    const createJobFunction = (id: string, entry: string, environment: Record<string, string>) => {
+      const logGroup = new logs.LogGroup(this, `${id}Logs`, {
+        retention: logs.RetentionDays.ONE_MONTH, removalPolicy: persistenceRemovalPolicy
+      });
+      const role = new iam.Role(this, `${id}Role`, { assumedBy: new iam.ServicePrincipal("lambda.amazonaws.com") });
+      role.addToPolicy(new iam.PolicyStatement({ actions: ["logs:CreateLogStream", "logs:PutLogEvents"],
+        resources: [logGroup.logGroupArn, `${logGroup.logGroupArn}:*`] }));
+      role.addToPolicy(new iam.PolicyStatement({ actions: ["dynamodb:GetItem", "dynamodb:PutItem"],
+        resources: [projectsTable.tableArn, runsTable.tableArn] }));
+      return new nodejs.NodejsFunction(this, id, {
+        entry: join(__dirname, `../../../apps/api/src/${entry}.ts`), handler: "handler",
+        depsLockFilePath: join(__dirname, "../../../package-lock.json"),
+        bundling: { bundleAwsSDK: true, sourceMap: true, target: "node22" },
+        architecture: lambda.Architecture.ARM_64, runtime: lambda.Runtime.NODEJS_22_X,
+        timeout: cdk.Duration.seconds(60), memorySize: 512,
+        logGroup, loggingFormat: lambda.LoggingFormat.JSON, role, environment
+      });
+    };
+    const worker = createJobFunction("AnalysisWorker", "analysisWorker", {
+      ...jobEnvironment, INFRALENS_CLOUDFORMATION_VALIDATION: "true"
+    });
+    worker.addToRolePolicy(new iam.PolicyStatement({ actions: ["cloudformation:ValidateTemplate"], resources: ["*"] }));
+    worker.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["s3:GetObject", "s3:PutObject", "s3:PutObjectTagging", "s3:DeleteObject"],
+      resources: [artifactBucket.arnForObjects("owners/*")]
+    }));
+    worker.addEventSource(new eventSources.SqsEventSource(analysisQueue, {
+      batchSize: 1, maxConcurrency: 2, reportBatchItemFailures: true
+    }));
+    const recovery = createJobFunction("AnalysisRecovery", "analysisRecovery", {
+      ...jobEnvironment, INFRALENS_ANALYSIS_QUEUE_URL: analysisQueue.queueUrl,
+      INFRALENS_ANALYSIS_DLQ_URL: analysisDlq.queueUrl
+    });
+    recovery.addToRolePolicy(new iam.PolicyStatement({ actions: ["dynamodb:Query"],
+      resources: [`${runsTable.tableArn}/index/JobRecovery`] }));
+    recovery.addToRolePolicy(new iam.PolicyStatement({ actions: ["s3:DeleteObject"], resources: [artifactBucket.arnForObjects("owners/*")] }));
+    analysisQueue.grantSendMessages(recovery);
+    analysisDlq.grantConsumeMessages(recovery);
+    new events.Rule(this, "AnalysisRecoverySchedule", {
+      schedule: events.Schedule.rate(cdk.Duration.minutes(2)),
+      targets: [new eventTargets.LambdaFunction(recovery, { retryAttempts: 2, maxEventAge: cdk.Duration.hours(1) })]
     });
 
     const accessLogGroup = new logs.LogGroup(this, "AnalysisApiAccessLogGroup", {
@@ -284,7 +359,7 @@ export class InfraLensStack extends cdk.Stack {
 
     addAnalysisApiRoutes(api, analysisFunction, routeOptions);
     addAuthenticationGatewayResponses(api, cloudFrontOrigin);
-    configureOperationalAlarms(this, api, analysisFunction, props.alertEmail);
+    configureOperationalAlarms(this, api, analysisFunction, props.alertEmail, analysisQueue, analysisDlq, worker, recovery);
     configureBudget(this, environmentName, props.monthlyBudgetUsd, props.alertEmail);
 
     cdk.Tags.of(this).add("Environment", environmentName);
@@ -310,6 +385,8 @@ export class InfraLensStack extends cdk.Stack {
     new cdk.CfnOutput(this, "ProjectsTableName", { value: projectsTable.tableName });
     new cdk.CfnOutput(this, "RunsTableName", { value: runsTable.tableName });
     new cdk.CfnOutput(this, "ArtifactBucketName", { value: artifactBucket.bucketName });
+    new cdk.CfnOutput(this, "AnalysisQueueUrl", { value: analysisQueue.queueUrl });
+    new cdk.CfnOutput(this, "AnalysisDeadLetterQueueUrl", { value: analysisDlq.queueUrl });
   }
 }
 
@@ -341,11 +418,13 @@ export function addAnalysisApiRoutes(
     project.addMethod(method, integration, methodOptions);
   }
   const runs = project.addResource("runs");
+  runs.addResource("async").addMethod("POST", integration, methodOptions);
   for (const method of ["GET", "POST"]) {
     runs.addMethod(method, integration, methodOptions);
   }
   const run = runs.addResource("{runId}");
-  for (const action of ["apply", "reanalyze"]) {
+  run.addResource("status").addMethod("GET", integration, methodOptions);
+  for (const action of ["apply", "reanalyze", "retry"]) {
     run.addResource(action).addMethod("POST", integration, methodOptions);
   }
   for (const method of ["GET", "DELETE"]) {
@@ -424,7 +503,11 @@ function configureOperationalAlarms(
   scope: Construct,
   api: apigateway.RestApi,
   analysisFunction: lambda.IFunction,
-  alertEmail?: string
+  alertEmail?: string,
+  queue?: sqs.Queue,
+  dlq?: sqs.Queue,
+  worker?: lambda.IFunction,
+  recovery?: lambda.IFunction
 ): void {
   const alarmDefaults = {
     comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
@@ -457,6 +540,15 @@ function configureOperationalAlarms(
       threshold: 1
     })
   ];
+  if (queue && dlq && worker && recovery) {
+    for (const [id, metric, threshold] of [
+      ["AnalysisQueueAgeAlarm", queue.metricApproximateAgeOfOldestMessage({ period: cdk.Duration.minutes(2) }), 600],
+      ["AnalysisQueueDepthAlarm", queue.metricApproximateNumberOfMessagesVisible({ period: cdk.Duration.minutes(2) }), 20],
+      ["AnalysisDlqAlarm", dlq.metricApproximateNumberOfMessagesVisible({ period: cdk.Duration.minutes(2) }), 1],
+      ["AnalysisWorkerErrorsAlarm", worker.metricErrors({ period: cdk.Duration.minutes(2) }), 1],
+      ["AnalysisRecoveryErrorsAlarm", recovery.metricErrors({ period: cdk.Duration.minutes(2) }), 1]
+    ] as const) alarms.push(new cloudwatch.Alarm(scope, id, { ...alarmDefaults, metric, threshold }));
+  }
 
   if (alertEmail !== undefined) {
     const topic = new sns.Topic(scope, "OperationalAlertsTopic");

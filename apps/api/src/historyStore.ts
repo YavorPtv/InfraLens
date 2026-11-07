@@ -1,4 +1,4 @@
-import type { SavedProject, SavedRun } from "@infralens/shared";
+import type { AnalysisJobStatus, SavedProject, SavedRun } from "@infralens/shared";
 
 export type HistoryTable = "projects" | "runs";
 
@@ -16,6 +16,7 @@ export interface OwnerRecord extends StoredRecord {
   runCount: number;
   saveKeyCount: number;
   cursorSecret: string;
+  pendingJobCount?: number;
 }
 
 export interface ProjectRecord extends StoredRecord, SavedProject {
@@ -25,10 +26,20 @@ export interface ProjectRecord extends StoredRecord, SavedProject {
 }
 
 export interface RunRecord extends StoredRecord, SavedRun {
+  job?: AnalysisJobStatus & {
+    ownerId: string;
+    inputKey: string;
+    inputHash: string;
+    inputReady: boolean;
+    deadline: number;
+    outputKeys: string[];
+  };
+  recoveryShard?: string;
+  recoveryAt?: number;
   inputDigest?: string;
   templateDigest?: string;
   expiresAt?: number;
-  state: "pending" | "completed" | "deleted";
+  state: "pending" | "completed" | "failed" | "deleted";
   leaseUntil: number;
   attempt: string;
   artifacts: Record<"report" | "markdown" | "input", string>;
@@ -70,6 +81,8 @@ export interface HistoryStore {
   runs: RunStore;
   /** Atomic compare-and-swap across both tables. Only conditional conflicts return false. */
   commit(writes: Write[]): Promise<boolean>;
+  /** Bounded due-time index query; never a table scan. Optional for older injected adapters. */
+  dueJobs?(shard: string, now: number, limit: number): Promise<RunRecord[]>;
 }
 
 export interface ArtifactStore {
@@ -104,6 +117,14 @@ export class MemoryHistoryStore implements HistoryStore {
   projects = this.reader("projects");
 
   runs = this.reader("runs");
+
+  async dueJobs(shard: string, now: number, limit: number): Promise<RunRecord[]> {
+    return structuredClone([...this.tables.runs.values()]
+      .map(record => record as RunRecord)
+      .filter(record => record.recoveryShard === shard && record.recoveryAt! <= now)
+      .sort((left, right) => left.recoveryAt! - right.recoveryAt!)
+      .slice(0, limit));
+  }
 
   async commit(writes: Write[]): Promise<boolean> {
     if (

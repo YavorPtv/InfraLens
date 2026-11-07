@@ -6,6 +6,9 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { DeleteCommand, DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { AwsHistoryStore, S3ArtifactStore } from "../src/historyAws";
 import { HistoryService } from "../src/historyService";
+import { jobLeaseMs, type AnalysisMessage } from "../src/analysisQueue";
+import { analyzeValidatedBody, ApiRequestError } from "../src/analyzeRequest";
+import { defaultApiRequestLimits } from "../src/requestLimits";
 import type { OpenSavedRun, SavedProject } from "@infralens/shared";
 import { readHostedTestConfiguration, requireTestDataWrites, type HostedTestConfiguration } from "./hostedTestHelpers";
 
@@ -148,6 +151,93 @@ describe("persistent test stack AWS DynamoDB/S3 persistence", function () {
       expect((error as { statusCode?: number }).statusCode).to.equal(404);
     }
   });
+
+  it("recovers missed sends and a crashed claim through the deployed scheduler and SQS worker", async function () {
+    this.timeout(360_000);
+    const { project } = fixture();
+    const store = new AwsHistoryStore({ projects, runs }, client);
+    let failedSends = 0;
+    const failedSender = new HistoryService(store, artifacts, { queue: {
+      send: async () => { failedSends++; throw new Error("Simulated dispatch outage"); }
+    } });
+    const missed = await failedSender.submit(owner, project.projectId, { input, idempotencyKey: "aws-missed-send" });
+    const poison = await failedSender.submit(owner, project.projectId, {
+      input: { template: "invalid: [" }, idempotencyKey: "aws-poison-input"
+    });
+    expect(failedSends).to.equal(2);
+
+    const delivered: AnalysisMessage[] = [];
+    let clockOffset = 0;
+    const crashingWorker = new HistoryService(store, artifacts, {
+      queue: { send: async message => { delivered.push(message); } },
+      now: () => Date.now() + clockOffset,
+      analyze: async () => { throw new Error("Simulated worker crash after claim"); }
+    });
+    const crashed = await crashingWorker.submit(owner, project.projectId, { input, idempotencyKey: "aws-crashed-claim" });
+    expect(delivered).to.have.length(1);
+    // Age just this fixture's claim so the real scheduler can recover it on its next pass.
+    clockOffset = -jobLeaseMs - 5000;
+    const failure = await crashingWorker.processJob(delivered[0]).catch(error => error);
+    expect(failure).to.be.instanceOf(Error).with.property("message", "Simulated worker crash after claim");
+
+    // The staging writer lease can expire just after a scheduler tick. Allow the full lease,
+    // another two-minute schedule interval, and time for SQS delivery and worker startup.
+    const deadline = Date.now() + jobLeaseMs + 160_000;
+    let complete = false;
+    while (Date.now() < deadline) {
+      const statuses = await Promise.all([missed, poison, crashed].map(({ run }) => service.status(owner, project.projectId, run.runId)));
+      if (statuses.every(run => run.job?.status === "SUCCEEDED" || run.job?.status === "FAILED")) {
+        expect(statuses.map(run => run.job?.status)).to.deep.equal(["SUCCEEDED", "FAILED", "SUCCEEDED"]);
+        expect(statuses[1].job?.failure).to.equal("INVALID_INPUT");
+        expect(statuses[2].job?.attempts).to.equal(2);
+        complete = true;
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 4000));
+    }
+    expect(complete, "scheduled recovery and the deployed worker must reach terminal states").to.equal(true);
+    const recovered = await service.open(owner, project.projectId, crashed.run.runId);
+    // Replaying the same delivery against real persisted state must leave the winning report alone.
+    await service.processJob(delivered[0]);
+    const reopened = await service.open(owner, project.projectId, crashed.run.runId);
+    expect(reopened.run.job?.attempts).to.equal(2);
+    expect(reopened.report).to.deep.equal(recovered.report);
+  });
+
+  it("keeps a deleted project inaccessible when a claimed worker tries to publish", async () => {
+    const { project } = fixture();
+    const messages: AnalysisMessage[] = [];
+    let announceClaim: () => void;
+    let releaseWorker: () => void;
+    const claimed = new Promise<void>(resolve => { announceClaim = resolve; });
+    const resume = new Promise<void>(resolve => { releaseWorker = resolve; });
+    const worker = new HistoryService(new AwsHistoryStore({ projects, runs }, client), artifacts, {
+      queue: { send: async message => { messages.push(message); } },
+      analyze: async value => {
+        announceClaim();
+        await resume;
+        return analyzeValidatedBody(JSON.stringify(value), undefined, defaultApiRequestLimits);
+      }
+    });
+    const submitted = await worker.submit(owner, project.projectId, { input, idempotencyKey: "aws-delete-active" });
+    expect(messages).to.have.length(1);
+    const attempt = worker.processJob(messages[0]).then(() => undefined, error => error);
+    try {
+      await Promise.race([claimed, attempt.then(() => { throw new Error("Worker ended before its claim was observed"); })]);
+      expect((await service.status(owner, project.projectId, submitted.run.runId)).job?.status).to.equal("RUNNING");
+      const deletion = await service.deleteProject(owner, project.projectId);
+      expect(deletion.cleanupPending).to.equal(true);
+    } finally {
+      releaseWorker!();
+      await attempt;
+    }
+    expect(await attempt).to.be.instanceOf(ApiRequestError).with.property("statusCode", 404);
+    for (const lookup of [service.status.bind(service), service.open.bind(service)]) {
+      const failure = await lookup(owner, project.projectId, submitted.run.runId).catch(error => error);
+      expect(failure).to.be.instanceOf(ApiRequestError).with.property("statusCode", 404);
+    }
+  });
+
   afterEach(async function () {
     if (!service || !projects || !runs) {
       return;

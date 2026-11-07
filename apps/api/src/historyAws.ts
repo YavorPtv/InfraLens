@@ -21,6 +21,7 @@ import type {
   StoredRecord,
   Write
 } from "./historyStore";
+import type { RunRecord } from "./historyStore";
 
 export class AwsHistoryStore implements HistoryStore {
   projects: ProjectStore;
@@ -64,6 +65,17 @@ export class AwsHistoryStore implements HistoryStore {
       }
       throw error;
     }
+  }
+
+  async dueJobs(shard: string, now: number, limit: number): Promise<RunRecord[]> {
+    const result = await this.client.send(new QueryCommand({
+      TableName: this.tables.runs,
+      IndexName: "JobRecovery",
+      KeyConditionExpression: "recoveryShard = :shard AND recoveryAt <= :now",
+      ExpressionAttributeValues: { ":shard": shard, ":now": now },
+      Limit: limit
+    }));
+    return (result.Items ?? []) as RunRecord[];
   }
 
   private transactionWrite(operation: Write) {
